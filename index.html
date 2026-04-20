@@ -314,7 +314,6 @@
     <div class="app-shell">
         <header id="app-header" class="app-header bg-teal-grad">
             <div style="grid-column: 1;">
-                <!-- Back button visibility controlled by inline style display:none -->
                 <div id="back-btn" class="cursor-pointer flex items-center justify-center h-full w-full" style="display: none;" onclick="goBack()">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7"></path></svg>
                 </div>
@@ -422,7 +421,6 @@
         const seoniDCs = ["ARI", "BADALPAR", "BANDOL", "BARGHAT", "DHARNA", "GOPALGANJ", "KANHIWADA", "KEOLARI", "KHAIRAPALARI", "KURAI", "MUNGWANI", "PANDIYA CHHAPARA", "SEONI (T)", "SEONI (RES)", "UGALI"];
         const lakhnadonDCs = ["ADEGAON", "CHHAPARA-1", "CHHAPARA-2", "DHANORA", "DHUMA", "GANESHGANJ", "GHANSORE", "KEDARPUR", "LAKHNADON"];
 
-        // Advanced DC Database Links
         const dcDatabaseLinks = {
             "GANESHGANJ": "https://docs.google.com/spreadsheets/d/e/2PACX-1vSpKAgJ9I3cus_l-QbagEIsaM8kmIZrkV0cYc00lnOg_MAXJZXrIzJC9QghdStYz0g-yWbtUKjn4uFI/pub?output=csv",
             "CHHAPARA-1": "https://docs.google.com/spreadsheets/d/e/2PACX-1vQCqVfz1_zR2sJfe9LP_UptL1BdVfrisq60Snnd0sh94FDzrjMTwFUq5HD_7W-B_gMUaFBIVSdwZDGd/pub?output=csv",
@@ -435,7 +433,6 @@
 
         const scriptURL = "https://script.google.com/macros/s/AKfycbxnih11rO1GroEGBO3pVo42AVgnXwx-oJhPFEH_HVp4Fn5G0xR9i-NtB6Jv-e21CZDIEA/exec";
 
-        // Advanced Multi-DC Cache Object
         let currentData = null;
         let dcDataCache = {}; 
         let activeDC = '';
@@ -443,10 +440,9 @@
 
         document.addEventListener('DOMContentLoaded', () => {
             switchView('home');
-            syncAllData(); // background data sync starts here
+            syncAllData(); 
         });
 
-        // Background sync for all available links
         async function syncAllData() {
             Object.keys(dcDatabaseLinks).forEach(async (dc) => {
                 const link = dcDatabaseLinks[dc];
@@ -464,6 +460,12 @@
 
         function showDivision(name, color) {
             activeDiv = name;
+            activeDC = ''; // Reset selected DC name variable
+            
+            // UI Reset: Set dropdown label back to default
+            const dcLabel = document.getElementById('selected-dc-label');
+            if(dcLabel) dcLabel.innerText = "Choose DC Name...";
+            
             document.getElementById('main-header-title').innerText = name;
             document.getElementById('app-header').className = `app-header ${color}`;
             renderDCs(name.includes('SEONI') ? seoniDCs : lakhnadonDCs);
@@ -478,14 +480,12 @@
                 item.innerText = dc;
                 item.onclick = () => {
                     activeDC = dc;
-                    // Reset current selected DC in header
                     document.getElementById('selected-dc-label').innerText = dc;
                     document.getElementById('main-header-title').innerText = `DC: ${dc}`;
                     menu.classList.remove('show');
                     document.getElementById('prof-trigger').classList.remove('active');
                     switchView('dc-dashboard');
                     
-                    // Manual sync check if not already cached
                     if(!dcDataCache[dc]) prefetchSpecificData(dc);
                 };
                 menu.appendChild(item);
