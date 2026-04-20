@@ -414,7 +414,7 @@
             </div>
         </main>
 
-        <!-- Empty Footer for layout stability -->
+        <!-- Empty Spacer for Footer spacing -->
         <footer class="mt-auto py-4"></footer>
     </div>
 
@@ -422,23 +422,43 @@
         const seoniDCs = ["ARI", "BADALPAR", "BANDOL", "BARGHAT", "DHARNA", "GOPALGANJ", "KANHIWADA", "KEOLARI", "KHAIRAPALARI", "KURAI", "MUNGWANI", "PANDIYA CHHAPARA", "SEONI (T)", "SEONI (RES)", "UGALI"];
         const lakhnadonDCs = ["ADEGAON", "CHHAPARA-1", "CHHAPARA-2", "DHANORA", "DHUMA", "GANESHGANJ", "GHANSORE", "KEDARPUR", "LAKHNADON"];
 
-        // All 24 DCs links placeholder
+        // Advanced DC Database Links
         const dcDatabaseLinks = {
             "GANESHGANJ": "https://docs.google.com/spreadsheets/d/e/2PACX-1vSpKAgJ9I3cus_l-QbagEIsaM8kmIZrkV0cYc00lnOg_MAXJZXrIzJC9QghdStYz0g-yWbtUKjn4uFI/pub?output=csv",
+            "CHHAPARA-1": "https://docs.google.com/spreadsheets/d/e/2PACX-1vQCqVfz1_zR2sJfe9LP_UptL1BdVfrisq60Snnd0sh94FDzrjMTwFUq5HD_7W-B_gMUaFBIVSdwZDGd/pub?output=csv",
+            "CHHAPARA-2": "https://docs.google.com/spreadsheets/d/e/2PACX-1vQHvHOehoWyr2bzp64NeuDZbf7D6vVv3NrmmI2JGPLXYN9Qrhol-0Ti520uk9HSqI6uWKg_KUiQ32tr/pub?output=csv",
             "ARI": "", "BADALPAR": "", "BANDOL": "", "BARGHAT": "", "DHARNA": "", "GOPALGANJ": "", 
             "KANHIWADA": "", "KEOLARI": "", "KHAIRAPALARI": "", "KURAI": "", "MUNGWANI": "", 
             "PANDIYA CHHAPARA": "", "SEONI (T)": "", "SEONI (RES)": "", "UGALI": "", 
-            "ADEGAON": "", "CHHAPARA-1": "", "CHHAPARA-2": "", "DHANORA": "", "DHUMA": "", 
-            "GHANSORE": "", "KEDARPUR": "", "LAKHNADON": ""
+            "ADEGAON": "", "DHANORA": "", "DHUMA": "", "GHANSORE": "", "KEDARPUR": "", "LAKHNADON": ""
         };
 
         const scriptURL = "https://script.google.com/macros/s/AKfycbxnih11rO1GroEGBO3pVo42AVgnXwx-oJhPFEH_HVp4Fn5G0xR9i-NtB6Jv-e21CZDIEA/exec";
 
-        let currentData = null, dcCache = null, activeDC = '', activeDiv = '';
+        // Advanced Multi-DC Cache Object
+        let currentData = null;
+        let dcDataCache = {}; 
+        let activeDC = '';
+        let activeDiv = '';
 
         document.addEventListener('DOMContentLoaded', () => {
             switchView('home');
+            syncAllData(); // background data sync starts here
         });
+
+        // Background sync for all available links
+        async function syncAllData() {
+            Object.keys(dcDatabaseLinks).forEach(async (dc) => {
+                const link = dcDatabaseLinks[dc];
+                if(link && link.trim() !== "") {
+                    try {
+                        const res = await fetch(link);
+                        const text = await res.text();
+                        dcDataCache[dc] = text;
+                    } catch(e) { console.log(`Sync Failed: ${dc}`); }
+                }
+            });
+        }
 
         function changeColor(c) { document.getElementById('welcomeText').style.color = c; }
 
@@ -458,27 +478,27 @@
                 item.innerText = dc;
                 item.onclick = () => {
                     activeDC = dc;
-                    dcCache = null; 
+                    // Reset current selected DC in header
                     document.getElementById('selected-dc-label').innerText = dc;
                     document.getElementById('main-header-title').innerText = `DC: ${dc}`;
                     menu.classList.remove('show');
                     document.getElementById('prof-trigger').classList.remove('active');
                     switchView('dc-dashboard');
-                    prefetchData(dc);
+                    
+                    // Manual sync check if not already cached
+                    if(!dcDataCache[dc]) prefetchSpecificData(dc);
                 };
                 menu.appendChild(item);
             });
         }
 
-        async function prefetchData(dcName) {
+        async function prefetchSpecificData(dcName) {
             const link = dcDatabaseLinks[dcName];
             if(link && link.trim() !== "") {
                 try {
                     const res = await fetch(link);
-                    dcCache = await res.text();
-                } catch(e) { console.log("Background sync error..."); }
-            } else {
-                dcCache = null; 
+                    dcDataCache[dcName] = await res.text();
+                } catch(e) { console.log("Manual sync error..."); }
             }
         }
 
@@ -490,9 +510,6 @@
         }
 
         async function startMobileUpdate() {
-            if(!dcCache) {
-                await prefetchData(activeDC);
-            }
             switchView('mobile-update');
         }
 
@@ -506,18 +523,18 @@
                 return;
             }
 
-            if(!dcCache) {
-                try {
-                    const res = await fetch(link);
-                    dcCache = await res.text();
-                } catch(e) { showToast("Sheet Connection Error!", false); return; }
+            let csvData = dcDataCache[activeDC];
+            if(!csvData) {
+                showToast("Syncing... Try again in 2 sec", false);
+                prefetchSpecificData(activeDC);
+                return;
             }
 
             const btn = document.getElementById('search-btn');
             btn.disabled = true; btn.innerText = "Checking...";
 
             try {
-                const rows = dcCache.split(/\r?\n/);
+                const rows = csvData.split(/\r?\n/);
                 let foundRow = null;
 
                 for(let i=1; i<rows.length; i++) {
@@ -541,7 +558,7 @@
                     const checkResp = await fetch(`${scriptURL}?ivrs=${val}`);
                     const status = await checkResp.text();
                     if(status === "EXIST") isDuplicate = true;
-                } catch(e) { console.log("Safety check active"); }
+                } catch(e) { console.log("Duplicate check safety active"); }
 
                 if(isDuplicate) {
                     showToast("ALREADY UPDATED!", false);
@@ -582,7 +599,7 @@
                 address: currentData.addr,
                 hq: currentData.hq,
                 correct_mobile: newMob,
-                dc: activeDC,
+                dc: activeDC, 
                 division: activeDiv,
                 timestamp: dateStr
             };
