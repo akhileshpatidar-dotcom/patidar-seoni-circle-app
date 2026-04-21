@@ -11,21 +11,21 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
     <style>
         /* --- Core Styling (Screen-Fit Fix) --- */
-        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; outline: none; }
         body { 
             background-color: #f1f5f9; 
             font-family: 'Inter', sans-serif; 
             margin: 0; 
             display: flex; 
             justify-content: center; 
-            height: 100vh; /* Lock body height */
-            overflow: hidden; /* Prevent body scroll */
+            height: 100vh; 
+            overflow: hidden; 
         }
         .app-shell { 
             width: 100%; 
             max-width: 420px; 
             background-color: #ffffff; 
-            height: 100%; /* Fill browser height */
+            height: 100%; 
             display: flex; 
             flex-direction: column; 
             box-shadow: 0 0 30px rgba(0,0,0,0.05); 
@@ -33,7 +33,7 @@
             overflow: hidden;
         }
 
-        /* --- Header Styling --- */
+        /* --- Header Styles (Small Dev Text) --- */
         .app-header { 
             padding: 14px 20px; 
             color: white; 
@@ -42,25 +42,25 @@
             display: grid; 
             grid-template-columns: 40px 1fr 40px; 
             align-items: center; 
-            flex-shrink: 0; /* Don't squash the header */
+            flex-shrink: 0; 
         }
         .header-info { text-align: center; grid-column: 2; line-height: 1.2; }
         .header-info h1 { font-size: 1.4rem; font-weight: 900; margin: 0; text-transform: uppercase; letter-spacing: 0.5px; }
         .header-info p { font-size: 8.5px !important; opacity: 0.95; font-weight: 400 !important; text-transform: uppercase; white-space: nowrap; letter-spacing: 0.4px; margin-top: 2px; color: #ffffff; }
 
-        /* --- View System Fix (Internal Scrolling) --- */
+        /* --- View System --- */
         .view { 
             display: none; 
-            padding: 12px 16px; 
+            padding: 12px 16px 80px 16px; 
             flex-grow: 1; 
-            overflow-y: auto; /* Scroll only inside the view */
-            scrollbar-width: none; /* Hide scrollbar for clean look */
+            overflow-y: auto; 
+            scrollbar-width: none; 
             -ms-overflow-style: none;
         }
         .view::-webkit-scrollbar { display: none; }
         .view.active { display: flex !important; flex-direction: column; }
 
-        /* --- Animations & UI Elements --- */
+        /* --- UI Components --- */
         .welcome-box { text-align: center; margin-top: 20px; margin-bottom: 5px; }
         .welcome-text { font-family: 'Righteous', cursive; font-size: 2.2rem; color: #0d9488; text-transform: uppercase; letter-spacing: 3px; display: inline-block; animation: float 3s ease-in-out infinite; }
         @keyframes float { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-8px); } }
@@ -77,13 +77,13 @@
         .btn-rose { background: linear-gradient(135deg, #f43f5e 0%, #be123c 100%); }
         .btn-slate { background: linear-gradient(135deg, #475569 0%, #1e293b 100%); }
         
-        /* UI UPDATE: Increased bottom margin to 75px to ensure button isn't cut off by browser elements */
+        /* Adjusted Button for Mobile Browser Bar */
         .small-bottom-btn { 
             width: auto !important; 
             min-width: 240px; 
             padding: 14px 20px !important; 
             font-size: 11px !important; 
-            margin: auto auto 75px auto !important; 
+            margin: 20px auto 60px auto !important; 
             align-self: center !important; 
             border-radius: 16px !important; 
             color: #ffffff !important; 
@@ -97,51 +97,77 @@
         .title-box { background-color: #dcfce7; padding: 10px 22px; border-radius: 12px; display: inline-flex; justify-content: center; align-items: center; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: 1px solid rgba(34, 197, 94, 0.2); }
         .title-text-bold { font-weight: 900 !important; font-size: 15px; color: #000000; text-transform: uppercase; letter-spacing: 0.5px; line-height: 1; }
 
-        /* --- Dropdown Styling --- */
+        /* --- UNIQUE DROPDOWN RESET & DOWNWARD FIX --- */
         .main-card { background: #ffffff; border-radius: 24px; padding: 5px 16px 30px 16px; margin-top: 5px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.04); text-align: center; width: 100%; }
-        .dropdown-box { position: relative; width: 100%; max-width: 340px; margin: 0 auto; }
-        .professional-trigger { width: 100%; height: 60px; padding: 0 20px; font-size: 1.05rem; font-weight: 900; color: #000000; background: #ffffff; border: 2.5px solid #0d9488; border-radius: 16px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; transition: all 0.3s ease; }
+        .dropdown-box { 
+            position: relative !important; /* Fixed: Explicit Relative */
+            width: 100%; 
+            max-width: 340px; 
+            margin: 0 auto; 
+        }
+        .professional-trigger { 
+            width: 100%; 
+            height: 60px; 
+            padding: 0 20px; 
+            font-size: 1.05rem; 
+            font-weight: 900; 
+            color: #000000; 
+            background: #ffffff; 
+            border: 2.5px solid #0d9488; 
+            border-radius: 16px; 
+            display: flex; 
+            align-items: center; 
+            justify-content: space-between; 
+            cursor: pointer; 
+            transition: all 0.3s ease;
+            appearance: none;
+            -webkit-appearance: none;
+        }
         .professional-trigger.active { border-color: #0f766e; background: #f0fdfa; }
-        .chevron-icon { width: 22px; height: 22px; color: #0d9488; transition: transform 0.3s ease; }
-        .professional-trigger.active .chevron-icon { transform: rotate(180deg); }
         
+        .chevron-icon { 
+            width: 22px; 
+            height: 22px; 
+            color: #0d9488; 
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
+        }
+        .professional-trigger.active .chevron-icon { transform: rotate(180deg); }
+
         .dropdown-menu { 
-            position: absolute; top: 68px; left: 0; width: 100%; 
-            background: white; border: 2px solid #0d9488; border-radius: 16px; 
-            box-shadow: 0 15px 40px rgba(0,0,0,0.12); z-index: 200; 
-            max-height: 250px; overflow-y: auto; display: none; 
+            position: absolute !important; 
+            top: 66px !important; /* Fixed: Clear Downward Position */
+            left: 0; 
+            width: 100%; 
+            background: white; 
+            border: 2px solid #0d9488; 
+            border-radius: 16px; 
+            box-shadow: 0 15px 40px rgba(0,0,0,0.15); 
+            z-index: 2000 !important; 
+            max-height: 250px; 
+            overflow-y: auto; 
+            display: none; 
             --theme-line: #f1f5f9; 
+            bottom: auto !important; /* Ensure it doesn't flip up */
         }
         .dropdown-menu.show { display: block; }
-        
-        .option-item { 
-            padding: 16px 20px; font-weight: 700; color: #334155; 
-            text-align: left; cursor: pointer; 
-            border-bottom: 1.5px solid var(--theme-line); 
-            transition: background 0.2s; 
-        }
+        .option-item { padding: 16px 20px; font-weight: 700; color: #334155; text-align: left; cursor: pointer; border-bottom: 1.5px solid var(--theme-line); transition: background 0.2s; }
         .option-item:last-child { border-bottom: none; }
         .option-item:hover { background-color: #f8fafc; }
 
-        /* --- Search UI --- */
+        /* --- Search Result Labels --- */
         .search-panel { background: white; padding: 10px 20px; text-align: center; width: 100%; display: flex; flex-direction: column; align-items: center; }
         .ivrs-input { width: 100%; height: 52px; padding-left: 40px; border-radius: 12px; border: 2.5px solid #0d9488; font-size: 1rem; font-weight: 900; color: #000000; text-align: center; outline: none; }
         .search-btn-custom { width: auto; min-width: 200px; padding: 0 30px; height: 48px; background: linear-gradient(135deg, #f43f5e 0%, #be123c 100%); color: white !important; border-radius: 99px; font-weight: 800; margin-top: 25px; box-shadow: 0 4px 12px rgba(244, 63, 94, 0.2); text-transform: uppercase; }
         
         .result-card-custom { width: 100%; background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 16px; padding: 16px; text-align: left; margin-top: 20px; display: none; }
         .res-row { margin-bottom: 8px; padding-bottom: 4px; border-bottom: 1px dashed #cbd5e1; }
-        
         .res-label { font-size: 0.65rem; font-weight: 800; color: #2563eb; text-transform: uppercase; display: block; margin-bottom: 2px; }
         .res-val { font-size: 0.95rem; font-weight: 900; color: #000000; }
         
         .teal-boundary-input { width: 100%; height: 52px; padding: 0 16px; border-radius: 12px; border: 2.5px solid #0d9488; font-size: 1rem; font-weight: 900; text-align: center; outline: none; color: #000000; }
         .submit-sync-btn { width: 100%; height: 55px; background: #000000; color: #ffffff !important; border-radius: 15px; font-weight: 900; text-transform: uppercase; margin-top: 10px; margin-bottom: 20px; display: none; }
 
-        /* --- Modal & Table --- */
-        #pwd-modal { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(10px); z-index: 1000; display: none; align-items: center; justify-content: center; padding: 20px; animation: fadeIn 0.3s ease; }
-        .pwd-card { background: white; width: 100%; max-width: 320px; border-radius: 28px; padding: 32px 24px; text-align: center; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); border-top: 6px solid #0d9488; }
-        #pwd-input { width: 100%; height: 54px; background: #f1f5f9; border: 2px solid #e2e8f0; border-radius: 15px; text-align: center; font-size: 1.25rem; font-weight: 900; margin-bottom: 20px; outline: none; }
-        
+        /* --- Report Summary UI --- */
         .summary-wrapper { width: 100%; background: white; border-radius: 16px; overflow: hidden; border: 1.5px solid #e2e8f0; margin-top: 10px; }
         .summary-table-header { display: grid; grid-template-columns: 1fr 1fr 1.2fr; background: #0d9488; color: #ffffff; font-size: 9px; font-weight: 900; text-transform: uppercase; padding: 14px 8px; text-align: center; }
         .summary-table-header.monthly-view { grid-template-columns: 0.8fr 1fr 1.1fr 1fr 1.2fr; }
@@ -153,9 +179,13 @@
         .report-opt { flex: 1; padding: 10px; font-size: 10px; font-weight: 900; text-align: center; cursor: pointer; text-transform: uppercase; }
         .report-opt.active { background: #0d9488; color: white; }
 
-        .summary-footer { background: #f1f5f9; padding: 15px; border-top: 2px solid #0d9488; margin-top: auto; }
+        .summary-footer { background: #f1f5f9; padding: 20px; border-radius: 12px; border: 1.5px solid #0d9488; margin-top: 20px; margin-bottom: 40px; }
         .btn-export { flex: 1; padding: 12px; border-radius: 12px; font-size: 10px; font-weight: 900; color: #000000 !important; text-align: center; text-transform: uppercase; background: #e2e8f0; border: 1px solid #cbd5e1; }
 
+        #pwd-modal { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(10px); z-index: 5000; display: none; align-items: center; justify-content: center; padding: 20px; }
+        .pwd-card { background: white; width: 100%; max-width: 320px; border-radius: 28px; padding: 32px 24px; text-align: center; border-top: 6px solid #0d9488; }
+        #pwd-input { width: 100%; height: 54px; background: #f1f5f9; border: 2px solid #e2e8f0; border-radius: 15px; text-align: center; font-size: 1.25rem; font-weight: 900; margin-bottom: 20px; outline: none; }
+        
         #toast-notif { position: fixed; top: 25px; left: 50%; transform: translateX(-50%); min-width: 250px; padding: 14px 24px; border-radius: 15px; font-weight: 900; color: white; text-align: center; z-index: 9999; display: none; text-transform: uppercase; }
         
         .bg-teal-grad { background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%); }
@@ -178,8 +208,8 @@
             <h3 id="pwd-modal-title" class="text-sm font-black text-slate-800 uppercase mb-1 tracking-tight">Report Access</h3>
             <p id="pwd-modal-subtitle" class="text-[9px] font-bold text-slate-400 uppercase mb-6 tracking-widest">Enter Password</p>
             <input type="password" id="pwd-input" placeholder="••••••">
-            <button class="pwd-btn-verify" onclick="verifyPassword()">Unlock Report</button>
-            <div class="text-[#94a3b8] font-bold text-[10px] cursor-pointer mt-4" onclick="closePwdModal()">GO BACK</div>
+            <button class="bg-teal-grad w-full h-[52px] text-white rounded-xl font-black mb-4" onclick="verifyPassword()">Unlock Report</button>
+            <div class="text-[#94a3b8] font-bold text-[10px] cursor-pointer" onclick="closePwdModal()">GO BACK</div>
         </div>
     </div>
 
@@ -196,7 +226,7 @@
             </div>
         </header>
 
-        <!-- View 1: Home -->
+        <!-- Home View -->
         <main id="home-view" class="view active">
             <div class="welcome-box"><h2 id="welcomeText" class="welcome-text">Welcome</h2></div>
             <div class="dots-container">
@@ -215,14 +245,14 @@
             <button class="small-bottom-btn" onclick="askPassword('CIRCLE')">SEONI CIRCLE DAILY PROGRESS</button>
         </main>
 
-        <!-- View 2: DC Selection -->
+        <!-- DC Selection View -->
         <main id="dc-selection-view" class="view">
             <div class="main-card">
                 <div class="title-box-container"><div class="title-box"><span class="title-text-bold">SELECT YOUR DC</span></div></div>
                 <div class="dropdown-box">
                     <div id="prof-trigger" class="professional-trigger" onclick="toggleDropdown()">
                         <span id="selected-dc-label">Choose DC Name...</span>
-                        <svg class="chevron-icon" id="trigger-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M19 9l-7 7-7-7"></path></svg>
+                        <svg class="chevron-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7" stroke-linecap="round" stroke-linejoin="round" stroke-width="3"></path></svg>
                     </div>
                     <div id="dc-menu" class="dropdown-menu"></div>
                 </div>
@@ -230,7 +260,7 @@
             <button class="small-bottom-btn" onclick="askPassword('DIVISION')">DIVISION DAILY PROGRESS</button>
         </main>
 
-        <!-- View 3: Dashboard -->
+        <!-- Dashboard View -->
         <main id="dc-dashboard-view" class="view">
             <div class="px-2 py-8 flex flex-col gap-4">
                 <button class="dashboard-btn btn-green-new" onclick="window.open('https://billing.mpez.co.in/', '_blank')">PAY & VIEW BIJLEE BILL</button>
@@ -239,12 +269,12 @@
             </div>
         </main>
 
-        <!-- View 4: Mobile Update -->
+        <!-- Update Form View -->
         <main id="mobile-update-view" class="view">
             <div class="title-box-container"><div class="title-box"><span class="title-text-bold">UPDATE MOBILE NO</span></div></div>
             <div class="search-panel">
                 <div class="input-wrapper relative w-full max-w-[260px] mx-auto">
-                    <div class="search-icon-svg absolute left-3 top-4 text-teal-600"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="11" cy="11" r="8"></circle><line x1="21" x2="16.65" y1="21" y2="16.65"></line></svg></div>
+                    <div class="absolute left-3 top-4 text-teal-600"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="11" cy="11" r="8"></circle><line x1="21" x2="16.65" y1="21" y2="16.65"></line></svg></div>
                     <input type="tel" id="search-ivrs" class="ivrs-input" placeholder="Search IVRS No" onfocus="handleFocus(this)" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,10)">
                 </div>
                 <button id="search-btn" class="search-btn-custom" onclick="performSearch()">Search Records</button>
@@ -262,7 +292,7 @@
             </div>
         </main>
 
-        <!-- View 5: Summary -->
+        <!-- Summary View -->
         <main id="summary-view" class="view">
             <div class="title-box-container"><div class="title-box flex flex-col items-center"><span class="title-text-bold" id="summary-title">PROGRESS REPORT</span></div></div>
             <div class="px-2">
@@ -276,7 +306,7 @@
             <div id="summary-content"></div>
         </main>
 
-        <footer class="mt-auto"></footer>
+        <footer class="flex-shrink-0"></footer>
     </div>
 
     <script>
@@ -336,9 +366,12 @@
         }
 
         function toggleDropdown() { 
-            document.getElementById('dc-menu').classList.toggle('show');
-            document.getElementById('prof-trigger').classList.toggle('active');
+            const menu = document.getElementById('dc-menu');
+            const trigger = document.getElementById('prof-trigger');
+            menu.classList.toggle('show');
+            trigger.classList.toggle('active');
         }
+
         function startMobileUpdate() { switchView('mobile-update'); }
         function handleFocus(el) { setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300); }
 
@@ -383,7 +416,6 @@
             const v = document.getElementById('search-ivrs').value.trim();
             if(v.length !== 10) { showToast("Enter 10 digit IVRS", false); return; }
             const btn = document.getElementById('search-btn'); btn.disabled = true; btn.innerText = "Searching...";
-
             const csv = dcCacheRaw[activeDC];
             if(!csv) { showToast("Syncing Database...", true); btn.disabled = false; btn.innerText = "Search Records"; return; }
             
@@ -431,18 +463,11 @@
             finally { btn.disabled = false; btn.innerText = "Submit"; }
         }
 
-        const getMonthDisplayValue = (val) => {
-            const ms = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
-            const p = val.split('-');
-            return p.length > 1 ? `${ms[parseInt(p[1])-1]}-${p[0]}` : val;
-        };
-
         async function refreshSummary() {
             const cont = document.getElementById('summary-content');
             cont.innerHTML = `<p class="text-center text-slate-400 py-10 animate-pulse font-black uppercase tracking-tight">Syncing Records...</p>`;
             const raw = document.getElementById('report-date').value;
             if(!raw) return;
-            
             let dStr = "", mStr = "", label = "";
             if (summaryMode === 'DAILY') {
                 const d = new Date(raw);
@@ -451,16 +476,14 @@
             } else {
                 const parts = raw.split('-');
                 mStr = `${parts[1]}/${parts[0]}`;
-                label = getMonthDisplayValue(raw);
+                label = parts.length > 1 ? `${["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"][parseInt(parts[1])-1]}-${parts[0]}` : raw;
             }
-
             try {
                 let fetchUrl = `${scriptURL}?action=getSummary&t=${Date.now()}`;
                 if(activeViewLevel === 'DC') fetchUrl += `&dc=${activeDC}`;
                 const res = await fetch(fetchUrl);
                 const cloudData = await res.json();
                 uiListSummary = []; exportFullLogs = []; grandTC = 0; grandTU = 0;
-
                 const getStats = (dcName) => {
                     const stats = {};
                     const normDc = dcName.trim().toUpperCase();
@@ -487,7 +510,6 @@
                     });
                     return stats;
                 };
-
                 if(activeViewLevel === 'DC') {
                     const map = getStats(activeDC);
                     Object.keys(map).forEach(h => {
@@ -518,7 +540,6 @@
                         grandTC += divTC; grandTU += divTU;
                     });
                 }
-
                 const isM = summaryMode === 'MONTHLY';
                 let colTitle = activeViewLevel === 'DC' ? 'HQ NAME' : 'DC NAME';
                 let html = `<div class="summary-wrapper"><div class="summary-table-header ${isM?'monthly-view':''}">`;
@@ -530,7 +551,7 @@
                     if(isM) html += `<div>${label}</div>`;
                     html += `<div class="text-left truncate px-1">${r.name}</div><div>${r.tc}</div><div class="${isTotal?'':'text-teal-600'}">${r.tu}</div></div>`;
                 });
-                html += `</div><div class="summary-footer"><div class="flex justify-between items-center"><span class="text-[10px] font-black uppercase">GRAND TOTAL (${label})</span><span class="text-rose-700 text-lg font-black">${grandTU}</span></div><div class="export-btns flex gap-2 mt-3"><button class="btn-export" onclick="doExport('XLS')">Excel</button><button class="btn-export" onclick="doExport('PDF')">PDF</button></div></div>`;
+                html += `</div><div class="summary-footer"><div class="flex justify-between items-center"><span class="text-[10px] font-black uppercase">GRAND TOTAL (${label})</span><span class="text-rose-700 text-lg font-black">${grandTU}</span></div><div class="flex gap-2 mt-4"><button class="btn-export" onclick="doExport('XLS')">Excel</button><button class="btn-export" onclick="doExport('PDF')">PDF</button></div></div>`;
                 cont.innerHTML = html;
             } catch (e) { cont.innerHTML = `<p class="text-center text-red-500 py-10 font-black uppercase">UNABLE TO FETCH DATA</p>`; }
         }
@@ -538,7 +559,6 @@
         function doExport(fmt) {
             let t = activeViewLevel === 'DC' ? `DC NAME - ${activeDC}` : (activeViewLevel === 'DIVISION' ? `DIVISION NAME - ${activeDiv}` : `SEONI CIRCLE`);
             const rawVal = document.getElementById('report-date').value;
-            const label = summaryMode === 'DAILY' ? rawVal : getMonthDisplayValue(rawVal);
             if(fmt === 'XLS') {
                 let csv = `DEVELOPED BY - AKHILESH PATIDAR (AE)\n${t} ${summaryMode} PROGRESS REPORT\n\n`;
                 if(summaryMode === 'MONTHLY') {
@@ -549,34 +569,17 @@
                     uiListSummary.forEach(r => { if(r.type!=='DIV_TOTAL') csv += `${r.name},${r.tc},${r.tu}\n`; });
                 }
                 csv += `\nGRAND TOTAL,,${summaryMode==='MONTHLY'?'':grandTC},${grandTU}`;
-                const link = document.createElement("a");
-                link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+                const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
                 link.download = `Report_${summaryMode}.csv`; link.click();
             } else {
                 const { jsPDF } = window.jspdf; const doc = new jsPDF();
                 doc.setFontSize(7); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
                 doc.setFontSize(14); doc.text(`${t} PROGRESS REPORT`, 105, 20, { align: "center" });
-                doc.setFontSize(10); doc.text(`MOBILE NO UPDATED SUMMARY | Mode: ${summaryMode} | Date: ${label}`, 105, 28, { align: "center" });
-                let h, b, f;
-                if(summaryMode === 'MONTHLY') {
-                    h = activeViewLevel==='CIRCLE' ? [['MONTH', 'DATE', 'DIVISION', 'DC NAME', 'UPDATED MOBILE NO']] : [['MONTH', 'DATE', 'NAME', 'UPDATED MOBILE NO']];
-                    b = exportFullLogs.map(r => activeViewLevel==='CIRCLE' ? [r.month, r.dt, r.div, r.name, r.tu] : [r.month, r.dt, r.name, r.tu]);
-                    f = [[`${activeViewLevel==='CIRCLE'?'':'','',''}GRAND TOTAL`, grandTU]];
-                } else {
-                    h = [[activeViewLevel==='DC'?'HQ NAME':'DC NAME', 'TOTAL CONSUMER', 'UPDATED MOBILE NO']];
-                    b = [];
-                    uiListSummary.forEach((r) => {
-                        if(r.type === 'DIV_TOTAL') b.push([{ content: `${r.name}`, colSpan: 1, styles: { fontStyle: 'bold', textColor: [30, 58, 138], fillColor: [239, 246, 255] } }, r.tc, r.tu]);
-                        else b.push([r.name, r.tc, r.tu]);
-                    });
-                    f = [['GRAND TOTAL', grandTC, grandTU]];
-                }
-                doc.autoTable({ startY: 35, head: h, body: b, foot: f, theme: 'grid', headStyles:{fillColor:[30,41,59]}, footStyles:{fillColor:[241,245,249], textColor:[190,18,60], fontStyle:'bold'} });
+                doc.autoTable({ startY: 35, head: summaryMode==='MONTHLY'?[['MONTH', 'DATE', 'NAME', 'UPDATED NO']]:[[activeViewLevel==='DC'?'HQ NAME':'DC NAME', 'TOTAL CONS.', 'UPDATED NO']], body: summaryMode==='MONTHLY'?exportFullLogs.map(r=>[r.month, r.dt, r.name, r.tu]):uiListSummary.map(r=>[r.name, r.tc, r.tu]), foot: [['GRAND TOTAL', summaryMode==='MONTHLY'?'':grandTC, grandTU]], theme: 'grid', headStyles:{fillColor:[30,41,59]}, footStyles:{fillColor:[241,245,249], textColor:[190,18,60], fontStyle:'bold'} });
                 doc.save(`Report_${summaryMode}.pdf`);
             }
         }
 
-        // --- UTILITIES ---
         function showToast(m, ok) { const t = document.getElementById('toast-notif'); t.innerText = m; t.style.background = ok ? "#10b981" : "#ef4444"; t.style.display = 'block'; setTimeout(() => { t.style.display = 'none'; }, 3000); }
         function resetForm() { document.getElementById('search-ivrs').value = ''; document.getElementById('new-mobile').value = ''; document.getElementById('result-box').style.display = 'none'; document.getElementById('submit-btn').style.display = 'none'; document.getElementById('selected-dc-label').innerText = "Choose DC Name..."; }
         function switchView(id) { 
@@ -590,30 +593,24 @@
                 window.scrollTo(0,0);
             }
         }
-
+        function closePwdModal() { document.getElementById('pwd-modal').style.display = 'none'; }
         function goBack() {
-            const activeNode = document.querySelector('.view.active');
-            if (!activeNode) return;
-            const act = activeNode.id;
+            const actNode = document.querySelector('.view.active');
+            if (!actNode) return;
+            const act = actNode.id;
             if(act === 'mobile-update-view' || act === 'dc-dashboard-view') {
                 activeDC = '';
                 document.getElementById('selected-dc-label').innerText = "Choose DC Name...";
                 document.getElementById('main-header-title').innerText = activeDiv;
-                document.getElementById('search-ivrs').value = ''; 
-                document.getElementById('new-mobile').value = ''; 
-                document.getElementById('result-box').style.display = 'none'; 
-                document.getElementById('submit-btn').style.display = 'none'; 
+                resetForm();
                 switchView('dc-selection');
-            }
-            else if(act === 'summary-view') {
+            } else if(act === 'summary-view') {
                 if(activeViewLevel==='DC') switchView('dc-dashboard');
                 else if(activeViewLevel==='DIVISION') switchView('dc-selection');
                 else { document.getElementById('main-header-title').innerText = 'SEONI CIRCLE'; switchView('home'); }
-            }
-            else if(act === 'dc-selection-view') { document.getElementById('main-header-title').innerText = 'SEONI CIRCLE'; switchView('home'); }
+            } else if(act === 'dc-selection-view') { document.getElementById('main-header-title').innerText = 'SEONI CIRCLE'; switchView('home'); }
             else switchView('home');
         }
-
         function changeColor(c) { document.getElementById('welcomeText').style.color = c; }
     </script>
 </body>
