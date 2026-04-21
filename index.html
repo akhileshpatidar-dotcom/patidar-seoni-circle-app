@@ -40,7 +40,9 @@
         .btn-green-new { background: linear-gradient(135deg, #22c55e 0%, #15803d 100%); }
         .btn-rose { background: linear-gradient(135deg, #f43f5e 0%, #be123c 100%); }
         .btn-slate { background: linear-gradient(135deg, #475569 0%, #1e293b 100%); }
-        .small-bottom-btn { width: auto !important; min-width: 240px; padding: 14px 20px !important; font-size: 11px !important; margin: auto auto 30px auto !important; align-self: center !important; border-radius: 16px !important; color: #ffffff !important; background-color: #000000 !important; font-weight: 900 !important; box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important; text-transform: uppercase; }
+        
+        /* UI FIX: Increased margin-bottom to lift the button higher on mobile screens */
+        .small-bottom-btn { width: auto !important; min-width: 240px; padding: 14px 20px !important; font-size: 11px !important; margin: auto auto 80px auto !important; align-self: center !important; border-radius: 16px !important; color: #ffffff !important; background-color: #000000 !important; font-weight: 900 !important; box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important; text-transform: uppercase; }
 
         /* --- Title Headers (Green Box Style) --- */
         .title-box-container { width: 100%; display: flex !important; justify-content: center !important; align-items: center !important; padding: 10px 0 20px 0; text-align: center; }
@@ -166,7 +168,7 @@
             <button class="small-bottom-btn" onclick="askPassword('CIRCLE')">SEONI CIRCLE DAILY PROGRESS</button>
         </main>
 
-        <!-- DC Selection Page -->
+        <!-- DC Selection View -->
         <main id="dc-selection-view" class="view flex flex-col min-h-[inherit]">
             <div class="main-card">
                 <div class="title-box-container"><div class="title-box"><span class="title-text-bold">SELECT YOUR DC</span></div></div>
@@ -190,7 +192,7 @@
             </div>
         </main>
 
-        <!-- Mobile Update Form Page -->
+        <!-- Update Form View -->
         <main id="mobile-update-view" class="view">
             <div class="title-box-container"><div class="title-box"><span class="title-text-bold">UPDATE MOBILE NO</span></div></div>
             <div class="search-panel">
@@ -213,7 +215,7 @@
             </div>
         </main>
 
-        <!-- Progress Summary Page -->
+        <!-- Summary View -->
         <main id="summary-view" class="view">
             <div class="title-box-container">
                 <div class="title-box flex flex-col items-center">
