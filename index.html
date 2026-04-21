@@ -21,8 +21,9 @@
         .header-info h1 { font-size: 1.4rem; font-weight: 900; margin: 0; text-transform: uppercase; letter-spacing: 0.5px; }
         .header-info p { font-size: 8.5px !important; opacity: 0.95; font-weight: 400 !important; text-transform: uppercase; white-space: nowrap; letter-spacing: 0.4px; margin-top: 2px; color: #ffffff; }
 
-        .view { display: none; padding: 12px 16px; flex-direction: column; flex-grow: 1; }
-        .view.active { display: flex; }
+        /* --- View System Fix --- */
+        .view { display: none; padding: 12px 16px; flex-grow: 1; min-height: inherit; }
+        .view.active { display: flex !important; flex-direction: column; }
 
         /* --- Animations & UI Elements --- */
         .welcome-box { text-align: center; margin-top: 30px; margin-bottom: 5px; }
@@ -41,8 +42,8 @@
         .btn-rose { background: linear-gradient(135deg, #f43f5e 0%, #be123c 100%); }
         .btn-slate { background: linear-gradient(135deg, #475569 0%, #1e293b 100%); }
         
-        /* Adjusted margin for mobile screen accessibility */
-        .small-bottom-btn { width: auto !important; min-width: 240px; padding: 14px 20px !important; font-size: 11px !important; margin: auto auto 40px auto !important; align-self: center !important; border-radius: 16px !important; color: #ffffff !important; background-color: #000000 !important; font-weight: 900 !important; box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important; text-transform: uppercase; }
+        /* UI UPDATE: Increased bottom margin to 100px for better visibility above mobile browser bars */
+        .small-bottom-btn { width: auto !important; min-width: 240px; padding: 14px 20px !important; font-size: 11px !important; margin: auto auto 100px auto !important; align-self: center !important; border-radius: 16px !important; color: #ffffff !important; background-color: #000000 !important; font-weight: 900 !important; box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important; text-transform: uppercase; }
 
         .title-box-container { width: 100%; display: flex !important; justify-content: center !important; align-items: center !important; padding: 10px 0 20px 0; text-align: center; }
         .title-box { background-color: #dcfce7; padding: 10px 22px; border-radius: 12px; display: inline-flex; justify-content: center; align-items: center; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: 1px solid rgba(34, 197, 94, 0.2); }
@@ -146,8 +147,8 @@
             </div>
         </header>
 
-        <!-- View 1: Home -->
-        <main id="home-view" class="view active flex flex-col min-h-[inherit]">
+        <!-- Home View -->
+        <main id="home-view" class="view active">
             <div class="welcome-box"><h2 id="welcomeText" class="welcome-text">Welcome</h2></div>
             <div class="dots-container">
                 <div class="color-dot" style="background-color: #0d9488;" onclick="changeColor('#0d9488')"></div>
@@ -165,8 +166,8 @@
             <button class="small-bottom-btn" onclick="askPassword('CIRCLE')">SEONI CIRCLE DAILY PROGRESS</button>
         </main>
 
-        <!-- View 2: DC Selection -->
-        <main id="dc-selection-view" class="view flex flex-col min-h-[inherit]">
+        <!-- DC Selection View -->
+        <main id="dc-selection-view" class="view">
             <div class="main-card">
                 <div class="title-box-container"><div class="title-box"><span class="title-text-bold">SELECT YOUR DC</span></div></div>
                 <div class="dropdown-box">
@@ -180,7 +181,7 @@
             <button class="small-bottom-btn" onclick="askPassword('DIVISION')">DIVISION DAILY PROGRESS</button>
         </main>
 
-        <!-- View 3: Dashboard -->
+        <!-- Dashboard View -->
         <main id="dc-dashboard-view" class="view">
             <div class="px-2 py-8 flex flex-col gap-4">
                 <button class="dashboard-btn btn-green-new" onclick="window.open('https://billing.mpez.co.in/', '_blank')">PAY & VIEW BIJLEE BILL</button>
@@ -189,7 +190,7 @@
             </div>
         </main>
 
-        <!-- View 4: Mobile Update -->
+        <!-- Mobile Update View -->
         <main id="mobile-update-view" class="view">
             <div class="title-box-container"><div class="title-box"><span class="title-text-bold">UPDATE MOBILE NO</span></div></div>
             <div class="search-panel">
@@ -212,7 +213,7 @@
             </div>
         </main>
 
-        <!-- View 5: Summary -->
+        <!-- Summary View -->
         <main id="summary-view" class="view">
             <div class="title-box-container"><div class="title-box flex flex-col items-center"><span class="title-text-bold" id="summary-title">PROGRESS REPORT</span></div></div>
             <div class="px-2">
@@ -329,7 +330,6 @@
             switchView('summary');
         }
 
-        // --- ACCURATE INSTANT SEARCH ---
         async function performSearch() {
             const v = document.getElementById('search-ivrs').value.trim();
             if(v.length !== 10) { showToast("Enter 10 digit IVRS", false); return; }
@@ -382,8 +382,7 @@
             finally { btn.disabled = false; btn.innerText = "Submit"; }
         }
 
-        // --- FULL REPORT SYSTEM ---
-        const getMonthDisplay = (val) => {
+        const getMonthDisplayValue = (val) => {
             const ms = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
             const p = val.split('-');
             return p.length > 1 ? `${ms[parseInt(p[1])-1]}-${p[0]}` : val;
@@ -403,7 +402,7 @@
             } else {
                 const parts = raw.split('-');
                 mStr = `${parts[1]}/${parts[0]}`;
-                label = getMonthDisplay(raw);
+                label = getMonthDisplayValue(raw);
             }
 
             try {
@@ -482,7 +481,7 @@
                     if(isM) html += `<div>${label}</div>`;
                     html += `<div class="text-left truncate px-1">${r.name}</div><div>${r.tc}</div><div class="${isTotal?'':'text-teal-600'}">${r.tu}</div></div>`;
                 });
-                html += `</div><div class="summary-footer"><div class="flex justify-between items-center"><span class="text-[10px] font-black uppercase">GRAND TOTAL (${label})</span><span class="text-rose-700 text-lg font-black">${grandTU}</span></div><div class="export-btns"><button class="btn-export" onclick="doExport('XLS')">Excel</button><button class="btn-export" onclick="doExport('PDF')">PDF</button></div></div>`;
+                html += `</div><div class="summary-footer"><div class="flex justify-between items-center"><span class="text-[10px] font-black uppercase">GRAND TOTAL (${label})</span><span class="text-rose-700 text-lg font-black">${grandTU}</span></div><div class="export-btns flex gap-2 mt-3"><button class="btn-export" onclick="doExport('XLS')">Excel</button><button class="btn-export" onclick="doExport('PDF')">PDF</button></div></div>`;
                 cont.innerHTML = html;
             } catch (e) { cont.innerHTML = `<p class="text-center text-red-500 py-10 font-black uppercase">UNABLE TO FETCH DATA</p>`; }
         }
@@ -490,7 +489,7 @@
         function doExport(fmt) {
             let t = activeViewLevel === 'DC' ? `DC NAME - ${activeDC}` : (activeViewLevel === 'DIVISION' ? `DIVISION NAME - ${activeDiv}` : `SEONI CIRCLE`);
             const rawVal = document.getElementById('report-date').value;
-            const label = summaryMode === 'DAILY' ? rawVal : getMonthDisplay(rawVal);
+            const label = summaryMode === 'DAILY' ? rawVal : getMonthDisplayValue(rawVal);
             if(fmt === 'XLS') {
                 let csv = `DEVELOPED BY - AKHILESH PATIDAR (AE)\n${t} ${summaryMode} PROGRESS REPORT\n\n`;
                 if(summaryMode === 'MONTHLY') {
@@ -531,10 +530,22 @@
         // --- UTILITIES ---
         function showToast(m, ok) { const t = document.getElementById('toast-notif'); t.innerText = m; t.style.background = ok ? "#10b981" : "#ef4444"; t.style.display = 'block'; setTimeout(() => { t.style.display = 'none'; }, 3000); }
         function resetForm() { document.getElementById('search-ivrs').value = ''; document.getElementById('new-mobile').value = ''; document.getElementById('result-box').style.display = 'none'; document.getElementById('submit-btn').style.display = 'none'; document.getElementById('selected-dc-label').innerText = "Choose DC Name..."; }
-        function switchView(id) { document.querySelectorAll('.view').forEach(v => v.classList.remove('active')); document.getElementById(id + '-view').classList.add('active'); document.getElementById('back-btn').style.display = id === 'home' ? 'none' : 'flex'; if(id === 'home') { activeGrad = 'bg-teal-grad'; } document.getElementById('app-header').className = `app-header ${activeGrad}`; window.scrollTo(0,0); }
+        function switchView(id) { 
+            document.querySelectorAll('.view').forEach(v => v.classList.remove('active')); 
+            const target = document.getElementById(id + '-view');
+            if (target) {
+                target.classList.add('active'); 
+                document.getElementById('back-btn').style.display = id === 'home' ? 'none' : 'flex'; 
+                if(id === 'home') { activeGrad = 'bg-teal-grad'; }
+                document.getElementById('app-header').className = `app-header ${activeGrad}`;
+                window.scrollTo(0,0);
+            }
+        }
 
         function goBack() {
-            const act = document.querySelector('.view.active').id;
+            const activeNode = document.querySelector('.view.active');
+            if (!activeNode) return;
+            const act = activeNode.id;
             if(act === 'mobile-update-view' || act === 'dc-dashboard-view') {
                 activeDC = '';
                 document.getElementById('selected-dc-label').innerText = "Choose DC Name...";
