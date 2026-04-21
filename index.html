@@ -24,14 +24,14 @@
         .view { display: none; padding: 12px 16px; flex-direction: column; flex-grow: 1; }
         .view.active { display: flex; }
 
-        /* --- Animations & Effects --- */
+        /* --- Animations & UI Elements --- */
         .welcome-box { text-align: center; margin-top: 30px; margin-bottom: 5px; }
         .welcome-text { font-family: 'Righteous', cursive; font-size: 2.2rem; color: #0d9488; text-transform: uppercase; letter-spacing: 3px; display: inline-block; animation: float 3s ease-in-out infinite; }
         @keyframes float { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-8px); } }
 
-        /* --- Button & Navigation Styling --- */
         .dots-container { display: flex; justify-content: center; gap: 15px; margin-bottom: 25px; width: 100%; }
         .color-dot { width: 22px; height: 22px; border-radius: 50%; cursor: pointer; border: 3px solid white; box-shadow: 0 4px 6px rgba(0,0,0,0.15); }
+
         .list-item { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 12px 45px 12px 30px; cursor: pointer; color: #ffffff !important; text-align: center; clip-path: polygon(0% 0%, 92% 0%, 100% 50%, 92% 100%, 0% 100%); margin-bottom: 15px; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.1)); font-weight: 800; }
         .item-title { font-size: 1.3rem; }
         .item-subtitle { font-size: 0.9rem; opacity: 0.95; }
@@ -41,10 +41,9 @@
         .btn-rose { background: linear-gradient(135deg, #f43f5e 0%, #be123c 100%); }
         .btn-slate { background: linear-gradient(135deg, #475569 0%, #1e293b 100%); }
         
-        /* UI FIX: Increased margin-bottom to lift the button higher on mobile screens */
-        .small-bottom-btn { width: auto !important; min-width: 240px; padding: 14px 20px !important; font-size: 11px !important; margin: auto auto 80px auto !important; align-self: center !important; border-radius: 16px !important; color: #ffffff !important; background-color: #000000 !important; font-weight: 900 !important; box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important; text-transform: uppercase; }
+        /* Adjusted margin for mobile screen accessibility */
+        .small-bottom-btn { width: auto !important; min-width: 240px; padding: 14px 20px !important; font-size: 11px !important; margin: auto auto 40px auto !important; align-self: center !important; border-radius: 16px !important; color: #ffffff !important; background-color: #000000 !important; font-weight: 900 !important; box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important; text-transform: uppercase; }
 
-        /* --- Title Headers (Green Box Style) --- */
         .title-box-container { width: 100%; display: flex !important; justify-content: center !important; align-items: center !important; padding: 10px 0 20px 0; text-align: center; }
         .title-box { background-color: #dcfce7; padding: 10px 22px; border-radius: 12px; display: inline-flex; justify-content: center; align-items: center; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: 1px solid rgba(34, 197, 94, 0.2); }
         .title-text-bold { font-weight: 900 !important; font-size: 15px; color: #000000; text-transform: uppercase; letter-spacing: 0.5px; line-height: 1; }
@@ -75,10 +74,8 @@
         .option-item:last-child { border-bottom: none; }
         .option-item:hover { background-color: #f8fafc; }
 
-        /* --- Search Result Display --- */
+        /* --- Search UI --- */
         .search-panel { background: white; padding: 10px 20px; text-align: center; width: 100%; display: flex; flex-direction: column; align-items: center; }
-        .input-wrapper { position: relative; width: 100%; max-width: 260px; margin: 0 auto; }
-        .search-icon-svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; z-index: 5; color: #0d9488; }
         .ivrs-input { width: 100%; height: 52px; padding-left: 40px; border-radius: 12px; border: 2.5px solid #0d9488; font-size: 1rem; font-weight: 900; color: #000000; text-align: center; outline: none; }
         .search-btn-custom { width: auto; min-width: 200px; padding: 0 30px; height: 48px; background: linear-gradient(135deg, #f43f5e 0%, #be123c 100%); color: white !important; border-radius: 99px; font-weight: 800; margin-top: 25px; box-shadow: 0 4px 12px rgba(244, 63, 94, 0.2); text-transform: uppercase; }
         
@@ -92,27 +89,27 @@
         .teal-boundary-input { width: 100%; height: 52px; padding: 0 16px; border-radius: 12px; border: 2.5px solid #0d9488; font-size: 1rem; font-weight: 900; text-align: center; outline: none; color: #000000; }
         .submit-sync-btn { width: 100%; height: 55px; background: #000000; color: #ffffff !important; border-radius: 15px; font-weight: 900; text-transform: uppercase; margin-top: 20px; display: none; }
 
-        .label-box-red-container { width: 100%; display: flex !important; justify-content: center !important; align-items: center !important; margin: 15px 0; text-align: center; }
-        .label-box-red { background-color: #fee2e2; padding: 10px 24px; border-radius: 12px; display: inline-flex; justify-content: center; align-items: center; box-shadow: 0 2px 4px rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); }
-
-        /* --- Password Modal --- */
+        /* --- Modal & Table --- */
         #pwd-modal { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(10px); z-index: 1000; display: none; align-items: center; justify-content: center; padding: 20px; animation: fadeIn 0.3s ease; }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         .pwd-card { background: white; width: 100%; max-width: 320px; border-radius: 28px; padding: 32px 24px; text-align: center; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); border-top: 6px solid #0d9488; }
-        #pwd-input { width: 100%; height: 54px; background: #f1f5f9; border: 2px solid #e2e8f0; border-radius: 15px; text-align: center; font-size: 1.25rem; font-weight: 900; margin-bottom: 20px; outline: none; transition: border 0.3s; }
-        .pwd-btn-verify { width: 100%; height: 52px; background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%); color: white; border-radius: 15px; font-weight: 800; text-transform: uppercase; margin-bottom: 12px; }
-        .pwd-btn-cancel { color: #94a3b8; font-weight: 700; font-size: 0.75rem; text-transform: uppercase; cursor: pointer; }
-
-        /* --- Summary Styling --- */
+        #pwd-input { width: 100%; height: 54px; background: #f1f5f9; border: 2px solid #e2e8f0; border-radius: 15px; text-align: center; font-size: 1.25rem; font-weight: 900; margin-bottom: 20px; outline: none; }
+        
         .summary-wrapper { width: 100%; background: white; border-radius: 16px; overflow: hidden; border: 1.5px solid #e2e8f0; margin-top: 10px; }
         .summary-table-header { display: grid; grid-template-columns: 1fr 1fr 1.2fr; background: #0d9488; color: #ffffff; font-size: 9px; font-weight: 900; text-transform: uppercase; padding: 14px 8px; text-align: center; }
+        .summary-table-header.monthly-view { grid-template-columns: 0.8fr 1fr 1.1fr 1fr 1.2fr; }
         .summary-table-row { display: grid; grid-template-columns: 1fr 1fr 1.2fr; padding: 12px 8px; border-bottom: 1px solid #f1f5f9; font-size: 10px; font-weight: 900; color: #000000; align-items: center; text-align: center; }
-        .summary-table-row:nth-child(even) { background-color: #f8fafc; }
-        .summary-table-row.blue-bold { color: #1e3a8a !important; font-weight: 900 !important; background-color: #eff6ff !important; border-top: 1.5px solid #bfdbfe; font-size: 10px; }
+        .summary-table-row.monthly-view { grid-template-columns: 0.8fr 1fr 1.1fr 1fr 1.2fr; }
+        .summary-table-row.blue-bold { color: #1e3a8a !important; font-weight: 900 !important; background-color: #eff6ff !important; border-top: 1.5px solid #bfdbfe; }
+
+        .report-type-box { display: flex; border: 2px solid #0d9488; border-radius: 12px; margin-bottom: 15px; background: #f8fafc; overflow: hidden; }
+        .report-opt { flex: 1; padding: 10px; font-size: 10px; font-weight: 900; text-align: center; cursor: pointer; text-transform: uppercase; }
+        .report-opt.active { background: #0d9488; color: white; }
+
+        .summary-footer { background: #f1f5f9; padding: 15px; border-top: 2px solid #0d9488; }
+        .btn-export { flex: 1; padding: 12px; border-radius: 12px; font-size: 10px; font-weight: 900; color: #000000 !important; text-align: center; text-transform: uppercase; background: #e2e8f0; border: 1px solid #cbd5e1; }
 
         #toast-notif { position: fixed; top: 25px; left: 50%; transform: translateX(-50%); min-width: 250px; padding: 14px 24px; border-radius: 15px; font-weight: 900; color: white; text-align: center; z-index: 9999; display: none; text-transform: uppercase; }
         
-        /* Dynamic Gradients */
         .bg-teal-grad { background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%); }
         .bg-blue-grad { background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%); }
         .bg-orange-grad { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); }
@@ -122,7 +119,7 @@
 
     <div id="toast-notif"></div>
 
-    <!-- Password Prompt -->
+    <!-- Password Modal -->
     <div id="pwd-modal">
         <div class="pwd-card">
             <div class="mb-4 text-teal-600 flex justify-center">
@@ -132,7 +129,7 @@
             <p id="pwd-modal-subtitle" class="text-[9px] font-bold text-slate-400 uppercase mb-6 tracking-widest">Enter Password</p>
             <input type="password" id="pwd-input" placeholder="••••••">
             <button class="pwd-btn-verify" onclick="verifyPassword()">Unlock Report</button>
-            <div class="pwd-btn-cancel" onclick="closePwdModal()">Go Back</div>
+            <div class="text-[#94a3b8] font-bold text-[10px] cursor-pointer mt-4" onclick="closePwdModal()">GO BACK</div>
         </div>
     </div>
 
@@ -149,7 +146,7 @@
             </div>
         </header>
 
-        <!-- Home Page -->
+        <!-- View 1: Home -->
         <main id="home-view" class="view active flex flex-col min-h-[inherit]">
             <div class="welcome-box"><h2 id="welcomeText" class="welcome-text">Welcome</h2></div>
             <div class="dots-container">
@@ -168,7 +165,7 @@
             <button class="small-bottom-btn" onclick="askPassword('CIRCLE')">SEONI CIRCLE DAILY PROGRESS</button>
         </main>
 
-        <!-- DC Selection View -->
+        <!-- View 2: DC Selection -->
         <main id="dc-selection-view" class="view flex flex-col min-h-[inherit]">
             <div class="main-card">
                 <div class="title-box-container"><div class="title-box"><span class="title-text-bold">SELECT YOUR DC</span></div></div>
@@ -183,7 +180,7 @@
             <button class="small-bottom-btn" onclick="askPassword('DIVISION')">DIVISION DAILY PROGRESS</button>
         </main>
 
-        <!-- DC Dashboard Page -->
+        <!-- View 3: Dashboard -->
         <main id="dc-dashboard-view" class="view">
             <div class="px-2 py-8 flex flex-col gap-4">
                 <button class="dashboard-btn btn-green-new" onclick="window.open('https://billing.mpez.co.in/', '_blank')">PAY & VIEW BIJLEE BILL</button>
@@ -192,12 +189,12 @@
             </div>
         </main>
 
-        <!-- Update Form View -->
+        <!-- View 4: Mobile Update -->
         <main id="mobile-update-view" class="view">
             <div class="title-box-container"><div class="title-box"><span class="title-text-bold">UPDATE MOBILE NO</span></div></div>
             <div class="search-panel">
-                <div class="input-wrapper">
-                    <div class="search-icon-svg"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="11" cy="11" r="8"></circle><line x1="21" x2="16.65" y1="21" y2="16.65"></line></svg></div>
+                <div class="input-wrapper relative w-full max-w-[260px] mx-auto">
+                    <div class="search-icon-svg absolute left-3 top-4 text-teal-600"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="11" cy="11" r="8"></circle><line x1="21" x2="16.65" y1="21" y2="16.65"></line></svg></div>
                     <input type="tel" id="search-ivrs" class="ivrs-input" placeholder="Search IVRS No" onfocus="handleFocus(this)" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,10)">
                 </div>
                 <button id="search-btn" class="search-btn-custom" onclick="performSearch()">Search Records</button>
@@ -215,18 +212,15 @@
             </div>
         </main>
 
-        <!-- Summary View -->
+        <!-- View 5: Summary -->
         <main id="summary-view" class="view">
-            <div class="title-box-container">
-                <div class="title-box flex flex-col items-center">
-                    <span class="title-text-bold" id="summary-title">PROGRESS REPORT</span>
-                </div>
-            </div>
+            <div class="title-box-container"><div class="title-box flex flex-col items-center"><span class="title-text-bold" id="summary-title">PROGRESS REPORT</span></div></div>
             <div class="px-2">
                 <div class="report-type-box">
                     <div id="opt-daily" class="report-opt active" onclick="setMode('DAILY')">Daily</div>
                     <div id="opt-monthly" class="report-opt" onclick="setMode('MONTHLY')">Monthly</div>
                 </div>
+                <label id="date-label" class="text-[10px] font-black text-slate-500 uppercase block mb-1">Select Date</label>
                 <input type="date" id="report-date" class="w-full h-12 border-2 border-teal-600 rounded-xl px-4 font-black text-teal-900 mb-4" onchange="refreshSummary()">
             </div>
             <div id="summary-content"></div>
@@ -236,7 +230,6 @@
     </div>
 
     <script>
-        // Database Configuration
         const seoniDCs = ["ARI", "BADALPAR", "BANDOL", "BARGHAT", "DHARNA", "GOPALGANJ", "KANHIWADA", "KEOLARI", "KHAIRAPALARI", "KURAI", "MUNGWANI", "PANDIYA CHHAPARA", "SEONI (T)", "SEONI (RES)", "UGALI"];
         const lakhnadonDCs = ["ADEGAON", "CHHAPARA-1", "CHHAPARA-2", "DHANORA", "DHUMA", "GANESHGANJ", "GHANSORE", "KEDARPUR", "LAKHNADON"];
         
@@ -248,16 +241,15 @@
         };
         const scriptURL = "https://script.google.com/macros/s/AKfycbzT6EDwlHCvDN6Tesn3E0fMCJv1_lMqHAZjiAX4qoG8C4AIj0iEoHEqObXGeBAENhwV5g/exec";
 
-        // Global State
         let activeDiv = '', activeDC = '', activeGrad = 'bg-teal-grad', summaryMode = 'DAILY', activeViewLevel = '', pendingLevel = '', currentData = null;
         let dcCacheRaw = {}; 
+        let uiListSummary = [], exportFullLogs = [];
+        let grandTC = 0, grandTU = 0;
 
         document.addEventListener('DOMContentLoaded', () => {
             const today = new Date().toISOString().split('T')[0];
             document.getElementById('report-date').value = today;
             switchView('home');
-            
-            // Pre-fetch databases in background
             Object.keys(dcDatabaseLinks).forEach(async (dc) => {
                 try { 
                     const res = await fetch(dcDatabaseLinks[dc]); 
@@ -270,18 +262,12 @@
         function showDivision(name, colorClass) {
             activeDiv = name.trim().toUpperCase(); activeDC = '';
             activeGrad = colorClass;
-            
-            // Update line color based on division
             const lineColor = name.includes('SEONI') ? '#2563eb' : '#f59e0b';
             document.getElementById('dc-menu').style.setProperty('--theme-line', lineColor);
-            
             document.getElementById('selected-dc-label').innerText = "Choose DC Name...";
             document.getElementById('main-header-title').innerText = name;
             document.getElementById('app-header').className = `app-header ${activeGrad}`;
-            
-            const menu = document.getElementById('dc-menu'); 
-            menu.innerHTML = '';
-            
+            const menu = document.getElementById('dc-menu'); menu.innerHTML = '';
             (name.includes('SEONI') ? seoniDCs : lakhnadonDCs).forEach(dc => {
                 const item = document.createElement('div');
                 item.className = 'option-item';
@@ -306,7 +292,6 @@
         function startMobileUpdate() { switchView('mobile-update'); }
         function handleFocus(el) { setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300); }
 
-        // --- PASSWORD VERIFICATION ---
         function askPassword(level) {
             pendingLevel = level;
             document.getElementById('pwd-modal-title').innerText = `${level.charAt(0) + level.slice(1).toLowerCase()} Report Access`;
@@ -318,12 +303,8 @@
         function verifyPassword() {
             const input = document.getElementById('pwd-input').value;
             const pws = { 'CIRCLE': 'SE123', 'DIVISION': 'EE1234', 'DC': 'JE12345' };
-            if(input === pws[pendingLevel]) { 
-                closePwdModal(); 
-                prepareSummary(pendingLevel); 
-            } else { 
-                showToast("Invalid Password!", false); 
-            }
+            if(input === pws[pendingLevel]) { closePwdModal(); prepareSummary(pendingLevel); }
+            else { showToast("Invalid Password!", false); }
         }
 
         function setMode(m) {
@@ -331,7 +312,13 @@
             const input = document.getElementById('report-date');
             document.getElementById('opt-daily').classList.toggle('active', m === 'DAILY');
             document.getElementById('opt-monthly').classList.toggle('active', m === 'MONTHLY');
-            input.type = (m === 'MONTHLY' ? 'month' : 'date');
+            if (m === 'MONTHLY') {
+                input.type = 'month';
+                input.value = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+            } else {
+                input.type = 'date';
+                input.value = new Date().toISOString().split('T')[0];
+            }
             refreshSummary();
         }
 
@@ -342,21 +329,15 @@
             switchView('summary');
         }
 
-        // --- TURBO SEARCH ENGINE ---
+        // --- ACCURATE INSTANT SEARCH ---
         async function performSearch() {
             const v = document.getElementById('search-ivrs').value.trim();
             if(v.length !== 10) { showToast("Enter 10 digit IVRS", false); return; }
-            const btn = document.getElementById('search-btn'); 
-            btn.disabled = true; btn.innerText = "Searching...";
+            const btn = document.getElementById('search-btn'); btn.disabled = true; btn.innerText = "Searching...";
 
             const csv = dcCacheRaw[activeDC];
-            if(!csv) { 
-                showToast("Syncing Database...", true); 
-                btn.disabled = false; btn.innerText = "Search Records"; 
-                return; 
-            }
+            if(!csv) { showToast("Syncing Database...", true); btn.disabled = false; btn.innerText = "Search Records"; return; }
             
-            // Loop search for exact IVRS match at Column 0
             let idx = csv.indexOf(v);
             let foundLine = "";
             while(idx !== -1) {
@@ -367,30 +348,22 @@
                 if(cols[0] === v) { foundLine = line; break; }
                 idx = csv.indexOf(v, idx + 1);
             }
-            
             if(!foundLine) {
                 showToast("Not Found locally!", false);
                 btn.disabled = false; btn.innerText = "Search Records";
                 return;
             }
-
             const f = foundLine.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(s => s.replace(/^"|"$/g, '').trim());
             currentData = { ivrs:f[0], name:f[1], father:f[2], old:f[3], addr:f[4], hq:f[5] };
-            
             document.getElementById('res-ivrs').innerText = currentData.ivrs || "N/A";
             document.getElementById('res-name').innerText = currentData.name || "N/A";
             document.getElementById('res-old').innerText = currentData.old || "N/A";
             document.getElementById('res-addr').innerText = currentData.addr || "N/A";
-            
             document.getElementById('result-box').style.display = 'block';
             document.getElementById('submit-btn').style.display = 'block';
             
-            // Background duplicate check
             fetch(`${scriptURL}?ivrs=${v}&dc=${activeDC}`).then(r => r.text()).then(res => {
-                if(res === "EXIST") { 
-                    showToast("ALREADY UPDATED IN SHEET!", false); 
-                    document.getElementById('submit-btn').style.display = 'none'; 
-                }
+                if(res === "EXIST") { showToast("ALREADY UPDATED IN SHEET!", false); document.getElementById('submit-btn').style.display = 'none'; }
             });
             btn.disabled = false; btn.innerText = "Search Records";
         }
@@ -409,77 +382,156 @@
             finally { btn.disabled = false; btn.innerText = "Submit"; }
         }
 
-        // --- REPORT GENERATION ---
+        // --- FULL REPORT SYSTEM ---
+        const getMonthDisplay = (val) => {
+            const ms = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+            const p = val.split('-');
+            return p.length > 1 ? `${ms[parseInt(p[1])-1]}-${p[0]}` : val;
+        };
+
         async function refreshSummary() {
             const cont = document.getElementById('summary-content');
-            cont.innerHTML = `<p class="text-center text-slate-400 py-10 font-black uppercase">Syncing...</p>`;
+            cont.innerHTML = `<p class="text-center text-slate-400 py-10 animate-pulse font-black uppercase tracking-tight">Syncing Records...</p>`;
             const raw = document.getElementById('report-date').value;
             if(!raw) return;
+            
             let dStr = "", mStr = "", label = "";
-            if(summaryMode==='DAILY') {
+            if (summaryMode === 'DAILY') {
                 const d = new Date(raw);
                 dStr = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
                 label = dStr;
-            } else { label = raw; mStr = raw.split('-')[1] + '/' + raw.split('-')[0]; }
+            } else {
+                const parts = raw.split('-');
+                mStr = `${parts[1]}/${parts[0]}`;
+                label = getMonthDisplay(raw);
+            }
+
             try {
-                const res = await fetch(`${scriptURL}?action=getSummary&t=${Date.now()}${activeViewLevel==='DC'?'&dc='+activeDC:''}`);
-                const cloud = await res.json();
-                let uiList = []; let grandTU = 0;
-                const getStats = (dcN) => {
-                    let uCount = 0;
-                    cloud.forEach(u => {
-                        const ts = (u.timestamp||"").trim();
-                        const match = summaryMode==='DAILY' ? ts===dStr : ts.includes(mStr);
-                        if(match && u.dc && u.dc.trim().toUpperCase() === dcN.trim().toUpperCase()) uCount++;
+                let fetchUrl = `${scriptURL}?action=getSummary&t=${Date.now()}`;
+                if(activeViewLevel === 'DC') fetchUrl += `&dc=${activeDC}`;
+                const res = await fetch(fetchUrl);
+                const cloudData = await res.json();
+                uiListSummary = []; exportFullLogs = []; grandTC = 0; grandTU = 0;
+
+                const getStats = (dcName) => {
+                    const stats = {};
+                    const normDc = dcName.trim().toUpperCase();
+                    const csv = dcCacheRaw[normDc];
+                    if(csv) {
+                        csv.split(/\r?\n/).slice(1).forEach(r => {
+                            const c = r.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+                            if(c[5]) {
+                                const h = c[5].replace(/^"|"$/g, '').trim().toUpperCase() || "GENERAL";
+                                if(!stats[h]) stats[h] = { tc: 0, tu: 0, dts: {} };
+                                stats[h].tc++;
+                            }
+                        });
+                    }
+                    cloudData.forEach(u => {
+                        const ts = (u.timestamp || "").trim();
+                        const match = summaryMode === 'DAILY' ? ts === dStr : ts.includes(mStr);
+                        if(match && u.dc && u.dc.trim().toUpperCase() === normDc) {
+                            const h = (u.hq || "GENERAL").toUpperCase().trim();
+                            if(!stats[h]) stats[h] = { tc:0, tu:0, dts:{} };
+                            stats[h].tu++;
+                            stats[h].dts[ts] = (stats[h].dts[ts] || 0) + 1;
+                        }
                     });
-                    return uCount;
+                    return stats;
                 };
+
                 if(activeViewLevel === 'DC') {
-                    const c = getStats(activeDC);
-                    uiList.push({ name: activeDC, tu: c });
-                    grandTU = c;
+                    const map = getStats(activeDC);
+                    Object.keys(map).forEach(h => {
+                        uiListSummary.push({ name: h, tc: map[h].tc, tu: map[h].tu });
+                        grandTC += map[h].tc; grandTU += map[h].tu;
+                        Object.keys(map[h].dts).sort().forEach(dt => exportFullLogs.push({ month: label, dt: dt, name: h, tu: map[h].dts[dt] }));
+                    });
                 } else {
                     const targetDivs = activeViewLevel === 'DIVISION' ? [activeDiv] : ["DIVISION SEONI", "DIVISION LAKHNADON"];
                     targetDivs.forEach(div => {
-                        let divTU = 0;
-                        (div.includes('SEONI') ? seoniDCs : lakhnadonDCs).forEach(dc => {
-                            const c = getStats(dc);
-                            uiList.push({ name: dc, tu: c });
-                            divTU += c;
+                        const dcs = div.includes('SEONI') ? seoniDCs : lakhnadonDCs;
+                        let divTC = 0, divTU = 0;
+                        dcs.forEach(dcName => {
+                            const map = getStats(dcName);
+                            let dcTC = 0, dcTU = 0;
+                            Object.keys(map).forEach(h => {
+                                dcTC += map[h].tc; dcTU += map[h].tu;
+                                Object.keys(map[h].dts).forEach(dt => {
+                                    let ex = exportFullLogs.find(x => x.dt === dt && x.name === dcName.trim().toUpperCase());
+                                    if(ex) ex.tu += map[h].dts[dt];
+                                    else exportFullLogs.push({ month: label, dt: dt, div: div, name: dcName, tu: map[h].dts[dt] });
+                                });
+                            });
+                            uiListSummary.push({ name: dcName, tc: dcTC, tu: dcTU, type: 'DC_ROW', div: div });
+                            divTC += dcTC; divTU += dcTU;
                         });
-                        if(activeViewLevel === 'CIRCLE') uiList.push({ name: `${div} TOTAL`, tu: divTU, type: 'TOTAL' });
-                        grandTU += divTU;
+                        if(activeViewLevel === 'CIRCLE') uiListSummary.push({ name: `${div} TOTAL`, tc: divTC, tu: divTU, type: 'DIV_TOTAL' });
+                        grandTC += divTC; grandTU += divTU;
                     });
                 }
-                let html = `<div class="summary-wrapper"><div class="summary-table-header"><div>NAME</div><div>UPDATED MOBILE NO</div></div>`;
-                uiList.forEach(r => {
-                    const isT = r.type === 'TOTAL';
-                    html += `<div class="summary-table-row ${isT?'blue-bold':''}"><div class="text-left px-1">${r.name}</div><div>${r.tu}</div></div>`;
+
+                const isM = summaryMode === 'MONTHLY';
+                let colTitle = activeViewLevel === 'DC' ? 'HQ NAME' : 'DC NAME';
+                let html = `<div class="summary-wrapper"><div class="summary-table-header ${isM?'monthly-view':''}">`;
+                if(isM) html += `<div>MONTH</div>`;
+                html += `<div>${colTitle}</div><div>TOTAL CONS.</div><div>UPDATED NO</div></div>`;
+                uiListSummary.forEach(r => {
+                    const isTotal = r.type === 'DIV_TOTAL';
+                    html += `<div class="summary-table-row ${isTotal?'blue-bold':''} ${isM?'monthly-view':''}">`;
+                    if(isM) html += `<div>${label}</div>`;
+                    html += `<div class="text-left truncate px-1">${r.name}</div><div>${r.tc}</div><div class="${isTotal?'':'text-teal-600'}">${r.tu}</div></div>`;
                 });
-                html += `</div><div class="summary-footer" style="background:#f1f5f9; padding:15px; border-top:1.5px solid #0d9488;"><div class="flex justify-between items-center"><span class="text-[10px] font-black uppercase">GRAND TOTAL (${label})</span><span class="text-rose-700 text-lg font-black">${grandTU}</span></div></div>`;
+                html += `</div><div class="summary-footer"><div class="flex justify-between items-center"><span class="text-[10px] font-black uppercase">GRAND TOTAL (${label})</span><span class="text-rose-700 text-lg font-black">${grandTU}</span></div><div class="export-btns"><button class="btn-export" onclick="doExport('XLS')">Excel</button><button class="btn-export" onclick="doExport('PDF')">PDF</button></div></div>`;
                 cont.innerHTML = html;
-            } catch(e) { cont.innerHTML = `<p class="text-center text-red-500">Error Fetching Data</p>`; }
+            } catch (e) { cont.innerHTML = `<p class="text-center text-red-500 py-10 font-black uppercase">UNABLE TO FETCH DATA</p>`; }
+        }
+
+        function doExport(fmt) {
+            let t = activeViewLevel === 'DC' ? `DC NAME - ${activeDC}` : (activeViewLevel === 'DIVISION' ? `DIVISION NAME - ${activeDiv}` : `SEONI CIRCLE`);
+            const rawVal = document.getElementById('report-date').value;
+            const label = summaryMode === 'DAILY' ? rawVal : getMonthDisplay(rawVal);
+            if(fmt === 'XLS') {
+                let csv = `DEVELOPED BY - AKHILESH PATIDAR (AE)\n${t} ${summaryMode} PROGRESS REPORT\n\n`;
+                if(summaryMode === 'MONTHLY') {
+                    csv += "MONTH,DATE," + (activeViewLevel==='CIRCLE' ? "DIVISION,DC NAME," : "NAME,") + "UPDATED MOBILE NO\n";
+                    exportFullLogs.forEach(r => csv += `${r.month},${r.dt},${r.div?r.div+',':''}${r.name},${r.tu}\n`);
+                } else {
+                    csv += (activeViewLevel==='DC'?'HQ NAME':'DC NAME') + ",TOTAL CONSUMER,UPDATED MOBILE NO\n";
+                    uiListSummary.forEach(r => { if(r.type!=='DIV_TOTAL') csv += `${r.name},${r.tc},${r.tu}\n`; });
+                }
+                csv += `\nGRAND TOTAL,,${summaryMode==='MONTHLY'?'':grandTC},${grandTU}`;
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+                link.download = `Report_${summaryMode}.csv`; link.click();
+            } else {
+                const { jsPDF } = window.jspdf; const doc = new jsPDF();
+                doc.setFontSize(7); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
+                doc.setFontSize(14); doc.text(`${t} PROGRESS REPORT`, 105, 20, { align: "center" });
+                doc.setFontSize(10); doc.text(`MOBILE NO UPDATED SUMMARY | Mode: ${summaryMode} | Date: ${label}`, 105, 28, { align: "center" });
+                let h, b, f;
+                if(summaryMode === 'MONTHLY') {
+                    h = activeViewLevel==='CIRCLE' ? [['MONTH', 'DATE', 'DIVISION', 'DC NAME', 'UPDATED MOBILE NO']] : [['MONTH', 'DATE', 'NAME', 'UPDATED MOBILE NO']];
+                    b = exportFullLogs.map(r => activeViewLevel==='CIRCLE' ? [r.month, r.dt, r.div, r.name, r.tu] : [r.month, r.dt, r.name, r.tu]);
+                    f = [[`${activeViewLevel==='CIRCLE'?'':'','',''}GRAND TOTAL`, grandTU]];
+                } else {
+                    h = [[activeViewLevel==='DC'?'HQ NAME':'DC NAME', 'TOTAL CONSUMER', 'UPDATED MOBILE NO']];
+                    b = [];
+                    uiListSummary.forEach((r) => {
+                        if(r.type === 'DIV_TOTAL') b.push([{ content: `${r.name}`, colSpan: 1, styles: { fontStyle: 'bold', textColor: [30, 58, 138], fillColor: [239, 246, 255] } }, r.tc, r.tu]);
+                        else b.push([r.name, r.tc, r.tu]);
+                    });
+                    f = [['GRAND TOTAL', grandTC, grandTU]];
+                }
+                doc.autoTable({ startY: 35, head: h, body: b, foot: f, theme: 'grid', headStyles:{fillColor:[30,41,59]}, footStyles:{fillColor:[241,245,249], textColor:[190,18,60], fontStyle:'bold'} });
+                doc.save(`Report_${summaryMode}.pdf`);
+            }
         }
 
         // --- UTILITIES ---
         function showToast(m, ok) { const t = document.getElementById('toast-notif'); t.innerText = m; t.style.background = ok ? "#10b981" : "#ef4444"; t.style.display = 'block'; setTimeout(() => { t.style.display = 'none'; }, 3000); }
-        
-        function resetForm() { 
-            document.getElementById('search-ivrs').value = ''; 
-            document.getElementById('new-mobile').value = ''; 
-            document.getElementById('result-box').style.display = 'none'; 
-            document.getElementById('submit-btn').style.display = 'none'; 
-            document.getElementById('selected-dc-label').innerText = "Choose DC Name...";
-        }
-
-        function switchView(id) { 
-            document.querySelectorAll('.view').forEach(v => v.classList.remove('active')); 
-            document.getElementById(id + '-view').classList.add('active'); 
-            document.getElementById('back-btn').style.display = id === 'home' ? 'none' : 'flex'; 
-            if(id === 'home') { activeGrad = 'bg-teal-grad'; }
-            document.getElementById('app-header').className = `app-header ${activeGrad}`;
-            window.scrollTo(0,0); 
-        }
+        function resetForm() { document.getElementById('search-ivrs').value = ''; document.getElementById('new-mobile').value = ''; document.getElementById('result-box').style.display = 'none'; document.getElementById('submit-btn').style.display = 'none'; document.getElementById('selected-dc-label').innerText = "Choose DC Name..."; }
+        function switchView(id) { document.querySelectorAll('.view').forEach(v => v.classList.remove('active')); document.getElementById(id + '-view').classList.add('active'); document.getElementById('back-btn').style.display = id === 'home' ? 'none' : 'flex'; if(id === 'home') { activeGrad = 'bg-teal-grad'; } document.getElementById('app-header').className = `app-header ${activeGrad}`; window.scrollTo(0,0); }
 
         function goBack() {
             const act = document.querySelector('.view.active').id;
@@ -496,15 +548,9 @@
             else if(act === 'summary-view') {
                 if(activeViewLevel==='DC') switchView('dc-dashboard');
                 else if(activeViewLevel==='DIVISION') switchView('dc-selection');
-                else {
-                    document.getElementById('main-header-title').innerText = 'SEONI CIRCLE';
-                    switchView('home');
-                }
+                else { document.getElementById('main-header-title').innerText = 'SEONI CIRCLE'; switchView('home'); }
             }
-            else if(act === 'dc-selection-view') {
-                document.getElementById('main-header-title').innerText = 'SEONI CIRCLE';
-                switchView('home');
-            }
+            else if(act === 'dc-selection-view') { document.getElementById('main-header-title').innerText = 'SEONI CIRCLE'; switchView('home'); }
             else switchView('home');
         }
 
