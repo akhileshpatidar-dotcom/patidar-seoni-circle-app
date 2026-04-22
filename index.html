@@ -10,8 +10,12 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
     <style>
-        /* --- Core Styling (Original Design) --- */
+        /* --- Core Styling --- */
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; outline: none; }
+        :root {
+            --theme-color: #0d9488;
+            --theme-grad: linear-gradient(135deg, #0d9488 0%, #0f766e 100%);
+        }
         body { 
             background-color: #f1f5f9; 
             font-family: 'Inter', sans-serif; 
@@ -43,12 +47,18 @@
             grid-template-columns: 40px 1fr 40px; 
             align-items: center; 
             flex-shrink: 0; 
+            transition: background 0.3s ease;
         }
         .header-info { text-align: center; grid-column: 2; line-height: 1.2; }
         .header-info h1 { font-size: 1.4rem; font-weight: 900; margin: 0; text-transform: uppercase; letter-spacing: 0.5px; }
         .header-info p { font-size: 8.5px !important; opacity: 0.95; font-weight: 400 !important; text-transform: uppercase; white-space: nowrap; letter-spacing: 0.4px; margin-top: 2px; color: #ffffff; }
 
-        /* --- View System --- */
+        /* --- Animation --- */
+        @keyframes fadeInView {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
         .view { 
             display: none; 
             padding: 12px 16px 80px 16px; 
@@ -56,11 +66,15 @@
             overflow-y: auto; 
             scrollbar-width: none; 
         }
-        .view.active { display: flex !important; flex-direction: column; }
+        .view.active { 
+            display: flex !important; 
+            flex-direction: column; 
+            animation: fadeInView 0.4s ease-out; 
+        }
 
         /* --- UI Components --- */
         .welcome-box { text-align: center; margin-top: 20px; margin-bottom: 5px; }
-        .welcome-text { font-family: 'Righteous', cursive; font-size: 2.2rem; color: #0d9488; text-transform: uppercase; letter-spacing: 3px; display: inline-block; animation: float 3s ease-in-out infinite; }
+        .welcome-text { font-family: 'Righteous', cursive; font-size: 2.2rem; color: var(--theme-color); text-transform: uppercase; letter-spacing: 3px; display: inline-block; animation: float 3s ease-in-out infinite; }
         @keyframes float { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-8px); } }
 
         .dots-container { display: flex; justify-content: center; gap: 15px; margin-bottom: 20px; width: 100%; }
@@ -70,10 +84,12 @@
         .item-title { font-size: 1.3rem; }
         .item-subtitle { font-size: 0.9rem; opacity: 0.95; }
         
-        .dashboard-btn { width: 100%; padding: 16px 18px; border-radius: 16px; color: #ffffff !important; font-weight: 800; text-align: center; text-transform: uppercase; font-size: 0.85rem; margin-bottom: 15px; box-shadow: 0 6px 15px rgba(0,0,0,0.1); }
-        .btn-green-new { background: linear-gradient(135deg, #22c55e 0%, #15803d 100%); }
-        .btn-rose { background: linear-gradient(135deg, #f43f5e 0%, #be123c 100%); }
-        .btn-slate { background: linear-gradient(135deg, #475569 0%, #1e293b 100%); }
+        .dashboard-btn { width: 100%; padding: 16px 18px; border-radius: 16px; color: #ffffff !important; font-weight: 800; text-align: center; text-transform: uppercase; font-size: 0.85rem; margin-bottom: 15px; box-shadow: 0 6px 15px rgba(0,0,0,0.1); background: var(--theme-grad); }
+        
+        .btn-update-red { background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%) !important; }
+        .btn-progress-black { background: #000000 !important; padding: 12px 18px !important; font-size: 0.75rem !important; }
+        
+        .btn-green-fix { background: linear-gradient(135deg, #22c55e 0%, #15803d 100%); }
         
         .small-bottom-btn { 
             width: auto !important; 
@@ -99,52 +115,57 @@
         .dropdown-box { position: relative !important; width: 100%; max-width: 340px; margin: 0 auto; }
         .professional-trigger { 
             width: 100%; height: 60px; padding: 0 20px; font-size: 1.05rem; font-weight: 900; 
-            color: #000000; background: #ffffff; border: 2.5px solid #0d9488; border-radius: 16px; 
+            color: #000000; background: #ffffff; border: 2.5px solid var(--theme-color); border-radius: 16px; 
             display: flex; align-items: center; justify-content: space-between; cursor: pointer; transition: all 0.3s ease;
         }
-        .professional-trigger.active { border-color: #0f766e; background: #f0fdfa; }
-        .chevron-icon { width: 22px; height: 22px; color: #0d9488; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .professional-trigger.active { border-color: var(--theme-color); background: #f8fafc; }
+        .chevron-icon { width: 22px; height: 22px; color: var(--theme-color); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
         .professional-trigger.active .chevron-icon { transform: rotate(180deg); }
 
         .dropdown-menu { 
             position: absolute !important; top: 66px !important; left: 0; width: 100%; 
-            background: white; border: 2px solid #0d9488; border-radius: 16px; 
+            background: white; border: 2px solid var(--theme-color); border-radius: 16px; 
             box-shadow: 0 15px 40px rgba(0,0,0,0.15); z-index: 2000 !important; 
             max-height: 250px; overflow-y: auto; display: none; bottom: auto !important;
         }
         .dropdown-menu.show { display: block; }
-        .option-item { padding: 16px 20px; font-weight: 700; color: #334155; text-align: left; cursor: pointer; border-bottom: 2px solid #0d9488; transition: background 0.2s; }
+        .option-item { padding: 16px 20px; font-weight: 700; color: #334155; text-align: left; cursor: pointer; border-bottom: 2px solid var(--theme-color); transition: background 0.2s; }
         .option-item:last-child { border-bottom: none; }
         .option-item:hover { background-color: #f8fafc; }
 
         /* --- Search Result Labels --- */
         .search-panel { background: white; padding: 10px 20px; text-align: center; width: 100%; display: flex; flex-direction: column; align-items: center; }
-        .ivrs-input { width: 100%; height: 52px; padding-left: 40px; border-radius: 12px; border: 2.5px solid #0d9488; font-size: 1rem; font-weight: 900; color: #000000; text-align: center; outline: none; }
-        .search-btn-custom { width: auto; min-width: 200px; padding: 0 30px; height: 48px; background: linear-gradient(135deg, #f43f5e 0%, #be123c 100%); color: white !important; border-radius: 99px; font-weight: 800; margin-top: 25px; box-shadow: 0 4px 12px rgba(244, 63, 94, 0.2); text-transform: uppercase; }
+        
+        /* अखिलेश जी, यहाँ पैडिंग हटाकर इनपुट को प्रॉपर सेंटर किया गया है */
+        .ivrs-input { width: 100%; height: 52px; padding: 0 10px; border-radius: 12px; border: 2.5px solid var(--theme-color); font-size: 1rem; font-weight: 900; color: #000000; text-align: center; outline: none; }
+        
+        .search-btn-custom { width: auto; min-width: 200px; padding: 0 30px; height: 48px; background: var(--theme-grad); color: white !important; border-radius: 99px; font-weight: 800; margin-top: 25px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); text-transform: uppercase; transition: background 0.3s; }
         
         .result-card-custom { width: 100%; background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 16px; padding: 16px; text-align: left; margin-top: 20px; display: none; }
         .res-row { margin-bottom: 8px; padding-bottom: 4px; border-bottom: 1px dashed #cbd5e1; }
         .res-label { font-size: 0.65rem; font-weight: 800; color: #2563eb; text-transform: uppercase; display: block; }
         .res-val { font-size: 0.95rem; font-weight: 900; color: #000000; }
         
-        .teal-boundary-input { width: 100%; height: 52px; padding: 0 16px; border-radius: 12px; border: 2.5px solid #0d9488; font-size: 1rem; font-weight: 900; text-align: center; outline: none; color: #000000; }
+        .teal-boundary-input { width: 100%; height: 52px; padding: 0 16px; border-radius: 12px; border: 2.5px solid var(--theme-color); font-size: 1rem; font-weight: 900; text-align: center; outline: none; color: #000000; }
         .submit-sync-btn { width: 100%; height: 55px; background: #000000; color: #ffffff !important; border-radius: 15px; font-weight: 900; text-transform: uppercase; margin-top: 10px; margin-bottom: 20px; display: none; }
+
+        .bg-red-grad { background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%) !important; }
 
         /* --- Report Summary UI --- */
         .summary-wrapper { width: 100%; background: white; border-radius: 16px; overflow: hidden; border: 1.5px solid #e2e8f0; margin-top: 10px; }
-        .summary-table-header { display: grid; grid-template-columns: 1fr 1fr 1.2fr; background: #0d9488; color: #ffffff; font-size: 9px; font-weight: 900; text-transform: uppercase; padding: 14px 8px; text-align: center; }
+        .summary-table-header { display: grid; grid-template-columns: 1fr 1fr 1.2fr; background: var(--theme-color); color: #ffffff; font-size: 9px; font-weight: 900; text-transform: uppercase; padding: 14px 8px; text-align: center; }
         .summary-table-row { display: grid; grid-template-columns: 1fr 1fr 1.2fr; padding: 12px 8px; border-bottom: 1px solid #f1f5f9; font-size: 10px; font-weight: 900; color: #000000; align-items: center; text-align: center; }
         .summary-table-row.blue-bold { color: #1e3a8a !important; font-weight: 900 !important; background-color: #eff6ff !important; border-top: 1.5px solid #bfdbfe; }
 
-        .report-type-box { display: flex; border: 2px solid #0d9488; border-radius: 12px; margin-bottom: 10px; background: #f8fafc; overflow: hidden; }
+        .report-type-box { display: flex; border: 2px solid var(--theme-color); border-radius: 12px; margin-bottom: 10px; background: #f8fafc; overflow: hidden; }
         .report-opt { flex: 1; padding: 10px; font-size: 10px; font-weight: 900; text-align: center; cursor: pointer; text-transform: uppercase; }
-        .report-opt.active { background: #0d9488; color: white; }
+        .report-opt.active { background: var(--theme-color); color: white; }
 
-        .summary-footer { background: #f1f5f9; padding: 20px; border-radius: 12px; border: 1.5px solid #0d9488; margin-top: 20px; margin-bottom: 40px; }
+        .summary-footer { background: #f1f5f9; padding: 20px; border-radius: 12px; border: 1.5px solid var(--theme-color); margin-top: 20px; margin-bottom: 40px; }
         .btn-export { flex: 1; padding: 12px; border-radius: 12px; font-size: 10px; font-weight: 900; color: #000000 !important; text-align: center; text-transform: uppercase; background: #e2e8f0; border: 1px solid #cbd5e1; }
 
         #pwd-modal { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(10px); z-index: 5000; display: none; align-items: center; justify-content: center; padding: 20px; }
-        .pwd-card { background: white; width: 100%; max-width: 320px; border-radius: 28px; padding: 32px 24px; text-align: center; border-top: 6px solid #0d9488; }
+        .pwd-card { background: white; width: 100%; max-width: 320px; border-radius: 28px; padding: 32px 24px; text-align: center; border-top: 6px solid var(--theme-color); }
         #pwd-input { width: 100%; height: 54px; background: #f1f5f9; border: 2px solid #e2e8f0; border-radius: 15px; text-align: center; font-size: 1.25rem; font-weight: 900; margin-bottom: 20px; outline: none; }
         #toast-notif { position: fixed; top: 25px; left: 50%; transform: translateX(-50%); min-width: 250px; padding: 14px 24px; border-radius: 15px; font-weight: 900; color: white; text-align: center; z-index: 9999; display: none; text-transform: uppercase; }
         
@@ -161,7 +182,7 @@
         <div class="pwd-card">
             <h3 id="pwd-modal-title" class="text-sm font-black text-slate-800 uppercase mb-1">Report Access</h3>
             <input type="password" id="pwd-input" placeholder="••••••">
-            <button class="bg-teal-grad w-full h-[52px] text-white rounded-xl font-black mb-4" onclick="verifyPassword()">Unlock Report</button>
+            <button class="bg-teal-grad w-full h-[52px] text-white rounded-xl font-black mb-4 theme-btn-grad" onclick="verifyPassword()">Unlock Report</button>
             <div class="text-[#94a3b8] font-bold text-[10px] cursor-pointer" onclick="closePwdModal()">GO BACK</div>
         </div>
     </div>
@@ -183,9 +204,9 @@
         <main id="home-view" class="view active">
             <div class="welcome-box"><h2 id="welcomeText" class="welcome-text">Welcome</h2></div>
             <div class="dots-container">
-                <div class="color-dot" style="background-color: #0d9488;" onclick="changeColor('#0d9488')"></div>
-                <div class="color-dot" style="background-color: #3b82f6;" onclick="changeColor('#3b82f6')"></div>
-                <div class="color-dot" style="background-color: #ef4444;" onclick="changeColor('#ef4444')"></div>
+                <div class="color-dot" style="background-color: #0d9488;" onclick="changeTheme('#0d9488')"></div>
+                <div class="color-dot" style="background-color: #3b82f6;" onclick="changeTheme('#3b82f6')"></div>
+                <div class="color-dot" style="background-color: #ef4444;" onclick="changeTheme('#ef4444')"></div>
             </div>
             <div class="flex flex-col px-4">
                 <div class="list-item bg-blue-grad" onclick="showDivision('DIVISION SEONI', 'bg-blue-grad')">
@@ -216,9 +237,9 @@
         <!-- Dashboard View -->
         <main id="dc-dashboard-view" class="view">
             <div class="px-2 py-8 flex flex-col gap-4">
-                <button class="dashboard-btn btn-green-new" onclick="window.open('https://billing.mpez.co.in/', '_blank')">PAY & VIEW BIJLEE BILL</button>
-                <button class="dashboard-btn btn-rose" onclick="switchView('mobile-update')">Mobile No Update</button>
-                <button class="dashboard-btn btn-slate" onclick="askPassword('DC')">Daily Progress</button>
+                <button class="dashboard-btn btn-green-fix" onclick="window.open('https://billing.mpez.co.in/', '_blank')">PAY & VIEW BIJLEE BILL</button>
+                <button class="dashboard-btn btn-update-red" onclick="switchView('mobile-update')">Mobile No Update</button>
+                <button class="dashboard-btn btn-progress-black" onclick="askPassword('DC')">Daily Progress</button>
             </div>
         </main>
 
@@ -252,7 +273,7 @@
                     <div id="opt-daily" class="report-opt active" onclick="setMode('DAILY')">Daily</div>
                     <div id="opt-monthly" class="report-opt" onclick="setMode('MONTHLY')">Monthly</div>
                 </div>
-                <input type="date" id="report-date" class="w-full h-12 border-2 border-teal-600 rounded-xl px-4 font-black text-teal-900 mb-4" onchange="refreshSummary()">
+                <input type="date" id="report-date" class="w-full h-12 border-2 border-teal-600 rounded-xl px-4 font-black text-teal-900 mb-4 theme-border" onchange="refreshSummary()">
             </div>
             <div id="summary-content"></div>
         </main>
@@ -290,19 +311,25 @@
         function showDivision(name, colorClass) {
             activeDiv = name.trim().toUpperCase(); 
             resetForm(); 
-            activeGrad = colorClass; document.getElementById('main-header-title').innerText = name;
-            document.getElementById('app-header').className = `app-header ${activeGrad}`;
+            activeGrad = colorClass; 
+            
+            const mainColor = name.includes('SEONI') ? '#2563eb' : '#f59e0b';
+            const gradColor = name.includes('SEONI') ? 'linear-gradient(135deg, #2563eb 0%, #1e40af 100%)' : 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)';
+            document.documentElement.style.setProperty('--theme-color', mainColor);
+            document.documentElement.style.setProperty('--theme-grad', gradColor);
+
+            switchView('dc-selection');
             const menu = document.getElementById('dc-menu'); menu.innerHTML = '';
             (name.includes('SEONI') ? seoniDCs : lakhnadonDCs).forEach(dc => {
                 const item = document.createElement('div'); item.className = 'option-item'; item.innerText = dc;
                 item.onclick = () => { 
-                    activeDC = dc.trim().toUpperCase(); document.getElementById('selected-dc-label').innerText = dc; 
-                    document.getElementById('main-header-title').innerText = `DC: ${dc}`; 
-                    toggleDropdown(); switchView('dc-dashboard');
+                    activeDC = dc.trim().toUpperCase(); 
+                    document.getElementById('selected-dc-label').innerText = dc; 
+                    toggleDropdown(); 
+                    switchView('dc-dashboard');
                 };
                 menu.appendChild(item);
             });
-            switchView('dc-selection');
         }
 
         function toggleDropdown() { document.getElementById('dc-menu').classList.toggle('show'); document.getElementById('prof-trigger').classList.toggle('active'); }
@@ -310,7 +337,12 @@
         function closePwdModal() { document.getElementById('pwd-modal').style.display = 'none'; }
         function verifyPassword() {
             const pws = { 'CIRCLE': 'SE123', 'DIVISION': 'EE1234', 'DC': 'JE12345' };
-            if(document.getElementById('pwd-input').value === pws[pendingLevel]) { activeViewLevel = pendingLevel; refreshSummary(); closePwdModal(); switchView('summary'); }
+            if(document.getElementById('pwd-input').value === pws[pendingLevel]) { 
+                activeViewLevel = pendingLevel; 
+                closePwdModal(); 
+                switchView('summary'); 
+                refreshSummary(); 
+            }
             else showToast("Invalid Password!", false);
         }
 
@@ -417,7 +449,6 @@
             } catch(e) { cont.innerHTML = `<p class="text-center text-red-500 py-10 font-black">ERROR FETCHING DATA</p>`; }
         }
 
-        // Helper function for Date formatting
         function getFormattedDate(rawDate, mode) {
             if(!rawDate) return "";
             if (mode === 'DAILY') {
@@ -438,61 +469,18 @@
             const colLabel = activeViewLevel === 'DC' ? 'HQ NAME' : 'DC NAME';
 
             if(fmt === 'XLS') {
-                let csv = `DEVELOPED BY - AKHILESH PATIDAR (AE)\n`;
-                csv += `${levelT} ${reportType} PROGRESS REPORT\n`;
-                csv += `${dateLabel}\n`;
-                csv += `UPDATED MOBILE NO SUMMARY\n\n`;
-                csv += `${colLabel},TOTAL CONSUMER,UPDATED NO\n`;
-                uiListSummary.forEach(r => {
-                    csv += `${r.name},${r.tc},${r.tu}\n`;
-                });
-                csv += `\nGRAND TOTAL,${grandTC},${grandTU}`;
-                const link = document.createElement("a"); 
-                link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-                link.download = `Report_${levelT}_${reportType}.csv`; 
-                link.click();
+                let csv = `DEVELOPED BY - AKHILESH PATIDAR (AE)\n${levelT} ${reportType} PROGRESS REPORT\n${dateLabel}\nUPDATED MOBILE NO SUMMARY\n\n${colLabel},TOTAL CONSUMER,UPDATED NO\n`;
+                uiListSummary.forEach(r => csv += `${r.name},${r.tc},${r.tu}\n`);
+                csv += `GRAND TOTAL,${grandTC},${grandTU}`;
+                const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+                link.download = `Report_${levelT}_${reportType}.csv`; link.click();
             } else {
-                const { jsPDF } = window.jspdf; 
-                const doc = new jsPDF();
-                
-                // Top small text (Left)
-                doc.setFontSize(7);
-                doc.setTextColor(100);
-                doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
-                
-                // Main Header (Center)
-                doc.setFontSize(15);
-                doc.setTextColor(0);
-                doc.text(`${levelT} ${reportType} PROGRESS REPORT`, 105, 20, { align: "center" });
-                
-                // Date & Subtitle (Center)
-                doc.setFontSize(11);
-                doc.text(dateLabel, 105, 28, { align: "center" });
-                doc.setFontSize(9);
-                doc.setTextColor(80);
-                doc.text("UPDATED MOBILE NO SUMMARY", 105, 34, { align: "center" });
-                
-                doc.autoTable({ 
-                    startY: 40, 
-                    head: [[colLabel, 'TOTAL CONSUMER', 'UPDATED NO']], 
-                    body: uiListSummary.map(r=>[r.name, r.tc, r.tu]), 
-                    foot: [['GRAND TOTAL', grandTC, grandTU]],
-                    theme: 'grid',
-                    headStyles: { fillColor: [13, 148, 136], halign: 'center' },
-                    columnStyles: { 0: { halign: 'left' }, 1: { halign: 'center' }, 2: { halign: 'center' } },
-                    footStyles: { fillColor: [241, 245, 249], textColor: [190, 18, 60], fontStyle: 'bold', halign: 'center' },
-                    // अखिलेश जी, यहाँ DIVISION TOTAL रोज़ को डार्क ब्लू और बोल्ड करने का लॉजिक है
-                    didParseCell: function(data) {
-                        if (data.section === 'body') {
-                            const rowValue = data.row.raw[0]; // पहली सेल (नाम)
-                            if (rowValue && rowValue.toString().includes('TOTAL')) {
-                                data.cell.styles.fontStyle = 'bold';
-                                data.cell.styles.textColor = [30, 58, 138]; // Dark Blue (Blue-900)
-                            }
-                        }
-                    }
-                });
-                
+                const { jsPDF } = window.jspdf; const doc = new jsPDF();
+                doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
+                doc.setFontSize(15); doc.setTextColor(0); doc.text(`${levelT} ${reportType} PROGRESS REPORT`, 105, 20, { align: "center" });
+                doc.setFontSize(11); doc.text(dateLabel, 105, 28, { align: "center" });
+                doc.setFontSize(9); doc.setTextColor(80); doc.text("UPDATED MOBILE NO SUMMARY", 105, 34, { align: "center" });
+                doc.autoTable({ startY: 40, head: [[colLabel, 'TOTAL CONSUMER', 'UPDATED NO']], body: uiListSummary.map(r=>[r.name, r.tc, r.tu]), foot: [['GRAND TOTAL', grandTC, grandTU]], theme: 'grid', headStyles: { fillColor: [13, 148, 136], halign: 'center' }, columnStyles: { 0: { halign: 'left' }, 1: { halign: 'center' }, 2: { halign: 'center' } }, footStyles: { fillColor: [241, 245, 249], textColor: [190, 18, 60], fontStyle: 'bold', halign: 'center' }, didParseCell: function(data) { if (data.section === 'body') { const rowValue = data.row.raw[0]; if (rowValue && rowValue.toString().includes('TOTAL')) { data.cell.styles.fontStyle = 'bold'; data.cell.styles.textColor = [30, 58, 138]; } } } });
                 doc.save(`Report_${levelT}_${reportType}.pdf`);
             }
         }
@@ -510,9 +498,37 @@
         
         function switchView(id) { 
             document.querySelectorAll('.view').forEach(v => v.classList.remove('active')); 
-            document.getElementById(id + '-view').classList.add('active'); 
-            document.getElementById('back-btn').style.display = id === 'home' ? 'none' : 'flex'; 
-            window.scrollTo(0,0); 
+            const target = document.getElementById(id + '-view');
+            if (target) {
+                target.classList.add('active'); 
+                document.getElementById('back-btn').style.display = id === 'home' ? 'none' : 'flex'; 
+                
+                let headerTitle = "SEONI CIRCLE";
+                if(id === 'dc-selection') headerTitle = activeDiv;
+                if(id === 'dc-dashboard') headerTitle = `DC: ${activeDC}`;
+                if(id === 'mobile-update') headerTitle = "UPDATE MOBILE NO";
+                if(id === 'summary') headerTitle = "PROGRESS REPORT";
+                
+                document.getElementById('main-header-title').innerText = headerTitle;
+                
+                const header = document.getElementById('app-header');
+                const searchBtn = document.getElementById('search-btn');
+
+                if(id === 'home') {
+                    document.documentElement.style.setProperty('--theme-color', '#0d9488');
+                    document.documentElement.style.setProperty('--theme-grad', 'linear-gradient(135deg, #0d9488 0%, #0f766e 100%)');
+                    header.className = 'app-header bg-teal-grad';
+                } else if(id === 'mobile-update') {
+                    // अखिलेश जी, यहाँ मोबाइल अपडेट स्क्रीन पर हेडर और सर्च बटन को रेड किया गया है
+                    header.className = 'app-header bg-red-grad';
+                    if(searchBtn) searchBtn.style.background = 'linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)';
+                } else {
+                    header.className = 'app-header ' + activeGrad;
+                    if(searchBtn) searchBtn.style.background = 'var(--theme-grad)';
+                }
+                
+                window.scrollTo(0,0); 
+            }
         }
 
         function goBack() {
@@ -525,22 +541,25 @@
                 switchView('home');
             }
             else if(act === 'dc-dashboard-view' || act === 'mobile-update-view') {
-                activeDC = '';
-                document.getElementById('selected-dc-label').innerText = "Choose DC Name...";
-                switchView('dc-selection');
-            }
-            else if(act === 'summary-view') { 
-                if(activeViewLevel === 'DC') switchView('dc-dashboard'); 
-                else if(activeViewLevel === 'DIVISION') {
+                if(act === 'mobile-update-view') switchView('dc-dashboard');
+                else {
                     activeDC = '';
                     document.getElementById('selected-dc-label').innerText = "Choose DC Name...";
                     switchView('dc-selection');
                 }
+            }
+            else if(act === 'summary-view') { 
+                if(activeViewLevel === 'DC') switchView('dc-dashboard'); 
+                else if(activeViewLevel === 'DIVISION') switchView('dc-selection');
                 else switchView('home'); 
             } else switchView('home');
         }
 
-        function changeColor(c) { document.getElementById('welcomeText').style.color = c; }
+        function changeTheme(c) { 
+            document.documentElement.style.setProperty('--theme-color', c); 
+            document.getElementById('welcomeText').style.color = c;
+        }
+
         function setMode(m) { 
             summaryMode = m; 
             const input = document.getElementById('report-date');
