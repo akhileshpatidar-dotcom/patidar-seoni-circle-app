@@ -10,7 +10,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
     <style>
-        /* --- Core Styling (Back to Original) --- */
+        /* --- Core Styling (Original Design) --- */
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; outline: none; }
         body { 
             background-color: #f1f5f9; 
@@ -274,7 +274,6 @@
             "LAKHNADON": "https://docs.google.com/spreadsheets/d/e/2PACX-1vTGixc1ReIutuAxRbMRTF29ZLd0v2DrcSgFFC6uw-ppBtvNkBa6rMJtqA37oGx2JAWgi-aXVhXVE8vq/pub?output=csv"
         };
         
-        // अखिलेश जी, यहाँ आपका नया Web App URL डाल दिया गया है
         const scriptURL = "https://script.google.com/macros/s/AKfycbw-euczRMZFKMjHveuvWd-vkuNqLXmFLkrLUERWgdExC7obxVGcBkBKGBWuHNfimzEh3g/exec";
 
         let activeDiv = '', activeDC = '', activeGrad = 'bg-teal-grad', summaryMode = 'DAILY', activeViewLevel = '', currentData = null, pendingLevel = '', dcCacheRaw = {}, uiListSummary = [], grandTC = 0, grandTU = 0;
@@ -418,24 +417,87 @@
             } catch(e) { cont.innerHTML = `<p class="text-center text-red-500 py-10 font-black">ERROR FETCHING DATA</p>`; }
         }
 
-        function doExport(fmt) {
-            const t = activeViewLevel === 'DC' ? `DC-${activeDC}` : (activeViewLevel === 'DIVISION' ? activeDiv : `SEONI-CIRCLE`);
-            const label = document.getElementById('report-date').value;
-            if(fmt === 'XLS') {
-                let csv = `DEVELOPED BY AKHILESH PATIDAR (AE)\n${t} REPORT (${label})\n\nNAME,TOTAL,UPDATED\n`;
-                uiListSummary.forEach(r => csv += `${r.name},${r.tc},${r.tu}\n`);
-                csv += `GRAND TOTAL,${grandTC},${grandTU}`;
-                const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-                link.download = `Report_${t}.csv`; link.click();
+        // Helper function for Date formatting
+        function getFormattedDate(rawDate, mode) {
+            if(!rawDate) return "";
+            if (mode === 'DAILY') {
+                const [y, m, d] = rawDate.split('-');
+                return `${d}/${m}/${y}`;
             } else {
-                const { jsPDF } = window.jspdf; const doc = new jsPDF();
-                doc.text(`${t} PROGRESS REPORT (${label})`, 105, 20, { align: "center" });
-                doc.autoTable({ startY: 30, head: [['NAME', 'TOTAL CONS.', 'UPDATED NO']], body: uiListSummary.map(r=>[r.name, r.tc, r.tu]), foot: [['TOTAL', grandTC, grandTU]] });
-                doc.save(`Report_${t}.pdf`);
+                const [y, m] = rawDate.split('-');
+                const months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+                return `${months[parseInt(m)-1]}-${y}`;
             }
         }
 
-        function showToast(m, ok) { const t = document.getElementById('toast-notif'); t.innerText = m; t.style.background = ok ? "#10b981" : "#ef4444"; t.style.display = 'block'; setTimeout(() => t.style.display = 'none', 3000); }
+        function doExport(fmt) {
+            const levelT = activeViewLevel === 'DC' ? `DC - ${activeDC}` : (activeViewLevel === 'DIVISION' ? activeDiv : `SEONI CIRCLE`);
+            const rawVal = document.getElementById('report-date').value;
+            const dateLabel = summaryMode === 'DAILY' ? "DATE - " + getFormattedDate(rawVal, 'DAILY') : "MONTH - " + getFormattedDate(rawVal, 'MONTHLY');
+            const reportType = summaryMode === 'DAILY' ? "DAILY" : "MONTHLY";
+            const colLabel = activeViewLevel === 'DC' ? 'HQ NAME' : 'DC NAME';
+
+            if(fmt === 'XLS') {
+                let csv = `DEVELOPED BY - AKHILESH PATIDAR (AE)\n`;
+                csv += `${levelT} ${reportType} PROGRESS REPORT\n`;
+                csv += `${dateLabel}\n`;
+                csv += `UPDATED MOBILE NO SUMMARY\n\n`;
+                csv += `${colLabel},TOTAL CONSUMER,UPDATED NO\n`;
+                uiListSummary.forEach(r => {
+                    csv += `${r.name},${r.tc},${r.tu}\n`;
+                });
+                csv += `\nGRAND TOTAL,${grandTC},${grandTU}`;
+                const link = document.createElement("a"); 
+                link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+                link.download = `Report_${levelT}_${reportType}.csv`; 
+                link.click();
+            } else {
+                const { jsPDF } = window.jspdf; 
+                const doc = new jsPDF();
+                
+                // Top small text (Left)
+                doc.setFontSize(7);
+                doc.setTextColor(100);
+                doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
+                
+                // Main Header (Center)
+                doc.setFontSize(15);
+                doc.setTextColor(0);
+                doc.text(`${levelT} ${reportType} PROGRESS REPORT`, 105, 20, { align: "center" });
+                
+                // Date & Subtitle (Center)
+                doc.setFontSize(11);
+                doc.text(dateLabel, 105, 28, { align: "center" });
+                doc.setFontSize(9);
+                doc.setTextColor(80);
+                doc.text("UPDATED MOBILE NO SUMMARY", 105, 34, { align: "center" });
+                
+                doc.autoTable({ 
+                    startY: 40, 
+                    head: [[colLabel, 'TOTAL CONSUMER', 'UPDATED NO']], 
+                    body: uiListSummary.map(r=>[r.name, r.tc, r.tu]), 
+                    foot: [['GRAND TOTAL', grandTC, grandTU]],
+                    theme: 'grid',
+                    headStyles: { fillColor: [13, 148, 136], halign: 'center' },
+                    columnStyles: { 0: { halign: 'left' }, 1: { halign: 'center' }, 2: { halign: 'center' } },
+                    footStyles: { fillColor: [241, 245, 249], textColor: [190, 18, 60], fontStyle: 'bold', halign: 'center' },
+                    // अखिलेश जी, यहाँ DIVISION TOTAL रोज़ को डार्क ब्लू और बोल्ड करने का लॉजिक है
+                    didParseCell: function(data) {
+                        if (data.section === 'body') {
+                            const rowValue = data.row.raw[0]; // पहली सेल (नाम)
+                            if (rowValue && rowValue.toString().includes('TOTAL')) {
+                                data.cell.styles.fontStyle = 'bold';
+                                data.cell.styles.textColor = [30, 58, 138]; // Dark Blue (Blue-900)
+                            }
+                        }
+                    }
+                });
+                
+                doc.save(`Report_${levelT}_${reportType}.pdf`);
+            }
+        }
+
+        function showToast(m, ok) { const t = document.getElementById('toast-notif'); t.innerText = m; t.style.background = ok ? "#10b981" : "#ef4444"; t.style.display = 'block'; setTimeout(() => { t.style.display = 'none'; }, 3000); }
         
         function resetForm() { 
             document.getElementById('search-ivrs').value = ''; 
@@ -479,7 +541,20 @@
         }
 
         function changeColor(c) { document.getElementById('welcomeText').style.color = c; }
-        function setMode(m) { summaryMode = m; document.getElementById('opt-daily').classList.toggle('active', m==='DAILY'); document.getElementById('opt-monthly').classList.toggle('active', m==='MONTHLY'); refreshSummary(); }
+        function setMode(m) { 
+            summaryMode = m; 
+            const input = document.getElementById('report-date');
+            document.getElementById('opt-daily').classList.toggle('active', m==='DAILY'); 
+            document.getElementById('opt-monthly').classList.toggle('active', m==='MONTHLY'); 
+            if(m === 'MONTHLY') {
+                input.type = 'month';
+                input.value = `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}`;
+            } else {
+                input.type = 'date';
+                input.value = new Date().toISOString().split('T')[0];
+            }
+            refreshSummary(); 
+        }
     </script>
 </body>
 </html>
