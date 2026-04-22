@@ -115,7 +115,6 @@
             max-height: 250px; overflow-y: auto; display: none; bottom: auto !important;
         }
         .dropdown-menu.show { display: block; }
-        /* अखिलेश जी, यहाँ आपकी डिमांड के अनुसार हरे रंग की सेपरेटर लाइन जोड़ी गई है */
         .option-item { padding: 16px 20px; font-weight: 700; color: #334155; text-align: left; cursor: pointer; border-bottom: 2px solid #0d9488; transition: background 0.2s; }
         .option-item:last-child { border-bottom: none; }
         .option-item:hover { background-color: #f8fafc; }
@@ -283,7 +282,8 @@
             "DHUMA": "https://docs.google.com/spreadsheets/d/e/2PACX-1vTLZb7N8resS05d0x0Txuh38Th4_bHXBHDBcKNc_mrJaqeYe0FyzdpbctR0r6xhtCFpNLuXN_737the/pub?output=csv",
             "KEDARPUR": "https://docs.google.com/spreadsheets/d/e/2PACX-1vTBdrZyG4W8F0sR5lCoTxfTC9J15m86DRo2GXLwAI_HM3TBua4zFYq96qu_Obu6DjhWp6hK-TZNFaVr/pub?output=csv",
             "ADEGAON": "https://docs.google.com/spreadsheets/d/e/2PACX-1vTMkEMNGnfv0_jHM12lAl34sD8kJLWPbLuA8WGhKH_smPfH3aDdmVrwbtyyPJZuD6KK4m6quw-q9MWN/pub?output=csv",
-            "DHANORA": "https://docs.google.com/spreadsheets/d/e/2PACX-1vRm09i9bR8bIyWqZ82_MVLxrSoC-LL-sxw9-V8BXnOBjZDekPzBydAYw5Q9bJZaXe8bjFOfa_WYcZer/pub?output=csv"
+            "DHANORA": "https://docs.google.com/spreadsheets/d/e/2PACX-1vRm09i9bR8bIyWqZ82_MVLxrSoC-LL-sxw9-V8BXnOBjZDekPzBydAYw5Q9bJZaXe8bjFOfa_WYcZer/pub?output=csv",
+            "LAKHNADON": "https://docs.google.com/spreadsheets/d/e/2PACX-1vTGixc1ReIutuAxRbMRTF29ZLd0v2DrcSgFFC6uw-ppBtvNkBa6rMJtqA37oGx2JAWgi-aXVhXVE8vq/pub?output=csv"
         };
         
         const scriptURL = "https://script.google.com/macros/s/AKfycbwwdRbgu62h4BPq8dbKRkWc8OIAYK82_XcWmCinITGFZa6ggVwkUqzDVMeU3Se4IK-Taw/exec";
@@ -308,7 +308,6 @@
 
         function showDivision(name, colorClass) {
             activeDiv = name.trim().toUpperCase(); 
-            // अखिलेश जी, डिवीजन बदलते समय DC सिलेक्शन को यहाँ रिसेट किया गया है
             activeDC = '';
             document.getElementById('selected-dc-label').innerText = "Choose DC Name...";
             
@@ -424,7 +423,6 @@
             p.append('timestamp', new Date().toLocaleDateString('en-GB'));
             
             try {
-                // अखिलेश जी, यहाँ डेटा सबमिशन को अधिक विश्वसनीय बनाया गया है
                 const response = await fetch(scriptURL, { 
                     method: 'POST', 
                     mode: 'no-cors', 
@@ -549,7 +547,6 @@
             document.getElementById('new-mobile').value = ''; 
             document.getElementById('result-box').style.display = 'none'; 
             document.getElementById('submit-btn').style.display = 'none'; 
-            // ड्रॉपडाउन को यहाँ भी रिसेट किया गया है
             activeDC = '';
             document.getElementById('selected-dc-label').innerText = "Choose DC Name...";
         }
@@ -566,7 +563,6 @@
 
         function goBack() {
             const act = document.querySelector('.view.active').id;
-            // अखिलेश जी, यहाँ बैक बटन दबाने पर ड्रॉपडाउन लेबल को "Choose DC Name..." पर रिसेट करने का लॉजिक जोड़ा गया है
             if(act === 'mobile-update-view' || act === 'dc-dashboard-view') {
                 activeDC = '';
                 document.getElementById('selected-dc-label').innerText = "Choose DC Name...";
