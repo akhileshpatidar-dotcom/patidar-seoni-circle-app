@@ -15,6 +15,7 @@
         :root {
             --theme-color: #0d9488;
             --theme-grad: linear-gradient(135deg, #0d9488 0%, #0f766e 100%);
+            --fixed-green: #0d9488; /* अखिलेश जी, यह रहा फिक्स्ड डार्क ग्रीन कलर */
         }
         body { 
             background-color: #f1f5f9; 
@@ -135,10 +136,7 @@
 
         /* --- Search Result Labels --- */
         .search-panel { background: white; padding: 10px 20px; text-align: center; width: 100%; display: flex; flex-direction: column; align-items: center; }
-        
-        /* अखिलेश जी, यहाँ पैडिंग हटाकर इनपुट को प्रॉपर सेंटर किया गया है */
         .ivrs-input { width: 100%; height: 52px; padding: 0 10px; border-radius: 12px; border: 2.5px solid var(--theme-color); font-size: 1rem; font-weight: 900; color: #000000; text-align: center; outline: none; }
-        
         .search-btn-custom { width: auto; min-width: 200px; padding: 0 30px; height: 48px; background: var(--theme-grad); color: white !important; border-radius: 99px; font-weight: 800; margin-top: 25px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); text-transform: uppercase; transition: background 0.3s; }
         
         .result-card-custom { width: 100%; background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 16px; padding: 16px; text-align: left; margin-top: 20px; display: none; }
@@ -153,15 +151,19 @@
 
         /* --- Report Summary UI --- */
         .summary-wrapper { width: 100%; background: white; border-radius: 16px; overflow: hidden; border: 1.5px solid #e2e8f0; margin-top: 10px; }
-        .summary-table-header { display: grid; grid-template-columns: 1fr 1fr 1.2fr; background: var(--theme-color); color: #ffffff; font-size: 9px; font-weight: 900; text-transform: uppercase; padding: 14px 8px; text-align: center; }
+        
+        /* अखिलेश जी, यहाँ हेडर कलर को हमेशा के लिए फिक्स (Fixed Green) कर दिया गया है */
+        .summary-table-header { display: grid; grid-template-columns: 1fr 1fr 1.2fr; background: var(--fixed-green) !important; color: #ffffff; font-size: 9px; font-weight: 900; text-transform: uppercase; padding: 14px 8px; text-align: center; }
+        
         .summary-table-row { display: grid; grid-template-columns: 1fr 1fr 1.2fr; padding: 12px 8px; border-bottom: 1px solid #f1f5f9; font-size: 10px; font-weight: 900; color: #000000; align-items: center; text-align: center; }
         .summary-table-row.blue-bold { color: #1e3a8a !important; font-weight: 900 !important; background-color: #eff6ff !important; border-top: 1.5px solid #bfdbfe; }
 
-        .report-type-box { display: flex; border: 2px solid var(--theme-color); border-radius: 12px; margin-bottom: 10px; background: #f8fafc; overflow: hidden; }
-        .report-opt { flex: 1; padding: 10px; font-size: 10px; font-weight: 900; text-align: center; cursor: pointer; text-transform: uppercase; }
-        .report-opt.active { background: var(--theme-color); color: white; }
+        /* अखिलेश जी, यहाँ भी बटन्स के लिए फिक्स्ड ग्रीन का इस्तेमाल किया है */
+        .report-type-box { display: flex; border: 2px solid var(--fixed-green); border-radius: 12px; margin-bottom: 10px; background: #f8fafc; overflow: hidden; }
+        .report-opt { flex: 1; padding: 10px; font-size: 10px; font-weight: 900; text-align: center; cursor: pointer; text-transform: uppercase; color: var(--fixed-green); }
+        .report-opt.active { background: var(--fixed-green) !important; color: white !important; }
 
-        .summary-footer { background: #f1f5f9; padding: 20px; border-radius: 12px; border: 1.5px solid var(--theme-color); margin-top: 20px; margin-bottom: 40px; }
+        .summary-footer { background: #f1f5f9; padding: 20px; border-radius: 12px; border: 1.5px solid var(--fixed-green); margin-top: 20px; margin-bottom: 40px; }
         .btn-export { flex: 1; padding: 12px; border-radius: 12px; font-size: 10px; font-weight: 900; color: #000000 !important; text-align: center; text-transform: uppercase; background: #e2e8f0; border: 1px solid #cbd5e1; }
 
         #pwd-modal { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(10px); z-index: 5000; display: none; align-items: center; justify-content: center; padding: 20px; }
@@ -273,7 +275,7 @@
                     <div id="opt-daily" class="report-opt active" onclick="setMode('DAILY')">Daily</div>
                     <div id="opt-monthly" class="report-opt" onclick="setMode('MONTHLY')">Monthly</div>
                 </div>
-                <input type="date" id="report-date" class="w-full h-12 border-2 border-teal-600 rounded-xl px-4 font-black text-teal-900 mb-4 theme-border" onchange="refreshSummary()">
+                <input type="date" id="report-date" class="w-full h-12 border-2 border-teal-600 rounded-xl px-4 font-black text-teal-900 mb-4" style="border-color: #0d9488;" onchange="refreshSummary()">
             </div>
             <div id="summary-content"></div>
         </main>
@@ -440,7 +442,8 @@
                     });
                 }
 
-                let html = `<div class="summary-wrapper"><div class="summary-table-header"><div>NAME</div><div>TOTAL</div><div>UPDATED</div></div>`;
+                const colLabel = activeViewLevel === 'DC' ? 'HQ NAME' : 'DC NAME';
+                let html = `<div class="summary-wrapper"><div class="summary-table-header"><div>${colLabel}</div><div>TOTAL CONS.</div><div>UPDATED MOBILE NO</div></div>`;
                 uiListSummary.forEach(r => {
                     html += `<div class="summary-table-row ${r.type==='DIV_TOTAL'?'blue-bold':''}"><div>${r.name}</div><div>${r.tc}</div><div class="text-teal-600 font-black">${r.tu}</div></div>`;
                 });
@@ -469,18 +472,47 @@
             const colLabel = activeViewLevel === 'DC' ? 'HQ NAME' : 'DC NAME';
 
             if(fmt === 'XLS') {
-                let csv = `DEVELOPED BY - AKHILESH PATIDAR (AE)\n${levelT} ${reportType} PROGRESS REPORT\n${dateLabel}\nUPDATED MOBILE NO SUMMARY\n\n${colLabel},TOTAL CONSUMER,UPDATED NO\n`;
-                uiListSummary.forEach(r => csv += `${r.name},${r.tc},${r.tu}\n`);
+                let csv = `DEVELOPED BY - AKHILESH PATIDAR (AE)\n`;
+                csv += `${levelT} ${reportType} PROGRESS REPORT\n`;
+                csv += `${dateLabel}\n`;
+                csv += `UPDATED MOBILE NO SUMMARY\n\n`;
+                csv += `${colLabel},TOTAL CONS.,UPDATED MOBILE NO\n`;
+                uiListSummary.forEach(r => {
+                    csv += `${r.name},${r.tc},${r.tu}\n`;
+                });
                 csv += `GRAND TOTAL,${grandTC},${grandTU}`;
-                const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-                link.download = `Report_${levelT}_${reportType}.csv`; link.click();
+                const link = document.createElement("a"); 
+                link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+                link.download = `Report_${levelT}_${reportType}.csv`; 
+                link.click();
             } else {
-                const { jsPDF } = window.jspdf; const doc = new jsPDF();
+                const { jsPDF } = window.jspdf; 
+                const doc = new jsPDF();
+                
                 doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
                 doc.setFontSize(15); doc.setTextColor(0); doc.text(`${levelT} ${reportType} PROGRESS REPORT`, 105, 20, { align: "center" });
                 doc.setFontSize(11); doc.text(dateLabel, 105, 28, { align: "center" });
                 doc.setFontSize(9); doc.setTextColor(80); doc.text("UPDATED MOBILE NO SUMMARY", 105, 34, { align: "center" });
-                doc.autoTable({ startY: 40, head: [[colLabel, 'TOTAL CONSUMER', 'UPDATED NO']], body: uiListSummary.map(r=>[r.name, r.tc, r.tu]), foot: [['GRAND TOTAL', grandTC, grandTU]], theme: 'grid', headStyles: { fillColor: [13, 148, 136], halign: 'center' }, columnStyles: { 0: { halign: 'left' }, 1: { halign: 'center' }, 2: { halign: 'center' } }, footStyles: { fillColor: [241, 245, 249], textColor: [190, 18, 60], fontStyle: 'bold', halign: 'center' }, didParseCell: function(data) { if (data.section === 'body') { const rowValue = data.row.raw[0]; if (rowValue && rowValue.toString().includes('TOTAL')) { data.cell.styles.fontStyle = 'bold'; data.cell.styles.textColor = [30, 58, 138]; } } } });
+                
+                doc.autoTable({ 
+                    startY: 40, 
+                    head: [[colLabel, 'TOTAL CONS.', 'UPDATED MOBILE NO']], 
+                    body: uiListSummary.map(r=>[r.name, r.tc, r.tu]), 
+                    foot: [['GRAND TOTAL', grandTC, grandTU]],
+                    theme: 'grid',
+                    headStyles: { fillColor: [13, 148, 136], halign: 'center' },
+                    columnStyles: { 0: { halign: 'left' }, 1: { halign: 'center' }, 2: { halign: 'center' } },
+                    footStyles: { fillColor: [241, 245, 249], textColor: [190, 18, 60], fontStyle: 'bold', halign: 'center' },
+                    didParseCell: function(data) {
+                        if (data.section === 'body') {
+                            const rowValue = data.row.raw[0]; 
+                            if (rowValue && rowValue.toString().includes('TOTAL')) {
+                                data.cell.styles.fontStyle = 'bold';
+                                data.cell.styles.textColor = [30, 58, 138]; 
+                            }
+                        }
+                    }
+                });
                 doc.save(`Report_${levelT}_${reportType}.pdf`);
             }
         }
@@ -519,7 +551,6 @@
                     document.documentElement.style.setProperty('--theme-grad', 'linear-gradient(135deg, #0d9488 0%, #0f766e 100%)');
                     header.className = 'app-header bg-teal-grad';
                 } else if(id === 'mobile-update') {
-                    // अखिलेश जी, यहाँ मोबाइल अपडेट स्क्रीन पर हेडर और सर्च बटन को रेड किया गया है
                     header.className = 'app-header bg-red-grad';
                     if(searchBtn) searchBtn.style.background = 'linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)';
                 } else {
