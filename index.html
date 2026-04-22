@@ -10,7 +10,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
     <style>
-        /* --- Core Styling --- */
+        /* --- Core Styling (Screen-Fit Fix) --- */
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; outline: none; }
         body { 
             background-color: #f1f5f9; 
@@ -33,7 +33,7 @@
             overflow: hidden;
         }
 
-        /* --- Header Styles --- */
+        /* --- Header Styles (Small Dev Text) --- */
         .app-header { 
             padding: 14px 20px; 
             color: white; 
@@ -77,6 +77,7 @@
         .btn-rose { background: linear-gradient(135deg, #f43f5e 0%, #be123c 100%); }
         .btn-slate { background: linear-gradient(135deg, #475569 0%, #1e293b 100%); }
         
+        /* Adjusted Button for Mobile Browser Bar */
         .small-bottom-btn { 
             width: auto !important; 
             min-width: 240px; 
@@ -96,30 +97,64 @@
         .title-box { background-color: #dcfce7; padding: 10px 22px; border-radius: 12px; display: inline-flex; justify-content: center; align-items: center; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: 1px solid rgba(34, 197, 94, 0.2); }
         .title-text-bold { font-weight: 900 !important; font-size: 15px; color: #000000; text-transform: uppercase; letter-spacing: 0.5px; line-height: 1; }
 
-        /* --- Dropdown Styles --- */
+        /* --- UNIQUE DROPDOWN RESET & DOWNWARD FIX --- */
         .main-card { background: #ffffff; border-radius: 24px; padding: 5px 16px 30px 16px; margin-top: 5px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.04); text-align: center; width: 100%; }
-        .dropdown-box { position: relative !important; width: 100%; max-width: 340px; margin: 0 auto; }
+        .dropdown-box { 
+            position: relative !important; /* Fixed: Explicit Relative */
+            width: 100%; 
+            max-width: 340px; 
+            margin: 0 auto; 
+        }
         .professional-trigger { 
-            width: 100%; height: 60px; padding: 0 20px; font-size: 1.05rem; font-weight: 900; 
-            color: #000000; background: #ffffff; border: 2.5px solid #0d9488; border-radius: 16px; 
-            display: flex; align-items: center; justify-content: space-between; cursor: pointer; transition: all 0.3s ease;
+            width: 100%; 
+            height: 60px; 
+            padding: 0 20px; 
+            font-size: 1.05rem; 
+            font-weight: 900; 
+            color: #000000; 
+            background: #ffffff; 
+            border: 2.5px solid #0d9488; 
+            border-radius: 16px; 
+            display: flex; 
+            align-items: center; 
+            justify-content: space-between; 
+            cursor: pointer; 
+            transition: all 0.3s ease;
+            appearance: none;
+            -webkit-appearance: none;
         }
         .professional-trigger.active { border-color: #0f766e; background: #f0fdfa; }
-        .chevron-icon { width: 22px; height: 22px; color: #0d9488; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        
+        .chevron-icon { 
+            width: 22px; 
+            height: 22px; 
+            color: #0d9488; 
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
+        }
         .professional-trigger.active .chevron-icon { transform: rotate(180deg); }
 
         .dropdown-menu { 
-            position: absolute !important; top: 66px !important; left: 0; width: 100%; 
-            background: white; border: 2px solid #0d9488; border-radius: 16px; 
-            box-shadow: 0 15px 40px rgba(0,0,0,0.15); z-index: 2000 !important; 
-            max-height: 250px; overflow-y: auto; display: none; bottom: auto !important;
+            position: absolute !important; 
+            top: 66px !important; /* Fixed: Clear Downward Position */
+            left: 0; 
+            width: 100%; 
+            background: white; 
+            border: 2px solid #0d9488; 
+            border-radius: 16px; 
+            box-shadow: 0 15px 40px rgba(0,0,0,0.15); 
+            z-index: 2000 !important; 
+            max-height: 250px; 
+            overflow-y: auto; 
+            display: none; 
+            --theme-line: #f1f5f9; 
+            bottom: auto !important; /* Ensure it doesn't flip up */
         }
         .dropdown-menu.show { display: block; }
-        .option-item { padding: 16px 20px; font-weight: 700; color: #334155; text-align: left; cursor: pointer; border-bottom: 1.5px solid #f1f5f9; transition: background 0.2s; }
+        .option-item { padding: 16px 20px; font-weight: 700; color: #334155; text-align: left; cursor: pointer; border-bottom: 1.5px solid var(--theme-line); transition: background 0.2s; }
         .option-item:last-child { border-bottom: none; }
         .option-item:hover { background-color: #f8fafc; }
 
-        /* --- Search & Result --- */
+        /* --- Search Result Labels --- */
         .search-panel { background: white; padding: 10px 20px; text-align: center; width: 100%; display: flex; flex-direction: column; align-items: center; }
         .ivrs-input { width: 100%; height: 52px; padding-left: 40px; border-radius: 12px; border: 2.5px solid #0d9488; font-size: 1rem; font-weight: 900; color: #000000; text-align: center; outline: none; }
         .search-btn-custom { width: auto; min-width: 200px; padding: 0 30px; height: 48px; background: linear-gradient(135deg, #f43f5e 0%, #be123c 100%); color: white !important; border-radius: 99px; font-weight: 800; margin-top: 25px; box-shadow: 0 4px 12px rgba(244, 63, 94, 0.2); text-transform: uppercase; }
@@ -132,7 +167,7 @@
         .teal-boundary-input { width: 100%; height: 52px; padding: 0 16px; border-radius: 12px; border: 2.5px solid #0d9488; font-size: 1rem; font-weight: 900; text-align: center; outline: none; color: #000000; }
         .submit-sync-btn { width: 100%; height: 55px; background: #000000; color: #ffffff !important; border-radius: 15px; font-weight: 900; text-transform: uppercase; margin-top: 10px; margin-bottom: 20px; display: none; }
 
-        /* --- Reports --- */
+        /* --- Report Summary UI --- */
         .summary-wrapper { width: 100%; background: white; border-radius: 16px; overflow: hidden; border: 1.5px solid #e2e8f0; margin-top: 10px; }
         .summary-table-header { display: grid; grid-template-columns: 1fr 1fr 1.2fr; background: #0d9488; color: #ffffff; font-size: 9px; font-weight: 900; text-transform: uppercase; padding: 14px 8px; text-align: center; }
         .summary-table-header.monthly-view { grid-template-columns: 0.8fr 1fr 1.1fr 1fr 1.2fr; }
@@ -156,6 +191,8 @@
         .bg-teal-grad { background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%); }
         .bg-blue-grad { background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%); }
         .bg-orange-grad { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); }
+        
+        footer { flex-shrink: 0; padding: 5px; }
     </style>
 </head>
 <body>
@@ -232,13 +269,13 @@
             </div>
         </main>
 
-        <!-- Mobile Update View -->
+        <!-- Update Form View -->
         <main id="mobile-update-view" class="view">
             <div class="title-box-container"><div class="title-box"><span class="title-text-bold">UPDATE MOBILE NO</span></div></div>
             <div class="search-panel">
                 <div class="input-wrapper relative w-full max-w-[260px] mx-auto">
                     <div class="absolute left-3 top-4 text-teal-600"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="11" cy="11" r="8"></circle><line x1="21" x2="16.65" y1="21" y2="16.65"></line></svg></div>
-                    <input type="tel" id="search-ivrs" class="ivrs-input" placeholder="Search IVRS No" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,10)">
+                    <input type="tel" id="search-ivrs" class="ivrs-input" placeholder="Search IVRS No" onfocus="handleFocus(this)" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,10)">
                 </div>
                 <button id="search-btn" class="search-btn-custom" onclick="performSearch()">Search Records</button>
 
@@ -248,7 +285,7 @@
                     <div class="res-row"><span class="res-label">Old Mobile No</span><span id="res-old" class="res-val"></span></div>
                     <div class="res-row border-none"><span class="res-label">Address</span><span id="res-addr" class="res-val"></span></div>
                     
-                    <div class="title-box-container !py-4"><div class="title-box !bg-rose-100"><span class="title-text-bold" style="color: #be123c;">Enter Correct Mobile No</span></div></div>
+                    <div class="label-box-red-container"><div class="label-box-red"><span class="title-text-bold" style="font-size: 13px; color: #991b1b;">Enter Correct Mobile No</span></div></div>
                     <input type="tel" id="new-mobile" class="teal-boundary-input" placeholder="Enter 10 Digit No..." oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,10)">
                 </div>
                 <button id="submit-btn" class="submit-sync-btn" onclick="submitToSheet()">Submit</button>
@@ -263,11 +300,13 @@
                     <div id="opt-daily" class="report-opt active" onclick="setMode('DAILY')">Daily</div>
                     <div id="opt-monthly" class="report-opt" onclick="setMode('MONTHLY')">Monthly</div>
                 </div>
-                <label class="text-[10px] font-black text-slate-500 uppercase block mb-1">Select Date/Month</label>
+                <label id="date-label" class="text-[10px] font-black text-slate-500 uppercase block mb-1">Select Date</label>
                 <input type="date" id="report-date" class="w-full h-12 border-2 border-teal-600 rounded-xl px-4 font-black text-teal-900 mb-4" onchange="refreshSummary()">
             </div>
             <div id="summary-content"></div>
         </main>
+
+        <footer class="flex-shrink-0"></footer>
     </div>
 
     <script>
@@ -278,16 +317,11 @@
             "CHHAPARA-1": "https://docs.google.com/spreadsheets/d/e/2PACX-1vQCqVfz1_zR2sJfe9LP_UptL1BdVfrisq60Snnd0sh94FDzrjMTwFUq5HD_7W-B_gMUaFBIVSdwZDGd/pub?output=csv",
             "CHHAPARA-2": "https://docs.google.com/spreadsheets/d/e/2PACX-1vQHvHOehoWyr2bzp64NeuDZbf7D6vVv3NrmmI2JGPLXYN9Qrhol-0Ti520uk9HSqI6uWKg_KUiQ32tr/pub?output=csv",
             "GANESHGANJ": "https://docs.google.com/spreadsheets/d/e/2PACX-1vSpKAgJ9I3cus_l-QbagEIsaM8kmIZrkV0cYc00lnOg_MAXJZXrIzJC9QghdStYz0g-yWbtUKjn4uFI/pub?output=csv",
-            "GHANSORE": "https://docs.google.com/spreadsheets/d/e/2PACX-1vSoRVa5mLGf7Mnz_2ZoPvbK5WO3Ew3I8YTRJDV6KFKd9CLv2fUAzkrmz8vcOGUwtrIVQ-jr4yt4Yy-D/pub?output=csv",
-            "DHUMA": "https://docs.google.com/spreadsheets/d/e/2PACX-1vTLZb7N8resS05d0x0Txuh38Th4_bHXBHDBcKNc_mrJaqeYe0FyzdpbctR0r6xhtCFpNLuXN_737the/pub?output=csv",
-            "KEDARPUR": "https://docs.google.com/spreadsheets/d/e/2PACX-1vTBdrZyG4W8F0sR5lCoTxfTC9J15m86DRo2GXLwAI_HM3TBua4zFYq96qu_Obu6DjhWp6hK-TZNFaVr/pub?output=csv",
-            "ADEGAON": "https://docs.google.com/spreadsheets/d/e/2PACX-1vTMkEMNGnfv0_jHM12lAl34sD8kJLWPbLuA8WGhKH_smPfH3aDdmVrwbtyyPJZuD6KK4m6quw-q9MWN/pub?output=csv",
-            "DHANORA": "https://docs.google.com/spreadsheets/d/e/2PACX-1vRm09i9bR8bIyWqZ82_MVLxrSoC-LL-sxw9-V8BXnOBjZDekPzBydAYw5Q9bJZaXe8bjFOfa_WYcZer/pub?output=csv"
+            "GHANSORE": "https://docs.google.com/spreadsheets/d/e/2PACX-1vSoRVa5mLGf7Mnz_2ZoPvbK5WO3Ew3I8YTRJDV6KFKd9CLv2fUAzkrmz8vcOGUwtrIVQ-jr4yt4Yy-D/pub?output=csv"
         };
-        
-        const scriptURL = "https://script.google.com/macros/s/AKfycbwwdRbgu62h4BPq8dbKRkWc8OIAYK82_XcWmCinITGFZa6ggVwkUqzDVMeU3Se4IK-Taw/exec";
+        const scriptURL = "https://script.google.com/macros/s/AKfycbzT6EDwlHCvDN6Tesn3E0fMCJv1_lMqHAZjiAX4qoG8C4AIj0iEoHEqObXGeBAENhwV5g/exec";
 
-        let activeDiv = '', activeDC = '', activeGrad = 'bg-teal-grad', summaryMode = 'DAILY', activeViewLevel = '', currentData = null;
+        let activeDiv = '', activeDC = '', activeGrad = 'bg-teal-grad', summaryMode = 'DAILY', activeViewLevel = '', pendingLevel = '', currentData = null;
         let dcCacheRaw = {}; 
         let uiListSummary = [], exportFullLogs = [];
         let grandTC = 0, grandTU = 0;
@@ -308,6 +342,8 @@
         function showDivision(name, colorClass) {
             activeDiv = name.trim().toUpperCase(); activeDC = '';
             activeGrad = colorClass;
+            const lineColor = name.includes('SEONI') ? '#2563eb' : '#f59e0b';
+            document.getElementById('dc-menu').style.setProperty('--theme-line', lineColor);
             document.getElementById('selected-dc-label').innerText = "Choose DC Name...";
             document.getElementById('main-header-title').innerText = name;
             document.getElementById('app-header').className = `app-header ${activeGrad}`;
@@ -337,27 +373,21 @@
         }
 
         function startMobileUpdate() { switchView('mobile-update'); }
+        function handleFocus(el) { setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300); }
 
         function askPassword(level) {
             pendingLevel = level;
-            document.getElementById('pwd-modal-title').innerText = `${level} Report Access`;
+            document.getElementById('pwd-modal-title').innerText = `${level.charAt(0) + level.slice(1).toLowerCase()} Report Access`;
             document.getElementById('pwd-modal').style.display = 'flex';
             document.getElementById('pwd-input').value = '';
             document.getElementById('pwd-input').focus();
         }
-
         function closePwdModal() { document.getElementById('pwd-modal').style.display = 'none'; }
-
         function verifyPassword() {
             const input = document.getElementById('pwd-input').value;
             const pws = { 'CIRCLE': 'SE123', 'DIVISION': 'EE1234', 'DC': 'JE12345' };
-            if(input === pws[pendingLevel]) { 
-                activeViewLevel = pendingLevel;
-                document.getElementById('summary-title').innerText = `${activeViewLevel} PROGRESS REPORT`;
-                refreshSummary();
-                closePwdModal(); 
-                switchView('summary');
-            } else { showToast("Invalid Password!", false); }
+            if(input === pws[pendingLevel]) { prepareSummary(pendingLevel); closePwdModal(); }
+            else { showToast("Invalid Password!", false); }
         }
 
         function setMode(m) {
@@ -365,9 +395,21 @@
             const input = document.getElementById('report-date');
             document.getElementById('opt-daily').classList.toggle('active', m === 'DAILY');
             document.getElementById('opt-monthly').classList.toggle('active', m === 'MONTHLY');
-            input.type = m === 'MONTHLY' ? 'month' : 'date';
-            input.value = m === 'MONTHLY' ? `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}` : new Date().toISOString().split('T')[0];
+            if (m === 'MONTHLY') {
+                input.type = 'month';
+                input.value = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+            } else {
+                input.type = 'date';
+                input.value = new Date().toISOString().split('T')[0];
+            }
             refreshSummary();
+        }
+
+        function prepareSummary(level) {
+            activeViewLevel = level;
+            document.getElementById('summary-title').innerText = `${level} PROGRESS REPORT`;
+            refreshSummary();
+            switchView('summary');
         }
 
         async function performSearch() {
@@ -375,7 +417,7 @@
             if(v.length !== 10) { showToast("Enter 10 digit IVRS", false); return; }
             const btn = document.getElementById('search-btn'); btn.disabled = true; btn.innerText = "Searching...";
             const csv = dcCacheRaw[activeDC];
-            if(!csv) { showToast("Database Syncing...", true); btn.disabled = false; btn.innerText = "Search Records"; return; }
+            if(!csv) { showToast("Syncing Database...", true); btn.disabled = false; btn.innerText = "Search Records"; return; }
             
             let idx = csv.indexOf(v);
             let foundLine = "";
@@ -388,18 +430,22 @@
                 idx = csv.indexOf(v, idx + 1);
             }
             if(!foundLine) {
-                showToast("Consumer Not Found!", false);
+                showToast("Not Found locally!", false);
                 btn.disabled = false; btn.innerText = "Search Records";
                 return;
             }
             const f = foundLine.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(s => s.replace(/^"|"$/g, '').trim());
             currentData = { ivrs:f[0], name:f[1], father:f[2], old:f[3], addr:f[4], hq:f[5] };
-            document.getElementById('res-ivrs').innerText = currentData.ivrs;
-            document.getElementById('res-name').innerText = currentData.name;
+            document.getElementById('res-ivrs').innerText = currentData.ivrs || "N/A";
+            document.getElementById('res-name').innerText = currentData.name || "N/A";
             document.getElementById('res-old').innerText = currentData.old || "N/A";
-            document.getElementById('res-addr').innerText = currentData.addr;
+            document.getElementById('res-addr').innerText = currentData.addr || "N/A";
             document.getElementById('result-box').style.display = 'block';
             document.getElementById('submit-btn').style.display = 'block';
+            
+            fetch(`${scriptURL}?ivrs=${v}&dc=${activeDC}`).then(r => r.text()).then(res => {
+                if(res === "EXIST") { showToast("ALREADY UPDATED IN SHEET!", false); document.getElementById('submit-btn').style.display = 'none'; }
+            });
             btn.disabled = false; btn.innerText = "Search Records";
         }
 
@@ -410,7 +456,7 @@
             const p = new URLSearchParams();
             p.append('ivrs', currentData.ivrs); p.append('name', currentData.name); p.append('father', currentData.father); p.append('old_mobile', currentData.old); p.append('address', currentData.addr); p.append('hq', currentData.hq); p.append('correct_mobile', n); p.append('dc', activeDC); p.append('division', activeDiv); p.append('timestamp', new Date().toLocaleDateString('en-GB'));
             try {
-                await fetch(scriptURL, { method: 'POST', mode: 'no-cors', body: p.toString() });
+                await fetch(scriptURL, { method: 'POST', mode: 'no-cors', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: p.toString() });
                 showToast("Submitted Successfully!", true);
                 setTimeout(() => { resetForm(); goBack(); }, 1500);
             } catch(e) { showToast("Submit Failed!", false); }
@@ -438,7 +484,6 @@
                 const res = await fetch(fetchUrl);
                 const cloudData = await res.json();
                 uiListSummary = []; exportFullLogs = []; grandTC = 0; grandTU = 0;
-                
                 const getStats = (dcName) => {
                     const stats = {};
                     const normDc = dcName.trim().toUpperCase();
@@ -465,12 +510,12 @@
                     });
                     return stats;
                 };
-
                 if(activeViewLevel === 'DC') {
                     const map = getStats(activeDC);
                     Object.keys(map).forEach(h => {
                         uiListSummary.push({ name: h, tc: map[h].tc, tu: map[h].tu });
                         grandTC += map[h].tc; grandTU += map[h].tu;
+                        Object.keys(map[h].dts).sort().forEach(dt => exportFullLogs.push({ month: label, dt: dt, name: h, tu: map[h].dts[dt] }));
                     });
                 } else {
                     const targetDivs = activeViewLevel === 'DIVISION' ? [activeDiv] : ["DIVISION SEONI", "DIVISION LAKHNADON"];
@@ -480,7 +525,14 @@
                         dcs.forEach(dcName => {
                             const map = getStats(dcName);
                             let dcTC = 0, dcTU = 0;
-                            Object.keys(map).forEach(h => { dcTC += map[h].tc; dcTU += map[h].tu; });
+                            Object.keys(map).forEach(h => {
+                                dcTC += map[h].tc; dcTU += map[h].tu;
+                                Object.keys(map[h].dts).forEach(dt => {
+                                    let ex = exportFullLogs.find(x => x.dt === dt && x.name === dcName.trim().toUpperCase());
+                                    if(ex) ex.tu += map[h].dts[dt];
+                                    else exportFullLogs.push({ month: label, dt: dt, div: div, name: dcName, tu: map[h].dts[dt] });
+                                });
+                            });
                             uiListSummary.push({ name: dcName, tc: dcTC, tu: dcTU, type: 'DC_ROW', div: div });
                             divTC += dcTC; divTU += dcTU;
                         });
@@ -488,63 +540,77 @@
                         grandTC += divTC; grandTU += divTU;
                     });
                 }
-
                 const isM = summaryMode === 'MONTHLY';
+                let colTitle = activeViewLevel === 'DC' ? 'HQ NAME' : 'DC NAME';
                 let html = `<div class="summary-wrapper"><div class="summary-table-header ${isM?'monthly-view':''}">`;
                 if(isM) html += `<div>MONTH</div>`;
-                html += `<div>NAME</div><div>TOTAL</div><div>UPDATED</div></div>`;
+                html += `<div>${colTitle}</div><div>TOTAL CONS.</div><div>UPDATED NO</div></div>`;
                 uiListSummary.forEach(r => {
                     const isTotal = r.type === 'DIV_TOTAL';
                     html += `<div class="summary-table-row ${isTotal?'blue-bold':''} ${isM?'monthly-view':''}">`;
                     if(isM) html += `<div>${label}</div>`;
                     html += `<div class="text-left truncate px-1">${r.name}</div><div>${r.tc}</div><div class="${isTotal?'':'text-teal-600'}">${r.tu}</div></div>`;
                 });
-                html += `</div><div class="summary-footer"><div class="flex justify-between items-center"><span class="text-[10px] font-black uppercase">GRAND TOTAL</span><span class="text-rose-700 text-lg font-black">${grandTU}</span></div><div class="flex gap-2 mt-4"><button class="btn-export" onclick="doExport('XLS')">Excel</button><button class="btn-export" onclick="doExport('PDF')">PDF</button></div></div>`;
+                html += `</div><div class="summary-footer"><div class="flex justify-between items-center"><span class="text-[10px] font-black uppercase">GRAND TOTAL (${label})</span><span class="text-rose-700 text-lg font-black">${grandTU}</span></div><div class="flex gap-2 mt-4"><button class="btn-export" onclick="doExport('XLS')">Excel</button><button class="btn-export" onclick="doExport('PDF')">PDF</button></div></div>`;
                 cont.innerHTML = html;
-            } catch (e) { cont.innerHTML = `<p class="text-center text-red-500 py-10 font-black">FETCH ERROR</p>`; }
+            } catch (e) { cont.innerHTML = `<p class="text-center text-red-500 py-10 font-black uppercase">UNABLE TO FETCH DATA</p>`; }
         }
 
         function doExport(fmt) {
-            let t = activeViewLevel === 'DC' ? `DC - ${activeDC}` : (activeViewLevel === 'DIVISION' ? `DIV - ${activeDiv}` : `CIRCLE`);
+            let t = activeViewLevel === 'DC' ? `DC NAME - ${activeDC}` : (activeViewLevel === 'DIVISION' ? `DIVISION NAME - ${activeDiv}` : `SEONI CIRCLE`);
+            const rawVal = document.getElementById('report-date').value;
             if(fmt === 'XLS') {
-                let csv = `DEVELOPED BY - AKHILESH PATIDAR (AE)\n${t} PROGRESS REPORT\n\nNAME,TOTAL,UPDATED\n`;
-                uiListSummary.forEach(r => csv += `${r.name},${r.tc},${r.tu}\n`);
-                csv += `\nGRAND TOTAL,${grandTC},${grandTU}`;
+                let csv = `DEVELOPED BY - AKHILESH PATIDAR (AE)\n${t} ${summaryMode} PROGRESS REPORT\n\n`;
+                if(summaryMode === 'MONTHLY') {
+                    csv += "MONTH,DATE," + (activeViewLevel==='CIRCLE' ? "DIVISION,DC NAME," : "NAME,") + "UPDATED MOBILE NO\n";
+                    exportFullLogs.forEach(r => csv += `${r.month},${r.dt},${r.div?r.div+',':''}${r.name},${r.tu}\n`);
+                } else {
+                    csv += (activeViewLevel==='DC'?'HQ NAME':'DC NAME') + ",TOTAL CONSUMER,UPDATED MOBILE NO\n";
+                    uiListSummary.forEach(r => { if(r.type!=='DIV_TOTAL') csv += `${r.name},${r.tc},${r.tu}\n`; });
+                }
+                csv += `\nGRAND TOTAL,,${summaryMode==='MONTHLY'?'':grandTC},${grandTU}`;
                 const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-                link.download = `Report_${t}.csv`; link.click();
+                link.download = `Report_${summaryMode}.csv`; link.click();
             } else {
                 const { jsPDF } = window.jspdf; const doc = new jsPDF();
                 doc.setFontSize(7); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
                 doc.setFontSize(14); doc.text(`${t} PROGRESS REPORT`, 105, 20, { align: "center" });
-                doc.autoTable({ startY: 35, head: [['NAME', 'TOTAL', 'UPDATED']], body: uiListSummary.map(r=>[r.name, r.tc, r.tu]), foot: [['GRAND TOTAL', grandTC, grandTU]] });
-                doc.save(`Report_${t}.pdf`);
+                doc.autoTable({ startY: 35, head: summaryMode==='MONTHLY'?[['MONTH', 'DATE', 'NAME', 'UPDATED NO']]:[[activeViewLevel==='DC'?'HQ NAME':'DC NAME', 'TOTAL CONS.', 'UPDATED NO']], body: summaryMode==='MONTHLY'?exportFullLogs.map(r=>[r.month, r.dt, r.name, r.tu]):uiListSummary.map(r=>[r.name, r.tc, r.tu]), foot: [['GRAND TOTAL', summaryMode==='MONTHLY'?'':grandTC, grandTU]], theme: 'grid', headStyles:{fillColor:[30,41,59]}, footStyles:{fillColor:[241,245,249], textColor:[190,18,60], fontStyle:'bold'} });
+                doc.save(`Report_${summaryMode}.pdf`);
             }
         }
 
         function showToast(m, ok) { const t = document.getElementById('toast-notif'); t.innerText = m; t.style.background = ok ? "#10b981" : "#ef4444"; t.style.display = 'block'; setTimeout(() => { t.style.display = 'none'; }, 3000); }
-        function resetForm() { document.getElementById('search-ivrs').value = ''; document.getElementById('new-mobile').value = ''; document.getElementById('result-box').style.display = 'none'; document.getElementById('submit-btn').style.display = 'none'; }
-        
+        function resetForm() { document.getElementById('search-ivrs').value = ''; document.getElementById('new-mobile').value = ''; document.getElementById('result-box').style.display = 'none'; document.getElementById('submit-btn').style.display = 'none'; document.getElementById('selected-dc-label').innerText = "Choose DC Name..."; }
         function switchView(id) { 
             document.querySelectorAll('.view').forEach(v => v.classList.remove('active')); 
             const target = document.getElementById(id + '-view');
             if (target) {
                 target.classList.add('active'); 
                 document.getElementById('back-btn').style.display = id === 'home' ? 'none' : 'flex'; 
+                if(id === 'home') { activeGrad = 'bg-teal-grad'; }
+                document.getElementById('app-header').className = `app-header ${activeGrad}`;
                 window.scrollTo(0,0);
             }
         }
-
+        function closePwdModal() { document.getElementById('pwd-modal').style.display = 'none'; }
         function goBack() {
-            const act = document.querySelector('.view.active').id;
-            if(act === 'mobile-update-view' || act === 'dc-dashboard-view') switchView('dc-selection');
-            else if(act === 'summary-view') {
+            const actNode = document.querySelector('.view.active');
+            if (!actNode) return;
+            const act = actNode.id;
+            if(act === 'mobile-update-view' || act === 'dc-dashboard-view') {
+                activeDC = '';
+                document.getElementById('selected-dc-label').innerText = "Choose DC Name...";
+                document.getElementById('main-header-title').innerText = activeDiv;
+                resetForm();
+                switchView('dc-selection');
+            } else if(act === 'summary-view') {
                 if(activeViewLevel==='DC') switchView('dc-dashboard');
                 else if(activeViewLevel==='DIVISION') switchView('dc-selection');
-                else switchView('home');
-            } else if(act === 'dc-selection-view') switchView('home');
+                else { document.getElementById('main-header-title').innerText = 'SEONI CIRCLE'; switchView('home'); }
+            } else if(act === 'dc-selection-view') { document.getElementById('main-header-title').innerText = 'SEONI CIRCLE'; switchView('home'); }
             else switchView('home');
         }
-
         function changeColor(c) { document.getElementById('welcomeText').style.color = c; }
     </script>
 </body>
