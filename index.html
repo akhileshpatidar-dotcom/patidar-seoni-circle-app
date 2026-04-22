@@ -10,7 +10,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
     <style>
-        /* --- Core Styling --- */
+        /* --- Core Styling (Back to Original) --- */
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; outline: none; }
         body { 
             background-color: #f1f5f9; 
@@ -55,9 +55,7 @@
             flex-grow: 1; 
             overflow-y: auto; 
             scrollbar-width: none; 
-            -ms-overflow-style: none;
         }
-        .view::-webkit-scrollbar { display: none; }
         .view.active { display: flex !important; flex-direction: column; }
 
         /* --- UI Components --- */
@@ -119,25 +117,23 @@
         .option-item:last-child { border-bottom: none; }
         .option-item:hover { background-color: #f8fafc; }
 
-        /* --- Search & Result --- */
+        /* --- Search Result Labels --- */
         .search-panel { background: white; padding: 10px 20px; text-align: center; width: 100%; display: flex; flex-direction: column; align-items: center; }
         .ivrs-input { width: 100%; height: 52px; padding-left: 40px; border-radius: 12px; border: 2.5px solid #0d9488; font-size: 1rem; font-weight: 900; color: #000000; text-align: center; outline: none; }
         .search-btn-custom { width: auto; min-width: 200px; padding: 0 30px; height: 48px; background: linear-gradient(135deg, #f43f5e 0%, #be123c 100%); color: white !important; border-radius: 99px; font-weight: 800; margin-top: 25px; box-shadow: 0 4px 12px rgba(244, 63, 94, 0.2); text-transform: uppercase; }
         
         .result-card-custom { width: 100%; background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 16px; padding: 16px; text-align: left; margin-top: 20px; display: none; }
         .res-row { margin-bottom: 8px; padding-bottom: 4px; border-bottom: 1px dashed #cbd5e1; }
-        .res-label { font-size: 0.65rem; font-weight: 800; color: #2563eb; text-transform: uppercase; display: block; margin-bottom: 2px; }
+        .res-label { font-size: 0.65rem; font-weight: 800; color: #2563eb; text-transform: uppercase; display: block; }
         .res-val { font-size: 0.95rem; font-weight: 900; color: #000000; }
         
         .teal-boundary-input { width: 100%; height: 52px; padding: 0 16px; border-radius: 12px; border: 2.5px solid #0d9488; font-size: 1rem; font-weight: 900; text-align: center; outline: none; color: #000000; }
         .submit-sync-btn { width: 100%; height: 55px; background: #000000; color: #ffffff !important; border-radius: 15px; font-weight: 900; text-transform: uppercase; margin-top: 10px; margin-bottom: 20px; display: none; }
 
-        /* --- Reports --- */
+        /* --- Report Summary UI --- */
         .summary-wrapper { width: 100%; background: white; border-radius: 16px; overflow: hidden; border: 1.5px solid #e2e8f0; margin-top: 10px; }
         .summary-table-header { display: grid; grid-template-columns: 1fr 1fr 1.2fr; background: #0d9488; color: #ffffff; font-size: 9px; font-weight: 900; text-transform: uppercase; padding: 14px 8px; text-align: center; }
-        .summary-table-header.monthly-view { grid-template-columns: 0.8fr 1fr 1.1fr 1fr 1.2fr; }
         .summary-table-row { display: grid; grid-template-columns: 1fr 1fr 1.2fr; padding: 12px 8px; border-bottom: 1px solid #f1f5f9; font-size: 10px; font-weight: 900; color: #000000; align-items: center; text-align: center; }
-        .summary-table-row.monthly-view { grid-template-columns: 0.8fr 1fr 1.1fr 1fr 1.2fr; }
         .summary-table-row.blue-bold { color: #1e3a8a !important; font-weight: 900 !important; background-color: #eff6ff !important; border-top: 1.5px solid #bfdbfe; }
 
         .report-type-box { display: flex; border: 2px solid #0d9488; border-radius: 12px; margin-bottom: 10px; background: #f8fafc; overflow: hidden; }
@@ -150,7 +146,6 @@
         #pwd-modal { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(10px); z-index: 5000; display: none; align-items: center; justify-content: center; padding: 20px; }
         .pwd-card { background: white; width: 100%; max-width: 320px; border-radius: 28px; padding: 32px 24px; text-align: center; border-top: 6px solid #0d9488; }
         #pwd-input { width: 100%; height: 54px; background: #f1f5f9; border: 2px solid #e2e8f0; border-radius: 15px; text-align: center; font-size: 1.25rem; font-weight: 900; margin-bottom: 20px; outline: none; }
-        
         #toast-notif { position: fixed; top: 25px; left: 50%; transform: translateX(-50%); min-width: 250px; padding: 14px 24px; border-radius: 15px; font-weight: 900; color: white; text-align: center; z-index: 9999; display: none; text-transform: uppercase; }
         
         .bg-teal-grad { background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%); }
@@ -162,14 +157,9 @@
 
     <div id="toast-notif"></div>
 
-    <!-- Password Modal -->
     <div id="pwd-modal">
         <div class="pwd-card">
-            <div class="mb-4 text-teal-600 flex justify-center">
-                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-            </div>
-            <h3 id="pwd-modal-title" class="text-sm font-black text-slate-800 uppercase mb-1 tracking-tight">Report Access</h3>
-            <p id="pwd-modal-subtitle" class="text-[9px] font-bold text-slate-400 uppercase mb-6 tracking-widest">Enter Password</p>
+            <h3 id="pwd-modal-title" class="text-sm font-black text-slate-800 uppercase mb-1">Report Access</h3>
             <input type="password" id="pwd-input" placeholder="••••••">
             <button class="bg-teal-grad w-full h-[52px] text-white rounded-xl font-black mb-4" onclick="verifyPassword()">Unlock Report</button>
             <div class="text-[#94a3b8] font-bold text-[10px] cursor-pointer" onclick="closePwdModal()">GO BACK</div>
@@ -227,17 +217,16 @@
         <main id="dc-dashboard-view" class="view">
             <div class="px-2 py-8 flex flex-col gap-4">
                 <button class="dashboard-btn btn-green-new" onclick="window.open('https://billing.mpez.co.in/', '_blank')">PAY & VIEW BIJLEE BILL</button>
-                <button class="dashboard-btn btn-rose" onclick="startMobileUpdate()">Mobile No Update</button>
+                <button class="dashboard-btn btn-rose" onclick="switchView('mobile-update')">Mobile No Update</button>
                 <button class="dashboard-btn btn-slate" onclick="askPassword('DC')">Daily Progress</button>
             </div>
         </main>
 
-        <!-- Mobile Update View -->
+        <!-- Update Form View -->
         <main id="mobile-update-view" class="view">
             <div class="title-box-container"><div class="title-box"><span class="title-text-bold">UPDATE MOBILE NO</span></div></div>
             <div class="search-panel">
                 <div class="input-wrapper relative w-full max-w-[260px] mx-auto">
-                    <div class="absolute left-3 top-4 text-teal-600"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="11" cy="11" r="8"></circle><line x1="21" x2="16.65" y1="21" y2="16.65"></line></svg></div>
                     <input type="tel" id="search-ivrs" class="ivrs-input" placeholder="Search IVRS No" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,10)">
                 </div>
                 <button id="search-btn" class="search-btn-custom" onclick="performSearch()">Search Records</button>
@@ -248,7 +237,7 @@
                     <div class="res-row"><span class="res-label">Old Mobile No</span><span id="res-old" class="res-val"></span></div>
                     <div class="res-row border-none"><span class="res-label">Address</span><span id="res-addr" class="res-val"></span></div>
                     
-                    <div class="title-box-container !py-4"><div class="title-box !bg-rose-100"><span class="title-text-bold" style="color: #be123c;">Enter Correct Mobile No</span></div></div>
+                    <div class="title-box-container" style="padding-top: 15px;"><div class="title-box" style="background-color: #fee2e2;"><span class="title-text-bold" style="color: #991b1b;">Enter Correct Mobile No</span></div></div>
                     <input type="tel" id="new-mobile" class="teal-boundary-input" placeholder="Enter 10 Digit No..." oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,10)">
                 </div>
                 <button id="submit-btn" class="submit-sync-btn" onclick="submitToSheet()">Submit</button>
@@ -263,7 +252,6 @@
                     <div id="opt-daily" class="report-opt active" onclick="setMode('DAILY')">Daily</div>
                     <div id="opt-monthly" class="report-opt" onclick="setMode('MONTHLY')">Monthly</div>
                 </div>
-                <label class="text-[10px] font-black text-slate-500 uppercase block mb-1">Select Date/Month</label>
                 <input type="date" id="report-date" class="w-full h-12 border-2 border-teal-600 rounded-xl px-4 font-black text-teal-900 mb-4" onchange="refreshSummary()">
             </div>
             <div id="summary-content"></div>
@@ -286,116 +274,56 @@
             "LAKHNADON": "https://docs.google.com/spreadsheets/d/e/2PACX-1vTGixc1ReIutuAxRbMRTF29ZLd0v2DrcSgFFC6uw-ppBtvNkBa6rMJtqA37oGx2JAWgi-aXVhXVE8vq/pub?output=csv"
         };
         
-        const scriptURL = "https://script.google.com/macros/s/AKfycbwwdRbgu62h4BPq8dbKRkWc8OIAYK82_XcWmCinITGFZa6ggVwkUqzDVMeU3Se4IK-Taw/exec";
+        // अखिलेश जी, यहाँ आपका नया Web App URL डाल दिया गया है
+        const scriptURL = "https://script.google.com/macros/s/AKfycbw-euczRMZFKMjHveuvWd-vkuNqLXmFLkrLUERWgdExC7obxVGcBkBKGBWuHNfimzEh3g/exec";
 
-        let activeDiv = '', activeDC = '', activeGrad = 'bg-teal-grad', summaryMode = 'DAILY', activeViewLevel = '', currentData = null;
-        let dcCacheRaw = {}; 
-        let uiListSummary = [], exportFullLogs = [];
-        let grandTC = 0, grandTU = 0;
+        let activeDiv = '', activeDC = '', activeGrad = 'bg-teal-grad', summaryMode = 'DAILY', activeViewLevel = '', currentData = null, pendingLevel = '', dcCacheRaw = {}, uiListSummary = [], grandTC = 0, grandTU = 0;
 
         document.addEventListener('DOMContentLoaded', () => {
             const today = new Date().toISOString().split('T')[0];
             document.getElementById('report-date').value = today;
-            switchView('home');
             Object.keys(dcDatabaseLinks).forEach(async (dc) => {
-                try { 
-                    const res = await fetch(dcDatabaseLinks[dc]); 
-                    const text = await res.text();
-                    dcCacheRaw[dc.trim().toUpperCase()] = text;
-                } catch(e) {}
+                try { const res = await fetch(dcDatabaseLinks[dc]); dcCacheRaw[dc.trim().toUpperCase()] = await res.text(); } catch(e) {}
             });
+            switchView('home');
         });
 
         function showDivision(name, colorClass) {
             activeDiv = name.trim().toUpperCase(); 
-            activeDC = '';
-            document.getElementById('selected-dc-label').innerText = "Choose DC Name...";
-            
-            activeGrad = colorClass;
-            document.getElementById('main-header-title').innerText = name;
+            resetForm(); 
+            activeGrad = colorClass; document.getElementById('main-header-title').innerText = name;
             document.getElementById('app-header').className = `app-header ${activeGrad}`;
             const menu = document.getElementById('dc-menu'); menu.innerHTML = '';
             (name.includes('SEONI') ? seoniDCs : lakhnadonDCs).forEach(dc => {
-                const item = document.createElement('div');
-                item.className = 'option-item';
-                item.innerText = dc;
-                item.onclick = () => {
-                    activeDC = dc.trim().toUpperCase();
-                    document.getElementById('selected-dc-label').innerText = dc;
-                    document.getElementById('main-header-title').innerText = `DC: ${dc}`;
-                    menu.classList.remove('show');
-                    document.getElementById('prof-trigger').classList.remove('active');
-                    switchView('dc-dashboard');
+                const item = document.createElement('div'); item.className = 'option-item'; item.innerText = dc;
+                item.onclick = () => { 
+                    activeDC = dc.trim().toUpperCase(); document.getElementById('selected-dc-label').innerText = dc; 
+                    document.getElementById('main-header-title').innerText = `DC: ${dc}`; 
+                    toggleDropdown(); switchView('dc-dashboard');
                 };
                 menu.appendChild(item);
             });
             switchView('dc-selection');
         }
 
-        function toggleDropdown() { 
-            const menu = document.getElementById('dc-menu');
-            const trigger = document.getElementById('prof-trigger');
-            menu.classList.toggle('show');
-            trigger.classList.toggle('active');
-        }
-
-        function startMobileUpdate() { switchView('mobile-update'); }
-
-        function askPassword(level) {
-            pendingLevel = level;
-            document.getElementById('pwd-modal-title').innerText = `${level} Report Access`;
-            document.getElementById('pwd-modal').style.display = 'flex';
-            document.getElementById('pwd-input').value = '';
-            document.getElementById('pwd-input').focus();
-        }
-
+        function toggleDropdown() { document.getElementById('dc-menu').classList.toggle('show'); document.getElementById('prof-trigger').classList.toggle('active'); }
+        function askPassword(level) { pendingLevel = level; document.getElementById('pwd-modal').style.display = 'flex'; document.getElementById('pwd-input').value = ''; }
         function closePwdModal() { document.getElementById('pwd-modal').style.display = 'none'; }
-
         function verifyPassword() {
-            const input = document.getElementById('pwd-input').value;
             const pws = { 'CIRCLE': 'SE123', 'DIVISION': 'EE1234', 'DC': 'JE12345' };
-            if(input === pws[pendingLevel]) { 
-                activeViewLevel = pendingLevel;
-                document.getElementById('summary-title').innerText = `${activeViewLevel} PROGRESS REPORT`;
-                refreshSummary();
-                closePwdModal(); 
-                switchView('summary');
-            } else { showToast("Invalid Password!", false); }
-        }
-
-        function setMode(m) {
-            summaryMode = m;
-            const input = document.getElementById('report-date');
-            document.getElementById('opt-daily').classList.toggle('active', m === 'DAILY');
-            document.getElementById('opt-monthly').classList.toggle('active', m === 'MONTHLY');
-            input.type = m === 'MONTHLY' ? 'month' : 'date';
-            input.value = m === 'MONTHLY' ? `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}` : new Date().toISOString().split('T')[0];
-            refreshSummary();
+            if(document.getElementById('pwd-input').value === pws[pendingLevel]) { activeViewLevel = pendingLevel; refreshSummary(); closePwdModal(); switchView('summary'); }
+            else showToast("Invalid Password!", false);
         }
 
         async function performSearch() {
             const v = document.getElementById('search-ivrs').value.trim();
-            if(v.length !== 10) { showToast("Enter 10 digit IVRS", false); return; }
-            const btn = document.getElementById('search-btn'); btn.disabled = true; btn.innerText = "Searching...";
+            if(v.length !== 10) return showToast("Enter 10 digit IVRS", false);
             const csv = dcCacheRaw[activeDC];
-            if(!csv) { showToast("Database Syncing...", true); btn.disabled = false; btn.innerText = "Search Records"; return; }
-            
-            let idx = csv.indexOf(v);
-            let foundLine = "";
-            while(idx !== -1) {
-                let startOfLine = csv.lastIndexOf('\n', idx) + 1;
-                let endOfLine = csv.indexOf('\n', idx);
-                let line = csv.substring(startOfLine, endOfLine === -1 ? csv.length : endOfLine);
-                let cols = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(s => s.replace(/^"|"$/g, '').trim());
-                if(cols[0] === v) { foundLine = line; break; }
-                idx = csv.indexOf(v, idx + 1);
-            }
-            if(!foundLine) {
-                showToast("Consumer Not Found!", false);
-                btn.disabled = false; btn.innerText = "Search Records";
-                return;
-            }
-            const f = foundLine.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(s => s.replace(/^"|"$/g, '').trim());
+            if(!csv) return showToast("Syncing Database...", true);
+            let lines = csv.split(/\r?\n/);
+            let found = lines.find(l => l.startsWith(v + ","));
+            if(!found) return showToast("Record Not Found!", false);
+            let f = found.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(s => s.replace(/^"|"$/g, '').trim());
             currentData = { ivrs:f[0], name:f[1], father:f[2], old:f[3], addr:f[4], hq:f[5] };
             document.getElementById('res-ivrs').innerText = currentData.ivrs;
             document.getElementById('res-name').innerText = currentData.name;
@@ -403,184 +331,155 @@
             document.getElementById('res-addr').innerText = currentData.addr;
             document.getElementById('result-box').style.display = 'block';
             document.getElementById('submit-btn').style.display = 'block';
-            btn.disabled = false; btn.innerText = "Search Records";
         }
 
         async function submitToSheet() {
             const n = document.getElementById('new-mobile').value;
-            if(n.length !== 10) { showToast("Enter 10 Digit No", false); return; }
-            const btn = document.getElementById('submit-btn'); btn.innerText = "SUBMITTING..."; btn.disabled = true;
+            if(n.length !== 10) return showToast("Enter 10 Digit No", false);
             const p = new URLSearchParams();
-            p.append('ivrs', currentData.ivrs); 
-            p.append('name', currentData.name); 
-            p.append('father', currentData.father); 
-            p.append('old_mobile', currentData.old); 
-            p.append('address', currentData.addr); 
-            p.append('hq', currentData.hq); 
-            p.append('correct_mobile', n); 
-            p.append('dc', activeDC); 
-            p.append('division', activeDiv); 
-            p.append('timestamp', new Date().toLocaleDateString('en-GB'));
-            
+            p.append('ivrs', currentData.ivrs); p.append('name', currentData.name); p.append('father', currentData.father); p.append('old_mobile', currentData.old); p.append('address', currentData.addr); p.append('hq', currentData.hq); p.append('correct_mobile', n); p.append('dc', activeDC); p.append('division', activeDiv); p.append('timestamp', new Date().toLocaleDateString('en-GB'));
             try {
-                const response = await fetch(scriptURL, { 
-                    method: 'POST', 
-                    mode: 'no-cors', 
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: p.toString() 
-                });
-                showToast("Submitted Successfully!", true);
-                setTimeout(() => { resetForm(); goBack(); }, 1500);
-            } catch(e) { 
-                showToast("Submit Failed!", false); 
-            }
-            finally { btn.disabled = false; btn.innerText = "Submit"; }
+                const btn = document.getElementById('submit-btn'); btn.innerText = "Submitting..."; btn.disabled = true;
+                await fetch(scriptURL, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: p.toString() });
+                showToast("Submitted Successfully!", true); resetForm(); goBack();
+            } catch(e) { showToast("Error!", false); }
+            finally { document.getElementById('submit-btn').innerText = "Submit"; document.getElementById('submit-btn').disabled = false; }
         }
 
         async function refreshSummary() {
             const cont = document.getElementById('summary-content');
-            cont.innerHTML = `<p class="text-center text-slate-400 py-10 animate-pulse font-black uppercase tracking-tight">Syncing Records...</p>`;
-            const raw = document.getElementById('report-date').value;
-            if(!raw) return;
-            let dStr = "", mStr = "", label = "";
-            if (summaryMode === 'DAILY') {
-                const d = new Date(raw);
-                dStr = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
-                label = dStr;
-            } else {
-                const parts = raw.split('-');
-                mStr = `${parts[1]}/${parts[0]}`;
-                label = parts.length > 1 ? `${["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"][parseInt(parts[1])-1]}-${parts[0]}` : raw;
-            }
+            cont.innerHTML = `<p class="text-center py-10 animate-pulse font-black text-slate-400">SYNCING ALL DC DATA...</p>`;
+            const raw = document.getElementById('report-date').value; if(!raw) return;
+            let dStr = summaryMode === 'DAILY' ? new Date(raw).toLocaleDateString('en-GB') : "";
+            let mStr = summaryMode === 'MONTHLY' ? raw.split('-')[1] + "/" + raw.split('-')[0] : "";
+            let label = summaryMode === 'DAILY' ? dStr : mStr;
+
             try {
-                let fetchUrl = `${scriptURL}?action=getSummary&t=${Date.now()}`;
-                if(activeViewLevel === 'DC') fetchUrl += `&dc=${activeDC}`;
-                const res = await fetch(fetchUrl);
+                const res = await fetch(`${scriptURL}?action=getSummary&t=${Date.now()}`);
                 const cloudData = await res.json();
-                uiListSummary = []; exportFullLogs = []; grandTC = 0; grandTU = 0;
-                
+                uiListSummary = []; grandTC = 0; grandTU = 0;
+
                 const getStats = (dcName) => {
-                    const stats = {};
-                    const normDc = dcName.trim().toUpperCase();
+                    let tc = 0, tu = 0; let normDc = dcName.trim().toUpperCase();
                     const csv = dcCacheRaw[normDc];
-                    if(csv) {
-                        csv.split(/\r?\n/).slice(1).forEach(r => {
-                            const c = r.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
-                            if(c[5]) {
-                                const h = c[5].replace(/^"|"$/g, '').trim().toUpperCase() || "GENERAL";
-                                if(!stats[h]) stats[h] = { tc: 0, tu: 0, dts: {} };
-                                stats[h].tc++;
-                            }
-                        });
-                    }
+                    if(csv) tc = Math.max(0, csv.split(/\r?\n/).length - 1);
                     cloudData.forEach(u => {
-                        const ts = (u.timestamp || "").trim();
-                        const match = summaryMode === 'DAILY' ? ts === dStr : ts.includes(mStr);
-                        if(match && u.dc && u.dc.trim().toUpperCase() === normDc) {
-                            const h = (u.hq || "GENERAL").toUpperCase().trim();
-                            if(!stats[h]) stats[h] = { tc:0, tu:0, dts:{} };
-                            stats[h].tu++;
-                            stats[h].dts[ts] = (stats[h].dts[ts] || 0) + 1;
-                        }
+                        let ts = (u.date || "").trim();
+                        let uDc = (u.dc || "").trim().toUpperCase();
+                        let mobileVal = u.correct_mobile || "";
+                        let hasMobile = mobileVal.toString().trim().length === 10;
+                        let matchesDate = summaryMode === 'DAILY' ? ts === dStr : ts.includes(mStr);
+                        if(uDc === normDc && hasMobile && matchesDate) tu++;
                     });
-                    return stats;
+                    return { tc, tu };
                 };
 
                 if(activeViewLevel === 'DC') {
-                    const map = getStats(activeDC);
-                    Object.keys(map).forEach(h => {
-                        uiListSummary.push({ name: h, tc: map[h].tc, tu: map[h].tu });
-                        grandTC += map[h].tc; grandTU += map[h].tu;
+                    let stats = {};
+                    const csv = dcCacheRaw[activeDC];
+                    if(csv) {
+                        csv.split(/\r?\n/).slice(1).forEach(r => {
+                            let c = r.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+                            if(c[5]) { let h = c[5].replace(/^"|"$/g, '').trim().toUpperCase(); stats[h] = stats[h] || { tc:0, tu:0 }; stats[h].tc++; }
+                        });
+                    }
+                    cloudData.forEach(u => {
+                        let ts = (u.date || "").trim();
+                        let uDc = (u.dc || "").trim().toUpperCase();
+                        let uHq = (u.hq || "GENERAL").trim().toUpperCase();
+                        let mobileVal = u.correct_mobile || "";
+                        let hasMobile = mobileVal.toString().trim().length === 10;
+                        let matchesDate = summaryMode === 'DAILY' ? ts === dStr : ts.includes(mStr);
+                        if(uDc === activeDC.trim().toUpperCase() && hasMobile && matchesDate) {
+                            if(!stats[uHq]) stats[uHq] = { tc:0, tu:0 };
+                            stats[uHq].tu++;
+                        }
                     });
+                    Object.keys(stats).sort().forEach(h => { uiListSummary.push({ name: h, tc: stats[h].tc, tu: stats[h].tu }); grandTC += stats[h].tc; grandTU += stats[h].tu; });
                 } else {
                     const targetDivs = activeViewLevel === 'DIVISION' ? [activeDiv] : ["DIVISION SEONI", "DIVISION LAKHNADON"];
                     targetDivs.forEach(div => {
-                        const dcs = div.includes('SEONI') ? seoniDCs : lakhnadonDCs;
                         let divTC = 0, divTU = 0;
-                        dcs.forEach(dcName => {
-                            const map = getStats(dcName);
-                            let dcTC = 0, dcTU = 0;
-                            Object.keys(map).forEach(h => { dcTC += map[h].tc; dcTU += map[h].tu; });
-                            uiListSummary.push({ name: dcName, tc: dcTC, tu: dcTU, type: 'DC_ROW', div: div });
-                            divTC += dcTC; divTU += dcTU;
+                        (div.includes('SEONI') ? seoniDCs : lakhnadonDCs).forEach(dc => {
+                            let s = getStats(dc); uiListSummary.push({ name: dc, tc: s.tc, tu: s.tu });
+                            divTC += s.tc; divTU += s.tu;
                         });
                         if(activeViewLevel === 'CIRCLE') uiListSummary.push({ name: `${div} TOTAL`, tc: divTC, tu: divTU, type: 'DIV_TOTAL' });
                         grandTC += divTC; grandTU += divTU;
                     });
                 }
 
-                const isM = summaryMode === 'MONTHLY';
-                let html = `<div class="summary-wrapper"><div class="summary-table-header ${isM?'monthly-view':''}">`;
-                if(isM) html += `<div>MONTH</div>`;
-                html += `<div>NAME</div><div>TOTAL</div><div>UPDATED</div></div>`;
+                let html = `<div class="summary-wrapper"><div class="summary-table-header"><div>NAME</div><div>TOTAL</div><div>UPDATED</div></div>`;
                 uiListSummary.forEach(r => {
-                    const isTotal = r.type === 'DIV_TOTAL';
-                    html += `<div class="summary-table-row ${isTotal?'blue-bold':''} ${isM?'monthly-view':''}">`;
-                    if(isM) html += `<div>${label}</div>`;
-                    html += `<div class="text-left truncate px-1">${r.name}</div><div>${r.tc}</div><div class="${isTotal?'':'text-teal-600'}">${r.tu}</div></div>`;
+                    html += `<div class="summary-table-row ${r.type==='DIV_TOTAL'?'blue-bold':''}"><div>${r.name}</div><div>${r.tc}</div><div class="text-teal-600 font-black">${r.tu}</div></div>`;
                 });
-                html += `</div><div class="summary-footer"><div class="flex justify-between items-center"><span class="text-[10px] font-black uppercase">GRAND TOTAL</span><span class="text-rose-700 text-lg font-black">${grandTU}</span></div><div class="flex gap-2 mt-4"><button class="btn-export" onclick="doExport('XLS')">Excel</button><button class="btn-export" onclick="doExport('PDF')">PDF</button></div></div>`;
+                html += `</div><div class="summary-footer"><div class="flex justify-between font-black"><span>GRAND TOTAL (${label})</span><span class="text-rose-600 text-lg">${grandTU}</span></div><div class="flex gap-2 mt-4"><button class="btn-export" onclick="doExport('XLS')">Excel</button><button class="btn-export" onclick="doExport('PDF')">PDF</button></div></div>`;
                 cont.innerHTML = html;
-            } catch (e) { cont.innerHTML = `<p class="text-center text-red-500 py-10 font-black">FETCH ERROR</p>`; }
+            } catch(e) { cont.innerHTML = `<p class="text-center text-red-500 py-10 font-black">ERROR FETCHING DATA</p>`; }
         }
 
         function doExport(fmt) {
-            let t = activeViewLevel === 'DC' ? `DC - ${activeDC}` : (activeViewLevel === 'DIVISION' ? `DIV - ${activeDiv}` : `CIRCLE`);
+            const t = activeViewLevel === 'DC' ? `DC-${activeDC}` : (activeViewLevel === 'DIVISION' ? activeDiv : `SEONI-CIRCLE`);
+            const label = document.getElementById('report-date').value;
             if(fmt === 'XLS') {
-                let csv = `DEVELOPED BY - AKHILESH PATIDAR (AE)\n${t} PROGRESS REPORT\n\nNAME,TOTAL,UPDATED\n`;
+                let csv = `DEVELOPED BY AKHILESH PATIDAR (AE)\n${t} REPORT (${label})\n\nNAME,TOTAL,UPDATED\n`;
                 uiListSummary.forEach(r => csv += `${r.name},${r.tc},${r.tu}\n`);
-                csv += `\nGRAND TOTAL,${grandTC},${grandTU}`;
+                csv += `GRAND TOTAL,${grandTC},${grandTU}`;
                 const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
                 link.download = `Report_${t}.csv`; link.click();
             } else {
                 const { jsPDF } = window.jspdf; const doc = new jsPDF();
-                doc.setFontSize(7); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
-                doc.setFontSize(14); doc.text(`${t} PROGRESS REPORT`, 105, 20, { align: "center" });
-                doc.autoTable({ startY: 35, head: [['NAME', 'TOTAL', 'UPDATED']], body: uiListSummary.map(r=>[r.name, r.tc, r.tu]), foot: [['GRAND TOTAL', grandTC, grandTU]] });
+                doc.text(`${t} PROGRESS REPORT (${label})`, 105, 20, { align: "center" });
+                doc.autoTable({ startY: 30, head: [['NAME', 'TOTAL CONS.', 'UPDATED NO']], body: uiListSummary.map(r=>[r.name, r.tc, r.tu]), foot: [['TOTAL', grandTC, grandTU]] });
                 doc.save(`Report_${t}.pdf`);
             }
         }
 
-        function showToast(m, ok) { const t = document.getElementById('toast-notif'); t.innerText = m; t.style.background = ok ? "#10b981" : "#ef4444"; t.style.display = 'block'; setTimeout(() => { t.style.display = 'none'; }, 3000); }
+        function showToast(m, ok) { const t = document.getElementById('toast-notif'); t.innerText = m; t.style.background = ok ? "#10b981" : "#ef4444"; t.style.display = 'block'; setTimeout(() => t.style.display = 'none', 3000); }
+        
         function resetForm() { 
             document.getElementById('search-ivrs').value = ''; 
             document.getElementById('new-mobile').value = ''; 
             document.getElementById('result-box').style.display = 'none'; 
             document.getElementById('submit-btn').style.display = 'none'; 
-            activeDC = '';
-            document.getElementById('selected-dc-label').innerText = "Choose DC Name...";
+            activeDC = ''; 
+            document.getElementById('selected-dc-label').innerText = "Choose DC Name..."; 
         }
         
         function switchView(id) { 
             document.querySelectorAll('.view').forEach(v => v.classList.remove('active')); 
-            const target = document.getElementById(id + '-view');
-            if (target) {
-                target.classList.add('active'); 
-                document.getElementById('back-btn').style.display = id === 'home' ? 'none' : 'flex'; 
-                window.scrollTo(0,0);
-            }
+            document.getElementById(id + '-view').classList.add('active'); 
+            document.getElementById('back-btn').style.display = id === 'home' ? 'none' : 'flex'; 
+            window.scrollTo(0,0); 
         }
 
         function goBack() {
-            const act = document.querySelector('.view.active').id;
-            if(act === 'mobile-update-view' || act === 'dc-dashboard-view') {
-                activeDC = '';
-                document.getElementById('selected-dc-label').innerText = "Choose DC Name...";
-                switchView('dc-selection');
-            }
-            else if(act === 'summary-view') {
-                if(activeViewLevel==='DC') switchView('dc-dashboard');
-                else if(activeViewLevel==='DIVISION') switchView('dc-selection');
-                else switchView('home');
-            } else if(act === 'dc-selection-view') {
+            const activeNode = document.querySelector('.view.active');
+            if(!activeNode) return;
+            const act = activeNode.id;
+            if(act === 'dc-selection-view') {
                 activeDC = '';
                 document.getElementById('selected-dc-label').innerText = "Choose DC Name...";
                 switchView('home');
             }
-            else switchView('home');
+            else if(act === 'dc-dashboard-view' || act === 'mobile-update-view') {
+                activeDC = '';
+                document.getElementById('selected-dc-label').innerText = "Choose DC Name...";
+                switchView('dc-selection');
+            }
+            else if(act === 'summary-view') { 
+                if(activeViewLevel === 'DC') switchView('dc-dashboard'); 
+                else if(activeViewLevel === 'DIVISION') {
+                    activeDC = '';
+                    document.getElementById('selected-dc-label').innerText = "Choose DC Name...";
+                    switchView('dc-selection');
+                }
+                else switchView('home'); 
+            } else switchView('home');
         }
 
         function changeColor(c) { document.getElementById('welcomeText').style.color = c; }
+        function setMode(m) { summaryMode = m; document.getElementById('opt-daily').classList.toggle('active', m==='DAILY'); document.getElementById('opt-monthly').classList.toggle('active', m==='MONTHLY'); refreshSummary(); }
     </script>
 </body>
 </html>
