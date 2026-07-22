@@ -11852,11 +11852,6 @@
                 const dmyDate = `${String(first).padStart(2, "0")}/${String(second).padStart(2, "0")}/${year}`;
                 const mdyDate = `${String(second).padStart(2, "0")}/${String(first).padStart(2, "0")}/${year}`;
 
-                if (preferredMonthKey) {
-                    if (mdyValid && getRevenueMonthKey(mdyDate) === preferredMonthKey) return mdyDate;
-                    if (dmyValid && getRevenueMonthKey(dmyDate) === preferredMonthKey) return dmyDate;
-                }
-
                 if (dmyValid) return dmyDate;
                 if (mdyValid) return mdyDate;
             }
