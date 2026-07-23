@@ -4702,6 +4702,10 @@
             return /iPhone|iPad|iPod/i.test(ua) || (ua.includes("Mac") && "ontouchend" in document);
         }
 
+        function isMobileDevice() {
+            return isIosLikeDevice() || /Android/i.test(navigator.userAgent || "");
+        }
+
         function hasRecentGpsCameraGeo() {
             return !!(gpsCameraGeoData && gpsCameraGeoData.latitude && (Date.now() - gpsCameraGeoCapturedAt) < 5 * 60 * 1000);
         }
@@ -7260,34 +7264,41 @@
                 ? blob
                 : new Blob([blob], { type: "application/pdf" });
 
+            const url = URL.createObjectURL(pdfBlob);
+            const preview = window.open(url, "_blank");
+            if (preview) {
+                setTimeout(() => URL.revokeObjectURL(url), 120000);
+                return true;
+            }
+
             try {
                 const pdfFile = new File([pdfBlob], safeFileName, { type: "application/pdf" });
                 const canShareFile = !!(navigator.share && (!navigator.canShare || navigator.canShare({ files: [pdfFile] })));
                 if (canShareFile) {
                     await navigator.share({ files: [pdfFile], title: safeFileName });
+                    URL.revokeObjectURL(url);
                     return true;
                 }
             } catch (error) {
-                if (error && error.name === "AbortError") return true;
+                if (error && error.name === "AbortError") {
+                    URL.revokeObjectURL(url);
+                    return true;
+                }
             }
 
-            const url = URL.createObjectURL(pdfBlob);
-            const preview = window.open(url, "_blank");
-            if (!preview) {
-                const link = document.createElement("a");
-                link.href = url;
-                link.target = "_blank";
-                link.rel = "noopener";
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-            }
+            const link = document.createElement("a");
+            link.href = url;
+            link.target = "_blank";
+            link.rel = "noopener";
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
             setTimeout(() => URL.revokeObjectURL(url), 120000);
             return true;
         }
 
         function savePdfDocumentForDevice(doc, fileName) {
-            if (!navigator.share) {
+            if (!isMobileDevice()) {
                 doc.save(fileName);
                 return true;
             }
