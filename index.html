@@ -12233,6 +12233,10 @@
                 const ivrsNo = getRevenueUploadedPaidRowIvrs(entry);
                 if (!ivrsNo) return;
                 const resolvedDcName = getRevenueUploadedPaidRowDcName(entry, dcName || activeDC || "");
+                let paymentRowsValue = entry.paymentRows || entry.payment_rows || entry.payments || entry.paymentDetails || [];
+                if (typeof paymentRowsValue === "string") {
+                    try { paymentRowsValue = JSON.parse(paymentRowsValue); } catch (_) { paymentRowsValue = []; }
+                }
                 cache[getRevenueUploadedPaidCacheKey(ivrsNo, resolvedDcName)] = {
                     ivrsNo,
                     dcName: resolvedDcName,
@@ -12240,7 +12244,9 @@
                     paymentDate: getRevenueUploadedPaidRowDate(entry),
                     paymentDateRaw: entry.paymentDateRaw || entry.payment_date_raw || getRevenueUploadedPaidRowDate(entry),
                     paymentCount: entry.payment_count || entry.paymentCount || entry.count || "",
-                    sourceType: entry.source_type || entry.sourceType || entry.type || ""
+                    sourceType: entry.source_type || entry.sourceType || entry.type || "",
+                    tariffCategory: entry.tariffCategory || entry.tariff_category || getRevenueUploadedPaidRowCategory(entry, entry.source_type || entry.sourceType || ""),
+                    paymentRows: Array.isArray(paymentRowsValue) ? paymentRowsValue : []
                 };
             });
             setRevenueUploadedPaidCache(cache);
