@@ -1918,7 +1918,7 @@
                     navigator.serviceWorker.register("./service-worker.js").catch(() => {});
                 });
             }
-            const today = new Date().toISOString().split("T")[0];
+            const today = getTodayIsoDate();
             document.getElementById("report-date").value = today;
             getAllDcConfigs().forEach(async ({ name, csvUrl }) => {
                 if (!csvUrl) return;
@@ -7124,7 +7124,7 @@
             if (input) {
                 input.type = "date";
                 input.value = yesterday.iso;
-                input.max = new Date().toISOString().split("T")[0];
+                input.max = getTodayIsoDate();
             }
             setShmsProgressStatus("SHMS daily progress data load ho raha hai...");
             const loaded = await loadShmsProgressData(true);
@@ -7160,7 +7160,7 @@
                 } else {
                     input.type = "date";
                     input.value = yesterday.iso;
-                    input.max = today.toISOString().split("T")[0];
+                    input.max = getTodayIsoDate();
                 }
             }
             if (dailyBtn) {
@@ -7548,8 +7548,7 @@
             const dateInput = document.getElementById("shms-event-date");
             if (!substationMenu || !feederMenu) return;
             if (dateInput) {
-                const today = new Date().toISOString().split("T")[0];
-                dateInput.max = today;
+                dateInput.max = getTodayIsoDate();
             }
 
             const loaded = await loadShmsData(true);
@@ -9016,7 +9015,7 @@
         function initChhaparaFeederCalculator() {
             const dateInput = document.getElementById("chhapara-reading-date");
             if (dateInput && !dateInput.value) {
-                dateInput.value = new Date().toISOString().split("T")[0];
+                dateInput.value = getTodayIsoDate();
             }
             try {
                 const savedEntries = JSON.parse(localStorage.getItem(chhaparaFeederStorageKey) || "[]");
@@ -13664,7 +13663,7 @@
                 input.value = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
             } else {
                 input.type = "date";
-                input.value = new Date().toISOString().split("T")[0];
+                input.value = getTodayIsoDate();
             }
             refreshSummary();
         }
