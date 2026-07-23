@@ -2251,8 +2251,8 @@
                 ivrs: getConsumerField(found, ["IVRS", "IVRS NO", "IVRS NUMBER", "IVRSNO"], searchIvrs),
                 name: getConsumerField(found, ["NAME", "CONSUMER NAME"]),
                 father: getConsumerField(found, ["FATHER", "FATHER NAME"]),
-                old: getConsumerField(found, ["OLD MOBILE", "OLD MOBILE NO", "OLD MOBILE NUMBER", "MOBILE NO", "MOBILE NUMBER"]),
-                addr: getConsumerField(found, ["ADDRESS", "ADDR"]),
+                old: normalizeMobileDisplayValue(getConsumerField(found, ["OLD MOBILE", "OLD MOBILE NO", "OLD MOBILE NUMBER", "MOBILE NO", "MOBILE NUMBER"])),
+                addr: getConsumerField(found, ["ADDRESS", "ADDR", "VILLAGE"]),
                 hq: getConsumerField(found, ["HQ", "HQ NAME", "HEADQUARTER", "HEAD QUARTER", "H.Q."])
             };
             document.getElementById("res-ivrs").innerText = currentData.ivrs;
@@ -4499,6 +4499,18 @@
 
         function getConsumerRows(dcName) {
             return dcCacheRows[normalizeDcName(dcName)] || [];
+        }
+
+        function normalizeMobileDisplayValue(value) {
+            const raw = String(value ?? "").trim();
+            if (!raw) return raw;
+            // Google Sheets kabhi-kabhi bade number ko scientific notation me export kar deta hai
+            // (jaise "9.62E+09") — usko wapas poore digit wale number me convert karna.
+            if (/^\d(\.\d+)?e\+?\d+$/i.test(raw)) {
+                const num = Number(raw);
+                if (Number.isFinite(num)) return String(Math.round(num));
+            }
+            return raw;
         }
 
         function getConsumerField(row, aliases, fallback = "") {
