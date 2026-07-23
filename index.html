@@ -767,7 +767,7 @@
     <div class="app-shell">
         <header id="app-header" class="app-header bg-teal-grad">
             <div style="grid-column: 1;">
-                <div id="back-btn" class="cursor-pointer flex items-center justify-center h-full w-full" style="display: none;" onclick="goBack()" role="button" tabindex="0" aria-label="Peeche jaayein" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault(); goBack();}">
+                <div id="back-btn" class="cursor-pointer flex items-center justify-center h-full w-full" style="display: none;" onclick="history.back()" role="button" tabindex="0" aria-label="Peeche jaayein" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault(); history.back();}">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7"></path></svg>
                 </div>
             </div>
@@ -1786,6 +1786,7 @@
         ];
 
         let activeDiv = "", activeDC = "", activeGrad = "bg-teal-grad", summaryMode = "DAILY", summaryModule = "MOBILE", activeViewLevel = "", currentData = null, pendingLevel = "", dcCacheRaw = {}, dcCacheRows = {}, uiListSummary = [], grandTC = 0, grandTU = 0, courtCaseRaw = "", courtCaseCacheByDc = {}, courtCaseLines = [], courtCaseRecords = [], lokDistributedRows = [], lokDistributedLoaded = false, currentCourtRecord = null, receiverGeoData = null;
+        let suppressHistoryPush = false;
         let progressSummaryDownloadInProgress = false;
         let selectedStockReceiveItem = null, selectedStockIssueItem = null, pendingReceiveItems = [], pendingIssueItems = [];
         let activeIssueDc = "";
@@ -1942,7 +1943,9 @@
             setupStockEntrySearch("receive");
             setupStockEntrySearch("issue");
             renderIssueDcDropdown();
+            suppressHistoryPush = true;
             switchView("home");
+            suppressHistoryPush = false;
             prewarmGpsCameraLocationIfAllowed();
         });
 
@@ -3291,10 +3294,10 @@
             return html;
         }
 
-        function renderSyncingProgress(cont, refreshTokenAtStart) {
+        function renderSyncingProgress(cont, isStillValid, label = "SYNCING ALL DC DATA...") {
             cont.innerHTML = `
                 <div class="text-center py-10">
-                    <p class="font-black text-slate-500" style="font-size:0.85rem;">SYNCING ALL DC DATA...</p>
+                    <p class="font-black text-slate-500" style="font-size:0.85rem;">${escapeHtml(label)}</p>
                     <div style="max-width:220px; margin:14px auto 0; background:#e2e8f0; border-radius:999px; height:8px; overflow:hidden;">
                         <div id="summary-sync-progress-fill" style="height:100%; width:2%; background:linear-gradient(90deg,#0d9488,#0f766e); border-radius:999px; transition:width 0.25s ease;"></div>
                     </div>
@@ -3303,7 +3306,7 @@
             `;
             let percent = 2;
             const intervalId = setInterval(() => {
-                if (refreshTokenAtStart !== summaryRefreshToken) {
+                if (!isStillValid()) {
                     clearInterval(intervalId);
                     return;
                 }
@@ -3334,7 +3337,7 @@
                 divAtStart !== activeDiv
             );
             const cont = document.getElementById("summary-content");
-            renderSyncingProgress(cont, refreshToken);
+            renderSyncingProgress(cont, () => refreshToken === summaryRefreshToken);
             const raw = document.getElementById("report-date").value;
             if (!raw) return;
             const parsedSummarySelection = parseSummarySelection(raw, summaryMode);
@@ -7284,7 +7287,7 @@
         }
 
         function savePdfDocumentForDevice(doc, fileName) {
-            if (!isIosLikeDevice()) {
+            if (!navigator.share) {
                 doc.save(fileName);
                 return true;
             }
@@ -13083,13 +13086,16 @@
             ]);
         }
 
+        let revenueLiveProgressToken = 0;
         async function renderRevenueLiveProgress() {
             const tableBox = document.getElementById("revenue-live-table");
             if (!tableBox) return;
+            const myToken = ++revenueLiveProgressToken;
             const dcLabelBox = document.getElementById("revenue-live-dc-label");
             if (dcLabelBox) dcLabelBox.innerText = activeDC ? `DC: ${activeDC}` : getRevenueReportScopeLabel();
-            tableBox.innerHTML = '<p class="text-center py-10 animate-pulse font-black text-slate-400">SYNCING LATEST REPORT...</p>';
+            renderSyncingProgress(tableBox, () => myToken === revenueLiveProgressToken, "SYNCING LATEST REPORT...");
             await Promise.all([syncRevenueLiveEntriesFromSheet(), syncRevenueTdEntriesFromSheet()]);
+            if (myToken !== revenueLiveProgressToken) return;
             const rows = getRevenueCombinedFilteredEntries("DAILY", getCurrentDateDDMMYYYY());
             tableBox.innerHTML = renderRevenueReportHtml(rows, "Aaj ki date me paid/TD entry nahi hai.");
         }
@@ -13421,6 +13427,9 @@
         }
 
         function switchView(id) {
+            if (!suppressHistoryPush) {
+                try { history.pushState({ appView: id }, "", ""); } catch (_) {}
+            }
             document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
             const target = document.getElementById(id + "-view");
             if (target) {
@@ -13571,6 +13580,15 @@
                 window.scrollTo(0, 0);
             }
         }
+
+        window.addEventListener("popstate", () => {
+            suppressHistoryPush = true;
+            try {
+                goBack();
+            } finally {
+                suppressHistoryPush = false;
+            }
+        });
 
         function goBack() {
             const activeNode = document.querySelector(".view.active");
