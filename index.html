@@ -2547,6 +2547,16 @@
         }
 
         const revenueCategoryList = ["LV1", "LV2", "LV3", "LV4", "LV5"];
+        const revenueCategoryDisplayLabels = {
+            "LV1": "DOMESTIC",
+            "LV2": "NON DOMESTIC",
+            "LV3": "PUBLIC WATER WORKS AND STREET LIGHTS",
+            "LV4": "LT INDUSTRIAL",
+            "LV5": "AGRICULTURE AND ALLIED ACTIVITIES"
+        };
+        function getRevenueCategoryDisplayLabel(category) {
+            return revenueCategoryDisplayLabels[category] || category;
+        }
 
         function normalizeRevenueCategory(value) {
             const raw = normalizeLookupValue(value || "");
@@ -3006,7 +3016,10 @@
         function exportRevenueCategorySummary(fmt, rows, label, reportType, diagnostic = null) {
             const levelT = activeViewLevel === "DC" ? `DC - ${activeDC}` : (activeViewLevel === "DIVISION" ? activeDiv : "SEONI CIRCLE");
             const firstCols = activeViewLevel === "CIRCLE" ? ["DIVISION", "DC NAME"] : [activeViewLevel === "DC" ? "HQ NAME" : "DC NAME"];
-            const metricCols = revenueCategoryList.flatMap((category) => [`${category} PAID`, `${category} PAID AMT (LAKH)`, `${category} UNPAID`, `${category} UNPAID AMT (LAKH)`]);
+            const metricCols = revenueCategoryList.flatMap((category) => {
+                const label = getRevenueCategoryDisplayLabel(category);
+                return [`${label} PAID`, `${label} PAID AMT (LAKH)`, `${label} UNPAID`, `${label} UNPAID AMT (LAKH)`];
+            });
             const header = [...firstCols, ...metricCols, "TOTAL PAID", "TOTAL PAID AMT (LAKH)", "TOTAL UNPAID", "TOTAL UNPAID AMT (LAKH)"];
             const diagnosticRows = diagnostic ? [
                 ["Uploaded Payment Rows", diagnostic.uploadedUnique],
@@ -3094,7 +3107,7 @@
             const groupedHead = [
                 [
                     ...firstCols.map((col) => ({ content: col, rowSpan: 2, styles: { valign: "middle", halign: "center", lineColor: [15, 23, 42], lineWidth: 0.25 } })),
-                    ...revenueCategoryList.map((category) => ({ content: category, colSpan: 4, styles: { halign: "center", lineColor: [15, 23, 42], lineWidth: 0.25 } })),
+                    ...revenueCategoryList.map((category) => ({ content: getRevenueCategoryDisplayLabel(category), colSpan: 4, styles: { halign: "center", lineColor: [15, 23, 42], lineWidth: 0.25 } })),
                     { content: "TOTAL", colSpan: 4, styles: { halign: "center", lineColor: [15, 23, 42], lineWidth: 0.25 } }
                 ],
                 [
