@@ -3,7 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Seoni Circle App Preview</title>
+    <title>Seoni Circle App</title>
+    <meta name="description" content="Seoni Circle App — Madhya Pradesh Electricity Department field staff ke liye revenue collection, meter reading aur stock management app.">
+    <meta name="theme-color" content="#0d9488">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%230d9488'/%3E%3Cpath d='M55 15 L30 55 H48 L42 85 L72 42 H52 Z' fill='%23ffffff'/%3E%3C/svg%3E">
+    <link rel="manifest" href="./manifest.json">
+    <link rel="apple-touch-icon" href="./icon-192.png">
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Righteous&family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -12,6 +17,76 @@
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; outline: none; }
         html { height: -webkit-fill-available; }
+        html.dark-mode-on body {
+            filter: invert(0.93) hue-rotate(180deg);
+            background-color: #1a1a1a;
+        }
+        html.dark-mode-on img,
+        html.dark-mode-on video {
+            filter: invert(1) hue-rotate(180deg);
+        }
+        .dark-mode-toggle-btn {
+            position: fixed;
+            right: 14px;
+            bottom: 14px;
+            z-index: 500;
+            width: 46px;
+            height: 46px;
+            border-radius: 50%;
+            border: none;
+            background: #1e293b;
+            color: #fbbf24;
+            font-size: 1.2rem;
+            box-shadow: 0 8px 20px rgba(15, 23, 42, 0.35);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+        html.dark-mode-on .dark-mode-toggle-btn {
+            filter: invert(1) hue-rotate(180deg);
+        }
+        .pwa-install-banner {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 600;
+            background: #0d9488;
+            box-shadow: 0 6px 18px rgba(15, 23, 42, 0.25);
+            padding: calc(env(safe-area-inset-top, 0px) + 8px) 12px 8px;
+        }
+        .pwa-install-banner-inner {
+            max-width: 480px;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .pwa-install-banner-icon { font-size: 1.5rem; flex-shrink: 0; }
+        .pwa-install-banner-text { flex: 1; min-width: 0; }
+        .pwa-install-banner-title { color: #fff; font-weight: 900; font-size: 0.82rem; }
+        .pwa-install-banner-message { color: #d1fae5; font-weight: 600; font-size: 0.72rem; line-height: 1.35; }
+        .pwa-install-action-btn {
+            flex-shrink: 0;
+            background: #ffffff;
+            color: #0d9488;
+            border: none;
+            border-radius: 999px;
+            padding: 8px 16px;
+            font-weight: 950;
+            font-size: 0.78rem;
+            cursor: pointer;
+        }
+        .pwa-install-close-btn {
+            flex-shrink: 0;
+            background: transparent;
+            border: none;
+            color: #d1fae5;
+            font-size: 1rem;
+            padding: 4px 6px;
+            cursor: pointer;
+        }
         :root {
             --theme-color: #0d9488;
             --theme-grad: linear-gradient(135deg, #0d9488 0%, #0f766e 100%);
@@ -63,7 +138,7 @@
         .header-menu-wrap { grid-column: 3; justify-self: end; position: relative; display: none; }
         .header-menu-btn { width: 34px; height: 34px; border: none; border-radius: 999px; background: rgba(255,255,255,0.18); color: #ffffff; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 1.2rem; line-height: 1; }
         .header-menu-list { position: absolute; right: 0; top: 40px; min-width: 138px; background: #ffffff; border: 1px solid #bfdbfe; border-radius: 14px; box-shadow: 0 12px 28px rgba(15,23,42,0.18); padding: 7px; display: none; z-index: 300; }
-        .header-menu-item { width: 100%; border: none; background: #eff6ff; color: #1d4ed8; border-radius: 10px; padding: 9px 10px; font-size: 0.72rem; font-weight: 950; text-align: left; text-transform: none; }
+        .header-menu-item { width: 100%; border: 1.5px solid #e2e8f0; background: #f8fafc; color: #1e293b; border-radius: 10px; padding: 10px 12px; font-size: 0.74rem; font-weight: 800; text-align: left; text-transform: none; letter-spacing: 0.01em; }
         @keyframes liveProgressBlink {
             0%, 100% { background: #dcfce7; color: #166534; box-shadow: 0 0 0 rgba(34,197,94,0); }
             50% { background: #16a34a; color: #ffffff; box-shadow: 0 0 14px rgba(34,197,94,0.55); }
@@ -313,6 +388,17 @@
             animation: gpsSpin 0.9s linear infinite;
         }
         @keyframes gpsSpin { to { transform: rotate(360deg); } }
+        .btn-inline-spinner {
+            display: inline-block;
+            width: 13px;
+            height: 13px;
+            border-radius: 50%;
+            border: 2px solid rgba(255, 255, 255, 0.55);
+            border-top-color: #ffffff;
+            margin-right: 7px;
+            vertical-align: -2px;
+            animation: gpsSpin 0.7s linear infinite;
+        }
         .gps-camera-status-title {
             font-size: 16px;
             font-weight: 900;
@@ -548,7 +634,20 @@
     </style>
 </head>
 <body>
-    <div id="toast-notif"></div>
+    <div id="toast-notif" role="status" aria-live="polite" aria-atomic="true"></div>
+    <button id="dark-mode-toggle-btn" class="dark-mode-toggle-btn" type="button" onclick="toggleDarkMode()" aria-label="Dark mode on/off karein" title="Dark Mode">🌙</button>
+
+    <div id="pwa-install-banner" class="pwa-install-banner" style="display:none;" role="dialog" aria-label="App install karein">
+        <div class="pwa-install-banner-inner">
+            <span class="pwa-install-banner-icon">📲</span>
+            <div class="pwa-install-banner-text">
+                <div id="pwa-install-banner-title" class="pwa-install-banner-title">App Install Karein</div>
+                <div id="pwa-install-banner-message" class="pwa-install-banner-message">Home screen se seedhe app kholiye.</div>
+            </div>
+            <button id="pwa-install-action-btn" class="pwa-install-action-btn" type="button" onclick="handlePwaInstallAction()">Install</button>
+            <button class="pwa-install-close-btn" type="button" onclick="dismissPwaInstallBanner()" aria-label="Band karein">✕</button>
+        </div>
+    </div>
     <input type="file" id="gps-camera-input" accept="image/*" capture="environment" style="display:none;" onchange="handleGpsCameraPhoto(this)">
     <input type="file" id="vehicle-photo-input" accept="image/*" capture="environment" style="display:none;" onchange="handleVehiclePhotoCapture(this)">
 
@@ -595,8 +694,8 @@
     <div class="app-shell">
         <header id="app-header" class="app-header bg-teal-grad">
             <div style="grid-column: 1;">
-                <div id="back-btn" class="cursor-pointer flex items-center justify-center h-full w-full" style="display: none;" onclick="goBack()">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7"></path></svg>
+                <div id="back-btn" class="cursor-pointer flex items-center justify-center h-full w-full" style="display: none;" onclick="goBack()" role="button" tabindex="0" aria-label="Peeche jaayein" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault(); goBack();}">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7"></path></svg>
                 </div>
             </div>
             <div class="header-info">
@@ -606,11 +705,11 @@
             <div id="header-menu-wrap" class="header-menu-wrap">
                 <button type="button" class="header-menu-btn" onclick="toggleHeaderMenu(event)">⋮</button>
                 <div id="header-menu-list" class="header-menu-list">
-                    <button type="button" class="header-menu-item revenue-header-menu-item live-progress-menu-item" onclick="openRevenueLiveProgress()">Live progress</button>
-                    <button type="button" class="header-menu-item revenue-header-menu-item" onclick="openRevenueReportDownload()" style="margin-top:6px; text-align:center;">Date/month report</button>
-                    <button type="button" class="header-menu-item revenue-header-menu-item" onclick="openRevenuePendingList()" style="margin-top:6px; text-align:center;">Pending list</button>
-                    <button type="button" class="header-menu-item revenue-header-menu-item" onclick="openRevenueMessageCenter()" style="margin-top:6px; text-align:center; background:#ecfdf5; color:#047857; border:1.5px solid #86efac;">Send SMS / WhatsApp</button>
-                    <button type="button" class="header-menu-item revenue-header-menu-item" onclick="openRevenuePaidUpload()" style="margin-top:6px; text-align:center; background:#fee2e2; color:#b91c1c; border:1.5px solid #fca5a5;">Admin Upload Cash List</button>
+                    <button type="button" class="header-menu-item revenue-header-menu-item live-progress-menu-item" onclick="openRevenueLiveProgress()">⏱️ Live Progress</button>
+                    <button type="button" class="header-menu-item revenue-header-menu-item" onclick="openRevenueReportDownload()" style="margin-top:6px; text-align:center;">📄 Date/Month Report</button>
+                    <button type="button" class="header-menu-item revenue-header-menu-item" onclick="openRevenuePendingList()" style="margin-top:6px; text-align:center;">⏳ Pending List</button>
+                    <button type="button" class="header-menu-item revenue-header-menu-item" onclick="openRevenueMessageCenter()" style="margin-top:6px; text-align:center;">💬 Send SMS / WhatsApp</button>
+                    <button type="button" class="header-menu-item revenue-header-menu-item" onclick="openRevenuePaidUpload()" style="margin-top:10px; text-align:center; background:#fee2e2; color:#b91c1c; border:1.5px solid #fca5a5; border-top:2px solid #f87171; padding-top:10px;">🔒 Admin Upload Cash List</button>
                     <button id="staff-admin-header-menu-item" type="button" class="header-menu-item" onclick="openStaffAdmin()" style="display:none; text-align:center; background:#fff7ed; color:#c2410c; border:1.5px solid #fdba74;">STAFF ADMIN</button>
                 </div>
             </div>
@@ -1738,6 +1837,13 @@
         let feederRecentSubmittedEntries = [];
 
         document.addEventListener("DOMContentLoaded", () => {
+            initDarkModePreference();
+            initPwaInstallBannerForIos();
+            if ("serviceWorker" in navigator) {
+                window.addEventListener("load", () => {
+                    navigator.serviceWorker.register("./service-worker.js").catch(() => {});
+                });
+            }
             const today = new Date().toISOString().split("T")[0];
             document.getElementById("report-date").value = today;
             getAllDcConfigs().forEach(async ({ name, csvUrl }) => {
@@ -3028,9 +3134,11 @@
                 const parsed = parseSummarySelection(rawVal, summaryMode);
                 const reportType = summaryMode === "MONTHLY" ? "MONTHLY" : "DAILY";
                 const filterValue = getRevenueProgressFilterValue(parsed.daily, parsed.monthly);
-                await ensureRevenueCategoryMasterDataLoaded(getRevenueCategoryTargetDcs());
-                await ensureRevenueCategoryRawPaymentRowsLoaded();
-                await warmRevenueCategoryUploadedPaidCache();
+                await Promise.all([
+                    ensureRevenueCategoryMasterDataLoaded(getRevenueCategoryTargetDcs()),
+                    ensureRevenueCategoryRawPaymentRowsLoaded(),
+                    warmRevenueCategoryUploadedPaidCache()
+                ]);
                 const rows = buildRevenueCategorySummaryRows(reportType, filterValue);
                 const diagnostic = buildRevenueCategoryDiagnostic(reportType, filterValue);
                 exportRevenueCategorySummary(fmt, rows, parsed.label, reportType, diagnostic);
@@ -3982,9 +4090,102 @@
             if (!button) return;
             const isProcessing = state === "processing";
             button.disabled = isProcessing;
-            button.innerText = state === "idle" ? defaultText : (getActionStatusText(state) || defaultText);
+            const text = state === "idle" ? defaultText : (getActionStatusText(state) || defaultText);
+            button.innerHTML = isProcessing ? `<span class="btn-inline-spinner"></span>${text}` : text;
             button.style.opacity = isProcessing ? "0.65" : "1";
             button.style.pointerEvents = isProcessing ? "none" : "auto";
+        }
+
+        let deferredPwaInstallPrompt = null;
+        const pwaInstallDismissKey = "seoni-pwa-install-dismissed-at";
+
+        function isPwaInstallDismissedRecently() {
+            try {
+                const raw = localStorage.getItem(pwaInstallDismissKey);
+                if (!raw) return false;
+                const dismissedAt = Number(raw);
+                const fourteenDaysMs = 14 * 24 * 60 * 60 * 1000;
+                return Number.isFinite(dismissedAt) && (Date.now() - dismissedAt) < fourteenDaysMs;
+            } catch (_) { return false; }
+        }
+
+        function isRunningAsInstalledPwa() {
+            return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+        }
+
+        function showPwaInstallBanner(platform) {
+            if (isRunningAsInstalledPwa() || isPwaInstallDismissedRecently()) return;
+            const banner = document.getElementById("pwa-install-banner");
+            const title = document.getElementById("pwa-install-banner-title");
+            const message = document.getElementById("pwa-install-banner-message");
+            const actionBtn = document.getElementById("pwa-install-action-btn");
+            if (!banner) return;
+            if (platform === "ios") {
+                title.innerText = "App Install Karein";
+                message.innerText = "Share button dabाइए, phir 'Add to Home Screen' select kijiye.";
+                actionBtn.innerText = "Samjh Gaya";
+            } else {
+                title.innerText = "App Install Karein";
+                message.innerText = "Home screen se seedhe app kholiye, network kam use hoga.";
+                actionBtn.innerText = "Install";
+            }
+            banner.dataset.platform = platform;
+            banner.style.display = "block";
+        }
+
+        function dismissPwaInstallBanner() {
+            const banner = document.getElementById("pwa-install-banner");
+            if (banner) banner.style.display = "none";
+            try { localStorage.setItem(pwaInstallDismissKey, String(Date.now())); } catch (_) {}
+        }
+
+        async function handlePwaInstallAction() {
+            const banner = document.getElementById("pwa-install-banner");
+            const platform = banner?.dataset.platform;
+            if (platform === "ios") {
+                dismissPwaInstallBanner();
+                return;
+            }
+            if (!deferredPwaInstallPrompt) {
+                dismissPwaInstallBanner();
+                return;
+            }
+            deferredPwaInstallPrompt.prompt();
+            try { await deferredPwaInstallPrompt.userChoice; } catch (_) {}
+            deferredPwaInstallPrompt = null;
+            dismissPwaInstallBanner();
+        }
+
+        window.addEventListener("beforeinstallprompt", (event) => {
+            event.preventDefault();
+            deferredPwaInstallPrompt = event;
+            showPwaInstallBanner("android");
+        });
+
+        window.addEventListener("appinstalled", () => {
+            dismissPwaInstallBanner();
+        });
+
+        function initPwaInstallBannerForIos() {
+            const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+            if (isIos) showPwaInstallBanner("ios");
+        }
+
+        function toggleDarkMode() {
+            const isOn = document.documentElement.classList.toggle("dark-mode-on");
+            const btn = document.getElementById("dark-mode-toggle-btn");
+            if (btn) btn.innerText = isOn ? "☀️" : "🌙";
+            try { localStorage.setItem("seoni-dark-mode", isOn ? "1" : "0"); } catch (_) {}
+        }
+
+        function initDarkModePreference() {
+            let saved = "0";
+            try { saved = localStorage.getItem("seoni-dark-mode") || "0"; } catch (_) {}
+            if (saved === "1") {
+                document.documentElement.classList.add("dark-mode-on");
+                const btn = document.getElementById("dark-mode-toggle-btn");
+                if (btn) btn.innerText = "☀️";
+            }
         }
 
         function showToast(message, ok) {
@@ -3995,6 +4196,35 @@
             setTimeout(() => {
                 t.style.display = "none";
             }, 3000);
+        }
+
+        function showInfoModal(title, message) {
+            return new Promise((resolve) => {
+                const oldBox = document.getElementById("custom-info-overlay");
+                if (oldBox) oldBox.remove();
+                const overlay = document.createElement("div");
+                overlay.id = "custom-info-overlay";
+                overlay.setAttribute("role", "alertdialog");
+                overlay.setAttribute("aria-modal", "true");
+                overlay.setAttribute("aria-labelledby", "custom-info-title");
+                overlay.setAttribute("aria-describedby", "custom-info-message");
+                overlay.style.cssText = "position:fixed; inset:0; z-index:9999; background:rgba(15,23,42,0.36); display:flex; align-items:center; justify-content:center; padding:20px;";
+                overlay.innerHTML = `
+                    <div style="width:min(330px,92vw); background:#ffffff; border:2px solid #93c5fd; border-radius:22px; box-shadow:0 20px 45px rgba(15,23,42,0.28); padding:18px; text-align:center;">
+                        <div id="custom-info-title" style="display:inline-block; background:#dbeafe; color:#1d4ed8; border:1.5px solid #60a5fa; border-radius:999px; padding:7px 18px; font-size:1rem; font-weight:950;">${escapeHtml(title)}</div>
+                        <div id="custom-info-message" style="margin-top:14px; color:#111827; font-size:0.96rem; font-weight:800; white-space:pre-line; line-height:1.5;">${escapeHtml(message)}</div>
+                        <button id="custom-info-ok" type="button" style="width:100%; height:44px; margin-top:18px; border:none; border-radius:999px; background:#000000; color:#ffffff; font-size:0.9rem; font-weight:950;">OK</button>
+                    </div>
+                `;
+                document.body.appendChild(overlay);
+                const okBtn = document.getElementById("custom-info-ok");
+                okBtn.focus();
+                const close = () => {
+                    overlay.remove();
+                    resolve(true);
+                };
+                okBtn.onclick = close;
+            });
         }
 
         function showCustomConfirmBox(title, message) {
@@ -4075,6 +4305,8 @@
                 try {
                     const xhr = new XMLHttpRequest();
                     xhr.open("GET", url, true);
+                    xhr.timeout = 6000;
+                    xhr.ontimeout = () => reject(new Error("XHR timeout"));
                     xhr.onreadystatechange = () => {
                         if (xhr.readyState !== 4) return;
                         if (xhr.status >= 200 && xhr.status < 300 && xhr.responseText) {
@@ -4093,11 +4325,17 @@
 
         async function loadRemoteText(url) {
             const withTs = url.includes("?") ? `${url}&t=${Date.now()}` : `${url}?t=${Date.now()}`;
+            const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+            const timer = setTimeout(() => {
+                try { if (controller) controller.abort(); } catch (_) {}
+            }, 6000);
             try {
-                const response = await fetch(withTs);
+                const response = await fetch(withTs, controller ? { signal: controller.signal } : {});
                 const text = await response.text();
                 if (text) return text;
-            } catch (_) {}
+            } catch (_) {} finally {
+                clearTimeout(timer);
+            }
             try {
                 return await xhrGetText(withTs);
             } catch (_) {}
@@ -9411,18 +9649,6 @@
 
             if (csvUrl) {
                 try {
-                    const gvizRows = await loadRevenueCollectionViaGviz(csvUrl);
-                    if (gvizRows.length) {
-                        revenueCollectionRowsByDc[dcKey] = gvizRows;
-                        revenueCollectionLoadedByDc[dcKey] = true;
-                        try {
-                            localStorage.setItem(`${cacheKey}-json`, JSON.stringify(gvizRows));
-                        } catch (_) {}
-                        return gvizRows;
-                    }
-                } catch (_) {}
-
-                try {
                     const rawCsv = await loadRemoteText(csvUrl);
                     const rows = isLikelyCsvPayload(rawCsv)
                         ? (
@@ -9498,7 +9724,7 @@
                 const timeout = setTimeout(() => {
                     cleanup();
                     reject(new Error("GViz timeout"));
-                }, 7000);
+                }, 3000);
 
                 function cleanup() {
                     clearTimeout(timeout);
@@ -10326,12 +10552,9 @@
             }
 
             const searchBtn = document.getElementById("revenue-search-btn");
-            const oldText = searchBtn ? searchBtn.innerText : "";
+            const oldText = searchBtn ? searchBtn.innerText : "Search";
             try {
-                if (searchBtn) {
-                    searchBtn.disabled = true;
-                    searchBtn.innerText = "Loading...";
-                }
+                setActionButtonState(searchBtn, "processing", oldText);
                 const rows = await loadRevenueCollectionData(activeDC);
                 if (!rows.length) {
                     showRevenueSearchMessage("Consumer Not Found in CSV", false);
@@ -10376,10 +10599,7 @@
                 showRevenueSearchMessage("Consumer Not Found in CSV", false);
                 showToast("Consumer Not Found in CSV", false);
             } finally {
-                if (searchBtn) {
-                    searchBtn.disabled = false;
-                    searchBtn.innerText = oldText || "Search";
-                }
+                setActionButtonState(searchBtn, "idle", oldText || "Search");
             }
         }
 
@@ -10776,7 +10996,7 @@
                     confirm_pin: confirmPin, device_id: getRevenueMessageDeviceId()
                 });
                 saveRevenueMessageSession({ token: parsed.session_token, staff: parsed.staff, mustChangePin: false }, remember);
-                alert("Registration Successful\n\nआपका Mobile Number ही आपका Login ID है और आपका 6-digit PIN ही आपका Password है।");
+                await showInfoModal("Registration Successful", "आपका Mobile Number ही आपका Login ID है और आपका 6-digit PIN ही आपका Password है।");
                 setRevenueMessageAuthStatus("Registration Successful", true);
                 showRevenueMessageAuthPanel("PROFILE");
                 setActionButtonState(button, "done", "Submit Registration");
@@ -11567,6 +11787,11 @@
             setRevenuePaidUploadStatus("", true, false);
             renderRevenuePaidUploadSummary(getRevenuePaidUploadMeta(activeDC || ""));
             refreshRevenuePaidUploadBackendStatus(activeDC || "");
+            fetchRevenuePaidUploadSummaryFromServer(activeDC || "").then((serverMeta) => {
+                if (!serverMeta) return;
+                renderRevenuePaidUploadSummary(serverMeta);
+                saveRevenuePaidUploadMeta(serverMeta);
+            });
         }
 
         function unlockRevenuePaidUpload() {
@@ -11638,17 +11863,44 @@
                 summaryBox.innerHTML = "";
                 return;
             }
+            const lastUploadText = meta.uploadedAtDisplay || formatRevenueUploadDateTime(meta.uploadedAt);
             summaryBox.style.display = "block";
             summaryBox.innerHTML = `
                 <div style="font-size:0.78rem; font-weight:950; color:#166534; text-align:center; margin-bottom:8px;">Last Upload Summary</div>
                 <div><strong>Selected DC:</strong> ${escapeHtml(meta.dcName || "-")}</div>
                 <div><strong>Record Count:</strong> ${escapeHtml(meta.uniqueCount || "0")} Unique IVRS</div>
                 <div><strong>Normal Rows:</strong> ${escapeHtml(meta.normalRows || "0")} | <strong>AG Rows:</strong> ${escapeHtml(meta.agRows || "0")}</div>
-                <div><strong>Last Upload:</strong> ${escapeHtml(formatRevenueUploadDateTime(meta.uploadedAt))}</div>
+                <div><strong>Last Upload:</strong> ${escapeHtml(lastUploadText)}</div>
                 <div><strong>Old Data Status:</strong> ${meta.oldDataReplaced ? "Old data replaced" : "Old data not replaced"}</div>
                 <div><strong>Upload Progress:</strong> ${meta.backendSynced ? "100%" : "99%"}</div>
                 <div><strong>Backend Status:</strong> ${meta.backendSynced ? "Successfully Uploaded" : "Verification pending"}</div>
             `;
+        }
+
+        async function fetchRevenuePaidUploadSummaryFromServer(dcName = activeDC) {
+            const normalizedDc = normalizeDcName(dcName || "");
+            if (!normalizedDc || !revenueCollectionSubmitScriptUrl) return null;
+            try {
+                const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getUploadedPaidEntries&dc_name=${encodeURIComponent(normalizedDc)}&t=${Date.now()}`);
+                const parsed = await response.json();
+                if (parsed?.status !== "success" || !Array.isArray(parsed?.entries) || !parsed.entries.length) return null;
+                const entries = parsed.entries;
+                const normalRows = entries.filter((e) => normalizeLookupValue(e.source_type || "") === "NORMAL").length;
+                const agRows = entries.filter((e) => normalizeLookupValue(e.source_type || "") === "AG").length;
+                const latest = entries[entries.length - 1] || {};
+                const uploadedAtDisplay = [latest.uploaded_date, latest.uploaded_time].filter(Boolean).join(" ") || "-";
+                return {
+                    dcName: normalizedDc,
+                    uniqueCount: entries.length,
+                    normalRows,
+                    agRows,
+                    uploadedAtDisplay,
+                    oldDataReplaced: true,
+                    backendSynced: true
+                };
+            } catch (_) {
+                return null;
+            }
         }
 
         async function refreshRevenuePaidUploadBackendStatus(dcName = activeDC) {
@@ -12721,7 +12973,7 @@
             if (!tableBox) return;
             const dcLabelBox = document.getElementById("revenue-live-dc-label");
             if (dcLabelBox) dcLabelBox.innerText = activeDC ? `DC: ${activeDC}` : getRevenueReportScopeLabel();
-            tableBox.innerHTML = `<div style="background:#eff6ff; border:1.5px dashed #93c5fd; border-radius:16px; padding:16px; color:#1d4ed8; font-weight:900; font-size:0.8rem; line-height:1.45; text-align:center;">Sheet se latest report load ho rahi hai...</div>`;
+            tableBox.innerHTML = '<p class="text-center py-10 animate-pulse font-black text-slate-400">SYNCING LATEST REPORT...</p>';
             await Promise.all([syncRevenueLiveEntriesFromSheet(), syncRevenueTdEntriesFromSheet()]);
             const rows = getRevenueCombinedFilteredEntries("DAILY", getCurrentDateDDMMYYYY());
             tableBox.innerHTML = renderRevenueReportHtml(rows, "Aaj ki date me paid/TD entry nahi hai.");
