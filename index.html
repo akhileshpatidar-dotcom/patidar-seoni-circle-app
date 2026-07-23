@@ -631,6 +631,79 @@
         @media (max-width: 800px) {
             .stock-mini-grid { grid-template-columns: 1fr; }
         }
+
+        /* ===== Professional UI polish (visual only, no logic changes) ===== */
+        button, .dashboard-btn, .btn-unique, .search-btn-custom, .submit-sync-btn,
+        .small-bottom-btn, .stock-submit, .stock-top-btn, .stock-small-btn,
+        .chhapara-calc-action, .gps-camera-action-btn, .feeder-submit-btn,
+        .vehicle-photo-btn, .header-menu-btn, .professional-trigger,
+        .pwa-install-action-btn, .progress-module-btn, .report-opt,
+        .stock-tile, .option-item, .stock-remove-btn, .chhapara-delete-btn,
+        .gps-camera-status-btn, .pwa-install-close-btn, .dark-mode-toggle-btn {
+            cursor: pointer;
+            transition: transform 0.12s cubic-bezier(0.4,0,0.2,1), box-shadow 0.18s ease, filter 0.15s ease, opacity 0.15s ease;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        button:active, .dashboard-btn:active, .btn-unique:active, .search-btn-custom:active,
+        .submit-sync-btn:active, .small-bottom-btn:active, .stock-submit:active,
+        .stock-top-btn:active, .stock-small-btn:active, .chhapara-calc-action:active,
+        .gps-camera-action-btn:active, .feeder-submit-btn:active, .vehicle-photo-btn:active,
+        .header-menu-btn:active, .pwa-install-action-btn:active, .progress-module-btn:active,
+        .stock-tile:active, .option-item:active, .stock-remove-btn:active,
+        .chhapara-delete-btn:active, .gps-camera-status-btn:active, .dark-mode-toggle-btn:active {
+            transform: scale(0.965);
+            filter: brightness(0.96);
+        }
+        button:disabled, [disabled] { opacity: 0.55; cursor: not-allowed; transform: none !important; filter: none !important; }
+
+        /* Softer, more layered shadows on primary action surfaces */
+        .dashboard-btn { box-shadow: 0 1px 2px rgba(15,23,42,0.06), 0 8px 20px -6px rgba(15,23,42,0.28); letter-spacing: 0.03em; }
+        .dashboard-btn:hover { box-shadow: 0 2px 4px rgba(15,23,42,0.08), 0 12px 26px -6px rgba(15,23,42,0.32); }
+        .btn-unique, .search-btn-custom, .stock-submit, .stock-top-btn, .stock-small-btn,
+        .stock-tile, .gps-camera-action-btn, .feeder-submit-btn, .chhapara-calc-action,
+        .submit-sync-btn, .small-bottom-btn, .gps-camera-status-btn {
+            box-shadow: 0 1px 2px rgba(15,23,42,0.08), 0 10px 22px -8px rgba(15,23,42,0.35);
+        }
+
+        /* Header: crisper depth + refined icon buttons */
+        .app-header { box-shadow: 0 1px 0 rgba(255,255,255,0.12) inset, 0 6px 18px -4px rgba(0,0,0,0.22); }
+        .header-menu-btn, .dark-mode-toggle-btn {
+            box-shadow: 0 2px 6px rgba(0,0,0,0.15), 0 0 0 1px rgba(255,255,255,0.08) inset;
+        }
+        .header-menu-btn:hover { background: rgba(255,255,255,0.26); }
+        .header-menu-list { border-color: #e2e8f0; }
+        .header-menu-item { transition: background 0.15s ease, border-color 0.15s ease; }
+        .header-menu-item:hover { background: #eef2f7; border-color: #cbd5e1; }
+
+        /* Inputs: calmer borders, glowing focus ring instead of static thick borders */
+        .professional-trigger, .ivrs-input, .teal-boundary-input, .stock-input, .stock-select,
+        .stock-textarea, .chhapara-calc-input, .feeder-reading-box {
+            border-width: 1.5px !important;
+            transition: border-color 0.18s ease, box-shadow 0.18s ease;
+        }
+        .professional-trigger:focus-within, .ivrs-input:focus, .teal-boundary-input:focus,
+        .stock-input:focus, .stock-select:focus, .stock-textarea:focus,
+        .chhapara-calc-input:focus, .feeder-reading-box:focus {
+            box-shadow: 0 0 0 4px rgba(13,148,136,0.14);
+        }
+
+        /* Cards: consistent, softer elevation */
+        .main-card, .stock-stat, .stock-section-card, .feeder-card, .vehicle-reading-card,
+        .stock-ledger-item, .chhapara-entry-card, .summary-wrapper, .stock-mini-card,
+        .stock-summary-box, .gps-camera-card, .gps-camera-status-card, .pwd-card {
+            box-shadow: 0 1px 2px rgba(15,23,42,0.04), 0 10px 28px -10px rgba(15,23,42,0.16);
+        }
+
+        /* Toast + modals: modern soft elevation */
+        #toast-notif { box-shadow: 0 10px 30px -6px rgba(15,23,42,0.35); }
+        .gps-camera-card, .gps-camera-status-card, .pwd-card { border-radius: 26px; }
+
+        /* Slightly calmer type weight on shouty uppercase labels for a more professional feel */
+        .dashboard-btn, .btn-unique, .stock-top-btn, .stock-small-btn, .stock-tile,
+        .progress-module-btn, .report-opt, .small-bottom-btn, .submit-sync-btn, .stock-submit {
+            font-weight: 800;
+        }
     </style>
 </head>
 <body>
@@ -2547,16 +2620,6 @@
         }
 
         const revenueCategoryList = ["LV1", "LV2", "LV3", "LV4", "LV5"];
-        const revenueCategoryDisplayLabels = {
-            "LV1": "DOMESTIC",
-            "LV2": "NON DOMESTIC",
-            "LV3": "PUBLIC WATER WORKS AND STREET LIGHTS",
-            "LV4": "LT INDUSTRIAL",
-            "LV5": "AGRICULTURE AND ALLIED ACTIVITIES"
-        };
-        function getRevenueCategoryDisplayLabel(category) {
-            return revenueCategoryDisplayLabels[category] || category;
-        }
 
         function normalizeRevenueCategory(value) {
             const raw = normalizeLookupValue(value || "");
@@ -3016,10 +3079,7 @@
         function exportRevenueCategorySummary(fmt, rows, label, reportType, diagnostic = null) {
             const levelT = activeViewLevel === "DC" ? `DC - ${activeDC}` : (activeViewLevel === "DIVISION" ? activeDiv : "SEONI CIRCLE");
             const firstCols = activeViewLevel === "CIRCLE" ? ["DIVISION", "DC NAME"] : [activeViewLevel === "DC" ? "HQ NAME" : "DC NAME"];
-            const metricCols = revenueCategoryList.flatMap((category) => {
-                const label = getRevenueCategoryDisplayLabel(category);
-                return [`${label} PAID`, `${label} PAID AMT (LAKH)`, `${label} UNPAID`, `${label} UNPAID AMT (LAKH)`];
-            });
+            const metricCols = revenueCategoryList.flatMap((category) => [`${category} PAID`, `${category} PAID AMT (LAKH)`, `${category} UNPAID`, `${category} UNPAID AMT (LAKH)`]);
             const header = [...firstCols, ...metricCols, "TOTAL PAID", "TOTAL PAID AMT (LAKH)", "TOTAL UNPAID", "TOTAL UNPAID AMT (LAKH)"];
             const diagnosticRows = diagnostic ? [
                 ["Uploaded Payment Rows", diagnostic.uploadedUnique],
@@ -3107,7 +3167,7 @@
             const groupedHead = [
                 [
                     ...firstCols.map((col) => ({ content: col, rowSpan: 2, styles: { valign: "middle", halign: "center", lineColor: [15, 23, 42], lineWidth: 0.25 } })),
-                    ...revenueCategoryList.map((category) => ({ content: getRevenueCategoryDisplayLabel(category), colSpan: 4, styles: { halign: "center", lineColor: [15, 23, 42], lineWidth: 0.25 } })),
+                    ...revenueCategoryList.map((category) => ({ content: category, colSpan: 4, styles: { halign: "center", lineColor: [15, 23, 42], lineWidth: 0.25 } })),
                     { content: "TOTAL", colSpan: 4, styles: { halign: "center", lineColor: [15, 23, 42], lineWidth: 0.25 } }
                 ],
                 [
