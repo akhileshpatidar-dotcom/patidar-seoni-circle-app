@@ -13138,9 +13138,29 @@
                 doc.text(`Generated: ${reportMeta.generatedAt}`, 283, 10, { align: "right" });
                 doc.setFontSize(11);
                 doc.setTextColor(30, 58, 138);
-                doc.text("Summary", 14, 40);
+                doc.text("Report Diagnostics", 14, 40);
                 doc.autoTable({
                     startY: 44,
+                    head: [["Diagnostic", "Value"]],
+                    body: [
+                        ["Total Records In Report", String(rows.length)],
+                        ["Total Paid Amount", formatRevenueAmount(summaryTotal.amount)],
+                        ["Total Line TD Entries", String(summaryTotal.tdCount)],
+                        ["Report Period", reportMeta.periodLabel],
+                        ["Scope", reportMeta.scopeLabel]
+                    ],
+                    theme: "grid",
+                    headStyles: { fillColor: [15, 118, 110], halign: "center" },
+                    styles: { fontSize: 6, cellPadding: 1.2, halign: "center" },
+                    columnStyles: { 0: { halign: "left" } },
+                    margin: { left: 96, right: 96 }
+                });
+                const summaryTitleY = (doc.lastAutoTable?.finalY || 44) + 8;
+                doc.setFontSize(11);
+                doc.setTextColor(30, 58, 138);
+                doc.text("Summary", 14, summaryTitleY - 2);
+                doc.autoTable({
+                    startY: summaryTitleY + 2,
                     head: [summaryHeaders],
                     body: summaryRows.map((items) => items.map(pdfText)),
                     theme: "grid",
@@ -13178,6 +13198,11 @@
                 ["SCOPE", reportMeta.scopeLabel],
                 ["FILTER", reportMeta.filterLabel],
                 ["GENERATED AT", reportMeta.generatedAt],
+                [],
+                ["DIAGNOSTIC", "VALUE"],
+                ["Total Records In Report", String(rows.length)],
+                ["Total Paid Amount", formatRevenueAmount(summaryTotal.amount)],
+                ["Total Line TD Entries", String(summaryTotal.tdCount)],
                 [],
                 ["SUMMARY"],
                 summaryHeaders,
