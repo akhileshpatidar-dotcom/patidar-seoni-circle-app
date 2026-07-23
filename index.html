@@ -3291,6 +3291,35 @@
             return html;
         }
 
+        function renderSyncingProgress(cont, refreshTokenAtStart) {
+            cont.innerHTML = `
+                <div class="text-center py-10">
+                    <p class="font-black text-slate-500" style="font-size:0.85rem;">SYNCING ALL DC DATA...</p>
+                    <div style="max-width:220px; margin:14px auto 0; background:#e2e8f0; border-radius:999px; height:8px; overflow:hidden;">
+                        <div id="summary-sync-progress-fill" style="height:100%; width:2%; background:linear-gradient(90deg,#0d9488,#0f766e); border-radius:999px; transition:width 0.25s ease;"></div>
+                    </div>
+                    <p id="summary-sync-progress-text" class="font-bold text-slate-400" style="font-size:0.72rem; margin-top:6px;">2%</p>
+                </div>
+            `;
+            let percent = 2;
+            const intervalId = setInterval(() => {
+                if (refreshTokenAtStart !== summaryRefreshToken) {
+                    clearInterval(intervalId);
+                    return;
+                }
+                const fill = document.getElementById("summary-sync-progress-fill");
+                const text = document.getElementById("summary-sync-progress-text");
+                if (!fill || !text) {
+                    clearInterval(intervalId);
+                    return;
+                }
+                percent = Math.min(90, percent + Math.max(1, Math.round((90 - percent) / 8)));
+                fill.style.width = `${percent}%`;
+                text.innerText = `${percent}%`;
+                if (percent >= 90) clearInterval(intervalId);
+            }, 220);
+        }
+
         async function refreshSummary() {
             const refreshToken = ++summaryRefreshToken;
             const moduleAtStart = summaryModule;
@@ -3305,7 +3334,7 @@
                 divAtStart !== activeDiv
             );
             const cont = document.getElementById("summary-content");
-            cont.innerHTML = '<p class="text-center py-10 animate-pulse font-black text-slate-400">SYNCING ALL DC DATA...</p>';
+            renderSyncingProgress(cont, refreshToken);
             const raw = document.getElementById("report-date").value;
             if (!raw) return;
             const parsedSummarySelection = parseSummarySelection(raw, summaryMode);
