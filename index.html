@@ -2778,13 +2778,19 @@
         }
 
         function isRevenueUploadedPaidInCategoryPeriod(row, mode, filterValue) {
-            const targetMonthKey = mode === "MONTHLY"
-                ? normalizeRevenueMonthFilterKey(filterValue)
-                : getRevenueMonthKey(filterValue || getCurrentDateDDMMYYYY());
-            if (!targetMonthKey) return false;
+            if (mode === "MONTHLY") {
+                const targetMonthKey = normalizeRevenueMonthFilterKey(filterValue);
+                if (!targetMonthKey) return false;
+                const paidDate = normalizeRevenuePaidDate(getRevenueUploadedPaidRowDate(row), targetMonthKey);
+                if (!paidDate) return false;
+                return getRevenueMonthKey(paidDate) === targetMonthKey;
+            }
+            const targetDate = normalizeRevenueReportDate(filterValue || getCurrentDateDDMMYYYY());
+            if (!targetDate) return false;
+            const targetMonthKey = getRevenueMonthKey(targetDate);
             const paidDate = normalizeRevenuePaidDate(getRevenueUploadedPaidRowDate(row), targetMonthKey);
             if (!paidDate) return false;
-            return getRevenueMonthKey(paidDate) === targetMonthKey;
+            return normalizeRevenueReportDate(paidDate) === targetDate;
         }
 
         function getRevenueUploadedPaidRowDcName(row, fallbackDc = "") {
@@ -12151,18 +12157,36 @@
 
         function getRevenueCategoryPaymentSourceRows() {
             const rawRows = getRevenueCategoryRawPaymentRows();
-            const rawDcNames = new Set(rawRows.map((row) => getRevenueUploadedPaidRowDcName(row)).filter(Boolean));
-            const rows = [...rawRows];
+            const rawByDc = {};
+            rawRows.forEach((row) => {
+                const dcName = getRevenueUploadedPaidRowDcName(row);
+                if (!dcName) return;
+                if (!rawByDc[dcName]) rawByDc[dcName] = [];
+                rawByDc[dcName].push(row);
+            });
+
+            const serverByDc = {};
             Object.values(getRevenueUploadedPaidCache() || {}).forEach((row) => {
                 const dcName = getRevenueUploadedPaidRowDcName(row);
-                if (rawDcNames.has(dcName)) return;
+                if (!dcName) return;
+                if (!serverByDc[dcName]) serverByDc[dcName] = [];
                 getRevenueUploadedPaidPaymentRows(row).forEach((paymentRow) => {
-                    rows.push({
+                    serverByDc[dcName].push({
                         ...paymentRow,
                         dcName: getRevenueUploadedPaidRowDcName(paymentRow, dcName),
                         ivrsNo: getRevenueUploadedPaidRowIvrs(paymentRow) || getRevenueUploadedPaidRowIvrs(row)
                     });
                 });
+            });
+
+            const allDcNames = new Set([...Object.keys(rawByDc), ...Object.keys(serverByDc)]);
+            const rows = [];
+            allDcNames.forEach((dcName) => {
+                const rawList = rawByDc[dcName] || [];
+                const serverList = serverByDc[dcName] || [];
+                // Jo bhi source zyada complete ho (zyada rows) usi DC ke liye use karo -
+                // taaki partial/adhoora local cache poore server data ko hide na kare.
+                rows.push(...(serverList.length > rawList.length ? serverList : rawList));
             });
             return rows;
         }
