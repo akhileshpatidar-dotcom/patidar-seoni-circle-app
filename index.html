@@ -2863,14 +2863,18 @@
             return [row];
         }
 
-        async function fetchUploadedPaidEntriesWithRetry_(dcName, attempts = 3) {
+        async function fetchUploadedPaidEntriesWithRetry_(dcName, attempts = 2) {
             for (let attempt = 1; attempt <= attempts; attempt++) {
+                const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+                const timer = setTimeout(() => { try { if (controller) controller.abort(); } catch (_) {} }, 45000);
                 try {
-                    const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getUploadedPaidEntries&dc_name=${encodeURIComponent(dcName)}&t=${Date.now()}`);
+                    const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getUploadedPaidEntries&dc_name=${encodeURIComponent(dcName)}&t=${Date.now()}`, controller ? { signal: controller.signal } : {});
                     const parsed = await response.json();
                     if (parsed && parsed.status === "success") return parsed;
-                } catch (_) {}
-                if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+                } catch (_) {} finally {
+                    clearTimeout(timer);
+                }
+                if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, 800));
             }
             return null;
         }
@@ -3118,12 +3122,19 @@
             return "Circle: SEONI CIRCLE";
         }
 
+        function formatRevenuePercent(numerator, denominator) {
+            const num = Number(numerator) || 0;
+            const den = Number(denominator) || 0;
+            if (!den) return "0%";
+            return `${((num / den) * 100).toFixed(1)}%`;
+        }
+
         function exportRevenueCategorySummary(fmt, rows, label, reportType, diagnostic = null) {
             const levelT = activeViewLevel === "DC" ? `DC - ${activeDC}` : (activeViewLevel === "DIVISION" ? activeDiv : "SEONI CIRCLE");
             const firstCols = activeViewLevel === "CIRCLE" ? ["DIVISION", "DC NAME"] : [activeViewLevel === "DC" ? "HQ NAME" : "DC NAME"];
             const metricCols = revenueCategoryList.flatMap((category) => {
                 const label = getRevenueCategoryDisplayLabel(category);
-                return [`${label} PAID`, `${label} PAID AMT (LAKH)`, `${label} UNPAID`, `${label} UNPAID AMT (LAKH)`];
+                return [`${label} PAID`, `${label} PAID %`, `${label} PAID AMT (LAKH)`, `${label} PAID AMT %`, `${label} UNPAID`, `${label} UNPAID AMT (LAKH)`];
             });
             const header = [...firstCols, ...metricCols, "TOTAL PAID", "TOTAL PAID AMT (LAKH)", "TOTAL UNPAID", "TOTAL UNPAID AMT (LAKH)"];
             const diagnosticRows = diagnostic ? [
@@ -3138,12 +3149,19 @@
                 const leading = activeViewLevel === "CIRCLE" ? [row.type === "SUB_TOTAL" ? row.divisionName || "" : row.divisionName || "", row.name] : [row.name];
                 return [
                     ...leading,
-                    ...revenueCategoryList.flatMap((category) => [
-                        row.categories?.[category]?.paid || 0,
-                        formatRevenueLakhValue(row.categories?.[category]?.paidAmount || 0),
-                        row.categories?.[category]?.unpaid || 0,
-                        formatRevenueLakhValue(row.categories?.[category]?.unpaidAmount || 0)
-                    ]),
+                    ...revenueCategoryList.flatMap((category) => {
+                        const c = row.categories?.[category] || {};
+                        const paid = c.paid || 0, unpaid = c.unpaid || 0;
+                        const paidAmount = c.paidAmount || 0, unpaidAmount = c.unpaidAmount || 0;
+                        return [
+                            paid,
+                            formatRevenuePercent(paid, paid + unpaid),
+                            formatRevenueLakhValue(paidAmount),
+                            formatRevenuePercent(paidAmount, paidAmount + unpaidAmount),
+                            unpaid,
+                            formatRevenueLakhValue(unpaidAmount)
+                        ];
+                    }),
                     row.paidTotal || 0,
                     formatRevenueLakhValue(row.paidAmountTotal || 0),
                     row.unpaidTotal || 0,
@@ -3151,9 +3169,13 @@
                 ];
             };
             const grand = getRevenueCategoryGrandTotals(rows);
+            const grandCategoryCells = (category) => {
+                const c = grand.categories[category];
+                return [c.paid, formatRevenuePercent(c.paid, c.paid + c.unpaid), formatRevenueLakhValue(c.paidAmount), formatRevenuePercent(c.paidAmount, c.paidAmount + c.unpaidAmount), c.unpaid, formatRevenueLakhValue(c.unpaidAmount)];
+            };
             const grandRow = activeViewLevel === "CIRCLE"
-                ? ["", "GRAND TOTAL", ...revenueCategoryList.flatMap((category) => [grand.categories[category].paid, formatRevenueLakhValue(grand.categories[category].paidAmount), grand.categories[category].unpaid, formatRevenueLakhValue(grand.categories[category].unpaidAmount)]), grand.paidTotal, formatRevenueLakhValue(grand.paidAmountTotal), grand.unpaidTotal, formatRevenueLakhValue(grand.unpaidAmountTotal)]
-                : ["GRAND TOTAL", ...revenueCategoryList.flatMap((category) => [grand.categories[category].paid, formatRevenueLakhValue(grand.categories[category].paidAmount), grand.categories[category].unpaid, formatRevenueLakhValue(grand.categories[category].unpaidAmount)]), grand.paidTotal, formatRevenueLakhValue(grand.paidAmountTotal), grand.unpaidTotal, formatRevenueLakhValue(grand.unpaidAmountTotal)];
+                ? ["", "GRAND TOTAL", ...revenueCategoryList.flatMap(grandCategoryCells), grand.paidTotal, formatRevenueLakhValue(grand.paidAmountTotal), grand.unpaidTotal, formatRevenueLakhValue(grand.unpaidAmountTotal)]
+                : ["GRAND TOTAL", ...revenueCategoryList.flatMap(grandCategoryCells), grand.paidTotal, formatRevenueLakhValue(grand.paidAmountTotal), grand.unpaidTotal, formatRevenueLakhValue(grand.unpaidAmountTotal)];
             const title = `${levelT} ${reportType} CATEGORY WISE PAID/UNPAID SUMMARY`;
             const generatedAt = `${getCurrentDateDDMMYYYY()} ${getCurrentTimeHHMM()}`;
 
@@ -3212,11 +3234,11 @@
             const groupedHead = [
                 [
                     ...firstCols.map((col) => ({ content: col, rowSpan: 2, styles: { valign: "middle", halign: "center", lineColor: [15, 23, 42], lineWidth: 0.25 } })),
-                    ...revenueCategoryList.map((category) => ({ content: getRevenueCategoryDisplayLabel(category), colSpan: 4, styles: { halign: "center", lineColor: [15, 23, 42], lineWidth: 0.25 } })),
+                    ...revenueCategoryList.map((category) => ({ content: getRevenueCategoryDisplayLabel(category), colSpan: 6, styles: { halign: "center", lineColor: [15, 23, 42], lineWidth: 0.25 } })),
                     { content: "TOTAL", colSpan: 4, styles: { halign: "center", lineColor: [15, 23, 42], lineWidth: 0.25 } }
                 ],
                 [
-                    ...revenueCategoryList.flatMap(() => ["Paid", "Paid Amt (L)", "Unpaid", "Unpaid Amt (L)"]),
+                    ...revenueCategoryList.flatMap(() => ["Paid", "Paid %", "Paid Amt (L)", "Paid Amt %", "Unpaid", "Unpaid Amt (L)"]),
                     "Paid", "Paid Amt (L)", "Unpaid", "Unpaid Amt (L)"
                 ]
             ];
