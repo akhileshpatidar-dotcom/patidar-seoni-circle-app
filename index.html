@@ -1710,7 +1710,7 @@
                     { name: "DHUMA", subDn: "LAKHNADON", csvUrl: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTLZb7N8resS05d0x0Txuh38Th4_bHXBHDBcKNc_mrJaqeYe0FyzdpbctR0r6xhtCFpNLuXN_737the/pub?output=csv" },
                     { name: "GANESHGANJ", subDn: "CHHAPARA", csvUrl: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSpKAgJ9I3cus_l-QbagEIsaM8kmIZrkV0cYc00lnOg_MAXJZXrIzJC9QghdStYz0g-yWbtUKjn4uFI/pub?output=csv" },
                     { name: "GHANSORE", subDn: "LAKHNADON", csvUrl: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRrnZZ4FhdFSpFM2NfiTGAxbkUa9OQin4VQW9t06bAzRzjHZd_F4mVc3_vv4XxXPWSF_p78YoVIJI5Y/pub?output=csv" },
-                    { name: "KEDARPUR", subDn: "LAKHNADON", csvUrl: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTBdrZyG4W8F0sR5lCoTxfTC9J15m86DRo2GXLwAI_HM3TBua4zFYq96qu_Obu6DjhWp6hK-TZNFaVr/pub?output=csv" },
+                    { name: "KEDARPUR", subDn: "LAKHNADON", csvUrl: "https://docs.google.com/spreadsheets/d/145bjD_AoAKWnTfzSaVAXoFpq9cZooSoM8jl0JKBfDkw/export?format=csv&gid=0" },
                     { name: "LAKHNADON", subDn: "LAKHNADON", csvUrl: "https://docs.google.com/spreadsheets/d/1_r5WgGV9bs-aed86dZLOlDKmK5g9J7qiGsmQAqDE1as/export?format=csv&gid=0" }
                 ]
             }
@@ -1757,7 +1757,8 @@
             "DHANORA": "https://docs.google.com/spreadsheets/d/1qNgLx9o6hp4nwLGaCwy5DRW8xmh6eaNCoysbbH5bL1o/export?format=csv&gid=0",
             "GHANSORE": "https://docs.google.com/spreadsheets/d/e/2PACX-1vRrnZZ4FhdFSpFM2NfiTGAxbkUa9OQin4VQW9t06bAzRzjHZd_F4mVc3_vv4XxXPWSF_p78YoVIJI5Y/pub?output=csv",
             "LAKHNADON": "https://docs.google.com/spreadsheets/d/1_r5WgGV9bs-aed86dZLOlDKmK5g9J7qiGsmQAqDE1as/export?format=csv&gid=0",
-            "KURAI": "https://docs.google.com/spreadsheets/d/15c2CHolan0YVYh5Hwe4akn1YNk1SUhhLVa24h9ZBQbU/export?format=csv&gid=0"
+            "KURAI": "https://docs.google.com/spreadsheets/d/15c2CHolan0YVYh5Hwe4akn1YNk1SUhhLVa24h9ZBQbU/export?format=csv&gid=0",
+            "KEDARPUR": "https://docs.google.com/spreadsheets/d/145bjD_AoAKWnTfzSaVAXoFpq9cZooSoM8jl0JKBfDkw/export?format=csv&gid=0"
         };
         const stockMaterialsCsvUrl = "https://docs.google.com/spreadsheets/d/1OfrU7ZuN5LV9f_3hqORv66BVLYKFGIBBjDyeSXHwldA/export?format=csv&gid=641545139";
         const shmsCsvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTbq-yne90yg9Vn8eylxM3zKMfZjPLlVhca3JhsjAzMlcm6MAVl8vAA-xXVgZI_XjWQBHyjB36YO1Cz/pub?output=csv";
@@ -13683,7 +13684,7 @@
                 switchView("revenue-collection");
             } else if (act === "dc-dashboard-view" || act === "mobile-update-view" || act === "revenue-collection-view") {
                 if (act === "mobile-update-view") {
-                    resetForm();
+                    resetForm(true);
                     switchView("dc-dashboard");
                 } else if (act === "revenue-collection-view") {
                     initRevenueCollection();
