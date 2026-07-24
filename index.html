@@ -11980,9 +11980,21 @@
                 if (uploadPanel) uploadPanel.style.display = "none";
             }
             setRevenuePaidUploadStatus("", true, false);
-            renderRevenuePaidUploadSummary(getRevenuePaidUploadMeta(activeDC || ""));
+            const localMeta = getRevenuePaidUploadMeta(activeDC || "");
+            renderRevenuePaidUploadSummary(localMeta);
+            const summaryBox = document.getElementById("revenue-paid-upload-summary");
+            if (summaryBox) {
+                summaryBox.style.display = "block";
+                const checkingNote = document.createElement("div");
+                checkingNote.id = "revenue-paid-upload-summary-checking";
+                checkingNote.style.cssText = "text-align:center; font-size:0.68rem; font-weight:800; color:#0d9488; margin-top:6px;";
+                checkingNote.innerText = "Latest status check ho raha hai...";
+                summaryBox.appendChild(checkingNote);
+            }
             refreshRevenuePaidUploadBackendStatus(activeDC || "");
             fetchRevenuePaidUploadSummaryFromServer(activeDC || "").then((serverMeta) => {
+                const checkingNote = document.getElementById("revenue-paid-upload-summary-checking");
+                if (checkingNote) checkingNote.remove();
                 if (!serverMeta) return;
                 renderRevenuePaidUploadSummary(serverMeta);
                 saveRevenuePaidUploadMeta(serverMeta);
@@ -12621,7 +12633,7 @@
             }));
         }
 
-        async function verifyRevenuePaidBackendUpload(entries, dcName, maxAttempts = 18) {
+        async function verifyRevenuePaidBackendUpload(entries, dcName, maxAttempts = 30) {
             const expected = new Map((entries || []).map((entry) => [
                 getRevenueUploadedPaidRowIvrs(entry),
                 Math.round(getRevenueUploadedPaidRowAmount(entry))
