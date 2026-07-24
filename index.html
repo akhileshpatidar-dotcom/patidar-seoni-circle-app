@@ -1937,6 +1937,9 @@
                     }
                 } catch (e) {}
             });
+            Object.keys(revenueCollectionCsvUrls).forEach((dcKey) => {
+                loadRevenueCollectionData(dcKey).catch(() => {});
+            });
             loadCourtCaseData();
             loadStockMaterialsData();
             preloadDuplicateTrackingData();
@@ -3073,6 +3076,7 @@
             return totals;
         }
 
+        let categoryDownloadProgressToken = 0;
         function setProgressCategoryDownloadState(isDownloading, message = "") {
             const status = document.getElementById("progress-category-download-status");
             const buttons = document.querySelectorAll("#progress-category-download-box button");
@@ -3082,12 +3086,20 @@
                 button.style.opacity = isDownloading ? "0.65" : "1";
                 button.style.pointerEvents = isDownloading ? "none" : "auto";
             });
+            categoryDownloadProgressToken++;
             if (status) {
-                status.style.display = statusMessage ? "block" : "none";
-                status.textContent = statusMessage;
-                const failed = statusMessage === getActionStatusText("failed");
-                status.style.background = isDownloading ? "#dbeafe" : (failed ? "#fff1f2" : "#dcfce7");
-                status.style.color = isDownloading ? "#1d4ed8" : (failed ? "#991b1b" : "#047857");
+                if (isDownloading) {
+                    status.style.display = "block";
+                    status.style.background = "#dbeafe";
+                    status.style.color = "#1d4ed8";
+                    renderSyncingProgress(status, ((token) => () => token === categoryDownloadProgressToken)(categoryDownloadProgressToken), statusMessage || "Downloading...");
+                } else {
+                    status.style.display = statusMessage ? "block" : "none";
+                    status.textContent = statusMessage;
+                    const failed = statusMessage === getActionStatusText("failed");
+                    status.style.background = failed ? "#fff1f2" : "#dcfce7";
+                    status.style.color = failed ? "#991b1b" : "#047857";
+                }
             }
         }
 
