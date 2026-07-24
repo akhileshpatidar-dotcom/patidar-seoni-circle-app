@@ -2863,42 +2863,50 @@
             return [row];
         }
 
+        async function fetchUploadedPaidEntriesWithRetry_(dcName, attempts = 3) {
+            for (let attempt = 1; attempt <= attempts; attempt++) {
+                try {
+                    const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getUploadedPaidEntries&dc_name=${encodeURIComponent(dcName)}&t=${Date.now()}`);
+                    const parsed = await response.json();
+                    if (parsed && parsed.status === "success") return parsed;
+                } catch (_) {}
+                if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+            }
+            return null;
+        }
+
         async function warmRevenueCategoryUploadedPaidCache() {
             if (!revenueCollectionSubmitScriptUrl) return;
             const dcNames = Array.from(new Set(getRevenueCategoryTargetDcs().map((dcName) => normalizeDcName(dcName)).filter(Boolean)));
             await Promise.all(dcNames.map(async (dcName) => {
-                try {
-                    const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getUploadedPaidEntries&dc_name=${encodeURIComponent(dcName)}&t=${Date.now()}`);
-                    const parsed = await response.json();
-                    const rows = Array.isArray(parsed?.entries) ? parsed.entries : (Array.isArray(parsed?.data) ? parsed.data : []);
-                    if (parsed && parsed.status === "success") {
-                        const localCache = getRevenueUploadedPaidCache();
-                        const mergedRows = rows.map((row) => {
-                            const ivrs = getRevenueUploadedPaidRowIvrs(row);
-                            const resolvedDc = getRevenueUploadedPaidRowDcName(row, dcName);
-                            const localRow = localCache[getRevenueUploadedPaidCacheKey(ivrs, resolvedDc)];
-                            let remotePaymentRows = row?.paymentRows || row?.payment_rows || row?.payments || row?.paymentDetails || [];
-                            let localPaymentRows = localRow?.paymentRows || localRow?.payment_rows || localRow?.payments || localRow?.paymentDetails || [];
-                            if (typeof remotePaymentRows === "string") {
-                                try { remotePaymentRows = JSON.parse(remotePaymentRows); } catch (_) { remotePaymentRows = []; }
-                            }
-                            if (typeof localPaymentRows === "string") {
-                                try { localPaymentRows = JSON.parse(localPaymentRows); } catch (_) { localPaymentRows = []; }
-                            }
-                            if ((!Array.isArray(remotePaymentRows) || !remotePaymentRows.length) && Array.isArray(localPaymentRows) && localPaymentRows.length) {
-                                return {
-                                    ...row,
-                                    paymentRows: localPaymentRows,
-                                    payment_rows: localPaymentRows,
-                                    paymentCount: localPaymentRows.length,
-                                    payment_count: localPaymentRows.length
-                                };
-                            }
-                            return row;
-                        });
-                        saveRevenueUploadedPaidEntriesLocalBulk(mergedRows, dcName, true);
+                const parsed = await fetchUploadedPaidEntriesWithRetry_(dcName);
+                if (!parsed) return;
+                const rows = Array.isArray(parsed?.entries) ? parsed.entries : (Array.isArray(parsed?.data) ? parsed.data : []);
+                const localCache = getRevenueUploadedPaidCache();
+                const mergedRows = rows.map((row) => {
+                    const ivrs = getRevenueUploadedPaidRowIvrs(row);
+                    const resolvedDc = getRevenueUploadedPaidRowDcName(row, dcName);
+                    const localRow = localCache[getRevenueUploadedPaidCacheKey(ivrs, resolvedDc)];
+                    let remotePaymentRows = row?.paymentRows || row?.payment_rows || row?.payments || row?.paymentDetails || [];
+                    let localPaymentRows = localRow?.paymentRows || localRow?.payment_rows || localRow?.payments || localRow?.paymentDetails || [];
+                    if (typeof remotePaymentRows === "string") {
+                        try { remotePaymentRows = JSON.parse(remotePaymentRows); } catch (_) { remotePaymentRows = []; }
                     }
-                } catch (_) {}
+                    if (typeof localPaymentRows === "string") {
+                        try { localPaymentRows = JSON.parse(localPaymentRows); } catch (_) { localPaymentRows = []; }
+                    }
+                    if ((!Array.isArray(remotePaymentRows) || !remotePaymentRows.length) && Array.isArray(localPaymentRows) && localPaymentRows.length) {
+                        return {
+                            ...row,
+                            paymentRows: localPaymentRows,
+                            payment_rows: localPaymentRows,
+                            paymentCount: localPaymentRows.length,
+                            payment_count: localPaymentRows.length
+                        };
+                    }
+                    return row;
+                });
+                saveRevenueUploadedPaidEntriesLocalBulk(mergedRows, dcName, true);
             }));
         }
 
