@@ -388,6 +388,28 @@
             animation: gpsSpin 0.9s linear infinite;
         }
         @keyframes gpsSpin { to { transform: rotate(360deg); } }
+        .ticker-wrap {
+            width: 100%;
+            overflow: hidden;
+            background: #7f1d1d;
+            border-radius: 10px;
+            padding: 8px 0;
+            margin-top: 8px;
+        }
+        .ticker-text {
+            display: inline-block;
+            white-space: nowrap;
+            color: #ffffff;
+            font-weight: 950;
+            font-size: 0.72rem;
+            letter-spacing: 0.02em;
+            padding-left: 100%;
+            animation: tickerScroll 7s linear infinite;
+        }
+        @keyframes tickerScroll {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(-100%); }
+        }
         .btn-inline-spinner {
             display: inline-block;
             width: 13px;
@@ -834,6 +856,7 @@
                 <button class="dashboard-btn btn-green-fix" onclick="window.open('https://billing.mpez.co.in/', '_blank')">PAY & VIEW BIJLEE BILL</button>
                 <button class="dashboard-btn btn-update-red" onclick="switchView('mobile-update')">Mobile No Update</button>
                 <button class="dashboard-btn btn-revenue-blue" onclick="switchView('revenue-collection')">Revenue Collection</button>
+                <div id="revenue-upload-freshness-ticker" class="ticker-wrap" style="display:none; margin-top:6px;"><span class="ticker-text" style="color:#ffffff;"></span></div>
           <button class="dashboard-btn btn-court-case" onclick="switchView('court-case')" style="display:none;">Lok Adalat Notice</button>
                 <button class="dashboard-btn btn-progress-black" onclick="askPassword('DC')">Daily Progress</button>
             </div>
@@ -11989,8 +12012,8 @@
                 summaryBox.style.display = "block";
                 const checkingNote = document.createElement("div");
                 checkingNote.id = "revenue-paid-upload-summary-checking";
-                checkingNote.style.cssText = "text-align:center; font-size:0.68rem; font-weight:800; color:#0d9488; margin-top:6px;";
-                checkingNote.innerText = "Latest status check ho raha hai...";
+                checkingNote.className = "ticker-wrap";
+                checkingNote.innerHTML = '<span class="ticker-text">⏳ LATEST STATUS CHECK HO RAHA HAI... KRIPYA WAIT KIJIYE... SYNC HONE TAK YAHAN SE MAT JAइए... ⏳ LATEST STATUS CHECK HO RAHA HAI... KRIPYA WAIT KIJIYE...</span>';
                 summaryBox.appendChild(checkingNote);
             }
             refreshRevenuePaidUploadBackendStatus(activeDC || "");
@@ -12084,6 +12107,35 @@
                 <div><strong>Upload Progress:</strong> ${meta.backendSynced ? "100%" : "99%"}</div>
                 <div><strong>Backend Status:</strong> ${meta.backendSynced ? "Successfully Uploaded" : "Verification pending"}</div>
             `;
+        }
+
+        async function checkRevenueUploadFreshness() {
+            const box = document.getElementById("revenue-upload-freshness-ticker");
+            if (!box) return;
+            const dcName = activeDC;
+            if (!dcName || !revenueCollectionSubmitScriptUrl) {
+                box.style.display = "none";
+                return;
+            }
+            const today = new Date();
+            const todayDDMMYYYY = `${String(today.getDate()).padStart(2, "0")}/${String(today.getMonth() + 1).padStart(2, "0")}/${today.getFullYear()}`;
+            try {
+                const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getPaidMasterLastUploadDate&dc_name=${encodeURIComponent(dcName)}&t=${Date.now()}`);
+                const parsed = await response.json();
+                if (activeDC !== dcName) return;
+                const lastUploadDate = parsed?.status === "success" ? String(parsed.last_upload_date || "").trim() : "";
+                if (lastUploadDate === todayDDMMYYYY) {
+                    box.style.display = "none";
+                    return;
+                }
+                const span = box.querySelector(".ticker-text");
+                if (span) {
+                    span.innerText = `⚠️ आज दिनांक ${todayDDMMYYYY} को Cash List Upload ना होने के कारण Latest Paid Consumer का Data Show नहीं होगा   ⚠️   आज दिनांक ${todayDDMMYYYY} को Cash List Upload ना होने के कारण Latest Paid Consumer का Data Show नहीं होगा`;
+                }
+                box.style.display = "block";
+            } catch (_) {
+                box.style.display = "none";
+            }
         }
 
         async function fetchRevenuePaidUploadSummaryFromServer(dcName = activeDC) {
@@ -13609,6 +13661,9 @@
                 }
                 if (id === "shms-pending") {
                     initShmsPendingDashboard();
+                }
+                if (id === "dc-dashboard") {
+                    checkRevenueUploadFreshness();
                 }
                 document.getElementById("back-btn").style.display = id === "home" ? "none" : "flex";
                 let headerTitle = "SEONI CIRCLE";
