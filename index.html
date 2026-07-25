@@ -13197,11 +13197,19 @@
             const tableBox = document.getElementById("revenue-live-table");
             if (!tableBox) return;
             const myToken = ++revenueLiveProgressToken;
+            // Race-condition safety: activeViewLevel kabhi-kabhi stale ho sakta hai jab tak
+            // ye view render ho, isliye activeDC/activeDiv se turant dobara confirm kar lo.
+            if (activeDC) activeViewLevel = "DC";
+            else if (activeDiv) activeViewLevel = "DIVISION";
+            else activeViewLevel = "CIRCLE";
             const dcLabelBox = document.getElementById("revenue-live-dc-label");
             if (dcLabelBox) dcLabelBox.innerText = activeDC ? `DC: ${activeDC}` : getRevenueReportScopeLabel();
             renderSyncingProgress(tableBox, () => myToken === revenueLiveProgressToken, "SYNCING LATEST REPORT...");
             await Promise.all([syncRevenueLiveEntriesFromSheet(), syncRevenueTdEntriesFromSheet()]);
             if (myToken !== revenueLiveProgressToken) return;
+            if (activeDC) activeViewLevel = "DC";
+            else if (activeDiv) activeViewLevel = "DIVISION";
+            else activeViewLevel = "CIRCLE";
             const rows = getRevenueCombinedFilteredEntries("DAILY", getCurrentDateDDMMYYYY());
             const groupedRows = buildProgressRevenueSummaryRows(rows);
             tableBox.innerHTML = renderRevenueLiveSummaryTable(groupedRows);
