@@ -10438,6 +10438,29 @@
             setRevenueTdEntriesLocal(filtered);
         }
 
+        function getRevenueTdEntryMergeKey(entry) {
+            return [
+                normalizeLookupValue(entry?.dcName || ""),
+                normalizeRevenueIvrs(entry?.ivrsNo || ""),
+                normalizeRevenueReportDate(entry?.tdDate || ""),
+                formatRevenuePaidTime(entry?.tdTime || ""),
+                normalizeLookupValue(entry?.remark || "")
+            ].join("|");
+        }
+
+        function mergeRevenueTdEntries(remoteRows = [], localRows = getRevenueTdEntriesLocal()) {
+            const merged = new Map();
+            (localRows || []).forEach((row) => {
+                const key = getRevenueTdEntryMergeKey(row);
+                if (key.replace(/\|/g, "")) merged.set(key, row);
+            });
+            (remoteRows || []).forEach((row) => {
+                const key = getRevenueTdEntryMergeKey(row);
+                if (key.replace(/\|/g, "")) merged.set(key, { ...(merged.get(key) || {}), ...row });
+            });
+            return Array.from(merged.values());
+        }
+
         function getRevenueOfflineQueue() {
             try {
                 return JSON.parse(localStorage.getItem(revenueOfflineQueueStorageKey) || "[]");
@@ -10589,15 +10612,16 @@
         async function syncRevenueTdEntriesFromSheet() {
             if (!revenueCollectionSubmitScriptUrl) return getRevenueTdEntriesLocal();
             try {
-                const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getTDEntries&t=${Date.now()}`);
+                const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getTDEntries&dc_name=${encodeURIComponent(activeDC || "")}&division_name=${encodeURIComponent(activeDiv || "")}&t=${Date.now()}`);
                 const parsed = await response.json();
                 const sourceRows = Array.isArray(parsed?.entries)
                     ? parsed.entries
                     : (Array.isArray(parsed?.rows) ? parsed.rows : (Array.isArray(parsed?.data) ? parsed.data : []));
                 if (parsed && parsed.status === "success" && Array.isArray(sourceRows)) {
                     const rows = sourceRows.map(mapRevenueTdSheetEntry).filter((row) => normalizeRevenueIvrs(row.ivrsNo));
-                    setRevenueTdEntriesLocal(rows);
-                    return rows;
+                    const mergedRows = mergeRevenueTdEntries(rows);
+                    setRevenueTdEntriesLocal(mergedRows);
+                    return mergedRows;
                 }
             } catch (_) {}
             return getRevenueTdEntriesLocal();
