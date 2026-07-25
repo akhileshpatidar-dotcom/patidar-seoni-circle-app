@@ -980,7 +980,9 @@
                                 <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
                                     <div>
                                         <div style="font-size:11px; font-weight:900; color:#2563eb; text-transform:uppercase; margin:0 0 6px 2px;">Date</div>
-                                        <input id="stm-complaint-date" type="date" onchange="updateStmComplaintProgressiveUi()" class="ivrs-input" style="height:48px; font-size:0.92rem; border-width:1.5px; text-align:center; padding:0 12px; border-color:#7dd3fc; background:#ffffff; max-width: 100%; min-width: 0; box-sizing: border-box;">
+                                        <div style="width:100%; max-width:100%; overflow:hidden; border-radius:12px;">
+                                            <input id="stm-complaint-date" type="date" onchange="updateStmComplaintProgressiveUi()" class="ivrs-input" style="height:48px; font-size:0.92rem; border-width:1.5px; text-align:center; padding:0 12px; border-color:#7dd3fc; background:#ffffff; width:100%; max-width:100%; min-width:0; box-sizing:border-box;">
+                                        </div>
                                     </div>
                                     <div>
                                         <div style="font-size:11px; font-weight:900; color:#2563eb; text-transform:uppercase; margin:0 0 6px 2px;">Time</div>
@@ -1198,7 +1200,9 @@
                     <div id="shms-date-block" style="display:none; width:100%;">
                         <div class="dropdown-box" style="max-width:260px;">
                             <div style="font-size:11px; font-weight:900; color:#0f766e; text-align:center; margin-bottom:6px; text-transform:uppercase;">Date (DD/MM/YYYY)</div>
-                            <input id="shms-event-date" class="ivrs-input" type="date" style="height:44px; font-size:0.82rem; background:#ffffff; color:#111827; border-width:1.5px; max-width: 100%; min-width: 0; box-sizing: border-box;" onchange="handleShmsDateChange()">
+                            <div style="width:100%; max-width:100%; overflow:hidden; border-radius:12px;">
+                                <input id="shms-event-date" class="ivrs-input" type="date" style="height:44px; font-size:0.82rem; background:#ffffff; color:#111827; border-width:1.5px; width:100%; max-width:100%; min-width:0; box-sizing:border-box;" onchange="handleShmsDateChange()">
+                            </div>
                         </div>
                     </div>
                     <div id="shms-fullrun-block" style="display:none; width:100%;">
@@ -1267,7 +1271,9 @@
                       <div id="shms-progress-daily-btn" class="report-opt active" onclick="setShmsProgressMode('DAILY')">Daily</div>
                       <div id="shms-progress-monthly-btn" class="report-opt" onclick="setShmsProgressMode('MONTHLY')">Monthly</div>
                   </div>
-                <input id="shms-progress-date" type="date" class="w-full h-12 border-2 border-teal-600 rounded-xl px-4 font-black text-teal-900 mb-4" style="border-color: #0d9488; max-width: 100%; min-width: 0; box-sizing: border-box;" onchange="renderShmsProgressSummary()">
+                <div style="width:100%; max-width:100%; overflow:hidden; border-radius:12px; margin-bottom:16px;">
+                    <input id="shms-progress-date" type="date" class="h-12 border-2 border-teal-600 font-black text-teal-900" style="border-color: #0d9488; width:100%; max-width:100%; min-width:0; box-sizing:border-box; padding:0 12px; border-radius:12px;" onchange="renderShmsProgressSummary()">
+                </div>
                 <div class="btn-export-row">
                     <button class="btn-unique btn-excel-unique" onclick="downloadShmsProgress('XLS')">
                         <svg width="18" height="18" fill="white" viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16h-8v-2h8v2zm0-4h-8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
@@ -1485,8 +1491,10 @@
                     <button id="revenue-report-date-mode-btn" onclick="setRevenueReportMode('DAILY')" style="flex:1; height:32px; border:none; border-radius:999px; background:#1d4ed8; color:#ffffff; font-size:0.62rem; font-weight:950;">DATE WISE</button>
                     <button id="revenue-report-month-mode-btn" onclick="setRevenueReportMode('MONTHLY')" style="flex:1; height:32px; border:none; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:0.62rem; font-weight:950;">MONTH WISE</button>
                 </div>
-                <input id="revenue-report-date" type="date" onchange="renderRevenueReportDownload()" style="width:100%; max-width:360px; min-width:0; box-sizing:border-box; height:38px; margin:8px auto 0; display:block; border:1.2px solid #93c5fd; border-radius:12px; text-align:center; padding:0 12px; font-size:0.72rem; font-weight:900; color:#0f172a;">
-                <input id="revenue-report-month" type="month" onchange="renderRevenueReportDownload()" style="width:100%; max-width:360px; min-width:0; box-sizing:border-box; height:38px; margin:8px auto 0; display:none; border:1.2px solid #93c5fd; border-radius:12px; text-align:center; padding:0 12px; font-size:0.72rem; font-weight:900; color:#0f172a;">
+                <div style="width:100%; max-width:360px; overflow:hidden; border-radius:12px; margin:8px auto 0;">
+                    <input id="revenue-report-date" type="date" onchange="renderRevenueReportDownload()" style="width:100%; max-width:100%; min-width:0; box-sizing:border-box; height:38px; display:block; border:1.2px solid #93c5fd; border-radius:12px; text-align:center; padding:0 12px; font-size:0.72rem; font-weight:900; color:#0f172a;">
+                    <input id="revenue-report-month" type="month" onchange="renderRevenueReportDownload()" style="width:100%; max-width:100%; min-width:0; box-sizing:border-box; height:38px; display:none; border:1.2px solid #93c5fd; border-radius:12px; text-align:center; padding:0 12px; font-size:0.72rem; font-weight:900; color:#0f172a;">
+                </div>
                 <select id="revenue-report-hq" onchange="renderRevenueReportDownload()" style="width:100%; max-width:360px; height:38px; margin:8px auto 0; display:block; border:1.2px solid #93c5fd; border-radius:12px; padding:0 12px; font-size:0.7rem; font-weight:900; color:#0f172a; background:#ffffff;">
                     <option value="">All HQ</option>
                 </select>
@@ -1665,7 +1673,9 @@
                     <div id="opt-daily" class="report-opt active" onclick="setMode('DAILY')">Daily</div>
                     <div id="opt-monthly" class="report-opt" onclick="setMode('MONTHLY')">Monthly</div>
                 </div>
-                <input type="date" id="report-date" class="w-full h-12 border-2 border-teal-600 rounded-xl px-4 font-black text-teal-900 mb-4" style="border-color: #0d9488; max-width: 100%; min-width: 0; box-sizing: border-box;" onchange="refreshSummary()">
+                <div style="width:100%; max-width:100%; overflow:hidden; border-radius:12px; margin-bottom:16px;">
+                    <input type="date" id="report-date" class="h-12 border-2 border-teal-600 font-black text-teal-900" style="border-color: #0d9488; width:100%; max-width:100%; min-width:0; box-sizing:border-box; padding:0 12px; border-radius:12px;" onchange="refreshSummary()">
+                </div>
             </div>
             <div id="summary-content"></div>
         </main>
@@ -13193,7 +13203,24 @@
             await Promise.all([syncRevenueLiveEntriesFromSheet(), syncRevenueTdEntriesFromSheet()]);
             if (myToken !== revenueLiveProgressToken) return;
             const rows = getRevenueCombinedFilteredEntries("DAILY", getCurrentDateDDMMYYYY());
-            tableBox.innerHTML = renderRevenueReportHtml(rows, "Aaj ki date me paid/TD entry nahi hai.");
+            const groupedRows = buildProgressRevenueSummaryRows(rows);
+            tableBox.innerHTML = renderRevenueLiveSummaryTable(groupedRows);
+        }
+
+        function renderRevenueLiveSummaryTable(rows) {
+            const colLabel = getRevenueProgressColumnLabel();
+            const totals = getRevenueProgressTotals(rows);
+            let html = `<div class="summary-wrapper"><div class="summary-table-header" style="grid-template-columns: 1.15fr 0.75fr 0.95fr 0.75fr 0.95fr;"><div>${colLabel}</div><div>PAID</div><div>PAID AMT</div><div>LINE TD</div><div>TD AMT</div></div>`;
+            if (!rows.length) {
+                html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div class="text-rose-600">Aaj ki date me revenue entry nahi hai.</div></div>`;
+            } else {
+                rows.forEach((row) => {
+                    const rowClass = row.type === "SUB_TOTAL" ? " blue-bold" : (row.type === "SUBDN_TOTAL" ? " subdn-bold" : "");
+                    html += `<div class="summary-table-row${rowClass}" style="grid-template-columns: 1.15fr 0.75fr 0.95fr 0.75fr 0.95fr;"><div>${row.name}</div><div>${row.paidCount}</div><div class="text-emerald-700 font-black">${formatProgressReportAmount(row.paidAmount)}</div><div>${row.tdCount}</div><div class="text-rose-700 font-black">${formatProgressReportAmount(row.tdAmount)}</div></div>`;
+                });
+            }
+            html += `</div><div class="summary-footer"><div class="font-black text-slate-800 text-center">GRAND TOTAL (Aaj)</div><div class="mt-2 grid grid-cols-2 gap-2 text-center text-[11px] font-black"><div class="rounded-xl bg-emerald-50 border border-emerald-200 p-2">Paid: ${totals.paidCount}<br>${formatProgressReportAmount(totals.paidAmount)}</div><div class="rounded-xl bg-rose-50 border border-rose-200 p-2">Line TD: ${totals.tdCount}<br>${formatProgressReportAmount(totals.tdAmount)}</div></div></div>`;
+            return html;
         }
 
         function getRevenueReportScopeLabel() {
