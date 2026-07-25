@@ -7328,30 +7328,21 @@
                 ? blob
                 : new Blob([blob], { type: "application/pdf" });
 
-            const url = URL.createObjectURL(pdfBlob);
-            const preview = window.open(url, "_blank");
-            if (preview) {
-                setTimeout(() => URL.revokeObjectURL(url), 120000);
-                return true;
-            }
-
             try {
                 const pdfFile = new File([pdfBlob], safeFileName, { type: "application/pdf" });
                 const canShareFile = !!(navigator.share && (!navigator.canShare || navigator.canShare({ files: [pdfFile] })));
                 if (canShareFile) {
                     await navigator.share({ files: [pdfFile], title: safeFileName });
-                    URL.revokeObjectURL(url);
                     return true;
                 }
             } catch (error) {
-                if (error && error.name === "AbortError") {
-                    URL.revokeObjectURL(url);
-                    return true;
-                }
+                if (error && error.name === "AbortError") return true;
             }
 
+            const url = URL.createObjectURL(pdfBlob);
             const link = document.createElement("a");
             link.href = url;
+            link.download = safeFileName;
             link.target = "_blank";
             link.rel = "noopener";
             document.body.appendChild(link);
@@ -7362,11 +7353,11 @@
         }
 
         function savePdfDocumentForDevice(doc, fileName) {
-            if (!isMobileDevice()) {
-                doc.save(fileName);
-                return true;
+            if (isIosLikeDevice()) {
+                return sharePdfBlobOnIos(fileName, doc.output("blob"));
             }
-            return sharePdfBlobOnIos(fileName, doc.output("blob"));
+            doc.save(fileName);
+            return true;
         }
 
         function setReportSource(source) {
