@@ -10586,20 +10586,23 @@
             };
         }
 
-        async function syncRevenueTdEntriesFromSheet() {
+        async function syncRevenueTdEntriesFromSheet(attempts = 3) {
             if (!revenueCollectionSubmitScriptUrl) return getRevenueTdEntriesLocal();
-            try {
-                const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getTDEntries&t=${Date.now()}`);
-                const parsed = await response.json();
-                const sourceRows = Array.isArray(parsed?.entries)
-                    ? parsed.entries
-                    : (Array.isArray(parsed?.rows) ? parsed.rows : (Array.isArray(parsed?.data) ? parsed.data : []));
-                if (parsed && parsed.status === "success" && Array.isArray(sourceRows)) {
-                    const rows = sourceRows.map(mapRevenueTdSheetEntry).filter((row) => normalizeRevenueIvrs(row.ivrsNo));
-                    setRevenueTdEntriesLocal(rows);
-                    return rows;
-                }
-            } catch (_) {}
+            for (let attempt = 1; attempt <= attempts; attempt++) {
+                try {
+                    const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getTDEntries&t=${Date.now()}`);
+                    const parsed = await response.json();
+                    const sourceRows = Array.isArray(parsed?.entries)
+                        ? parsed.entries
+                        : (Array.isArray(parsed?.rows) ? parsed.rows : (Array.isArray(parsed?.data) ? parsed.data : []));
+                    if (parsed && parsed.status === "success" && Array.isArray(sourceRows)) {
+                        const rows = sourceRows.map(mapRevenueTdSheetEntry).filter((row) => normalizeRevenueIvrs(row.ivrsNo));
+                        setRevenueTdEntriesLocal(rows);
+                        return rows;
+                    }
+                } catch (_) {}
+                if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, 600 * attempt));
+            }
             return getRevenueTdEntriesLocal();
         }
 
@@ -11916,16 +11919,6 @@
                 });
             } catch (_) {}
 
-            try {
-                const tdRows = await withTimeout(syncRevenueTdEntriesFromSheet(), 3500, getRevenueTdEntriesLocal());
-                tdRows.forEach((row) => {
-                    if (normalizeLookupValue(row.dcName || "") === normalizeLookupValue(activeDC || "")) {
-                        const ivrsNo = normalizeRevenueIvrs(row.ivrsNo);
-                        if (ivrsNo) paidSet.add(ivrsNo);
-                    }
-                });
-            } catch (_) {}
-
             const uploadedRows = await withTimeout(getRevenueUploadedPaidMasterRows(), 3500, getRevenueUploadedPaidMasterRowsLocal());
             uploadedRows.forEach((row) => {
                 const ivrsNo = normalizeRevenueIvrs(row.ivrs_no || row.ivrsNo || row.consumerNo);
@@ -11937,12 +11930,6 @@
         function getRevenuePendingPaidIvrsSetLocal() {
             const paidSet = new Set();
             getRevenueLiveEntries().forEach((row) => {
-                if (normalizeLookupValue(row.dcName || "") === normalizeLookupValue(activeDC || "")) {
-                    const ivrsNo = normalizeRevenueIvrs(row.ivrsNo);
-                    if (ivrsNo) paidSet.add(ivrsNo);
-                }
-            });
-            getRevenueTdEntriesLocal().forEach((row) => {
                 if (normalizeLookupValue(row.dcName || "") === normalizeLookupValue(activeDC || "")) {
                     const ivrsNo = normalizeRevenueIvrs(row.ivrsNo);
                     if (ivrsNo) paidSet.add(ivrsNo);
@@ -12936,20 +12923,23 @@
             };
         }
 
-        async function syncRevenueLiveEntriesFromSheet() {
+        async function syncRevenueLiveEntriesFromSheet(attempts = 3) {
             if (!revenueCollectionSubmitScriptUrl) return getRevenueLiveEntries();
-            try {
-                const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getEntries&t=${Date.now()}`);
-                const parsed = await response.json();
-                const sourceRows = Array.isArray(parsed?.entries)
-                    ? parsed.entries
-                    : (Array.isArray(parsed?.rows) ? parsed.rows : (Array.isArray(parsed?.data) ? parsed.data : []));
-                if (parsed && parsed.status === "success" && Array.isArray(sourceRows)) {
-                    const rows = sourceRows.map(mapRevenueSheetEntry).filter((row) => normalizeRevenueIvrs(row.ivrsNo));
-                    setRevenueLiveEntries(rows);
-                    return rows;
-                }
-            } catch (_) {}
+            for (let attempt = 1; attempt <= attempts; attempt++) {
+                try {
+                    const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getEntries&t=${Date.now()}`);
+                    const parsed = await response.json();
+                    const sourceRows = Array.isArray(parsed?.entries)
+                        ? parsed.entries
+                        : (Array.isArray(parsed?.rows) ? parsed.rows : (Array.isArray(parsed?.data) ? parsed.data : []));
+                    if (parsed && parsed.status === "success" && Array.isArray(sourceRows)) {
+                        const rows = sourceRows.map(mapRevenueSheetEntry).filter((row) => normalizeRevenueIvrs(row.ivrsNo));
+                        setRevenueLiveEntries(rows);
+                        return rows;
+                    }
+                } catch (_) {}
+                if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, 600 * attempt));
+            }
             return getRevenueLiveEntries();
         }
 
