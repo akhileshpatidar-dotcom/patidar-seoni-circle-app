@@ -10403,18 +10403,35 @@
             return "revenueTdEntriesV1";
         }
 
+        let revenueTdEntriesMemory = null;
+
         function getRevenueTdEntriesLocal() {
+            if (Array.isArray(revenueTdEntriesMemory)) return revenueTdEntriesMemory;
             try {
-                return JSON.parse(localStorage.getItem(getRevenueTdStorageKey()) || "[]");
+                const rows = JSON.parse(localStorage.getItem(getRevenueTdStorageKey()) || "[]");
+                revenueTdEntriesMemory = Array.isArray(rows) ? rows : [];
+                return revenueTdEntriesMemory;
             } catch (_) {
+                revenueTdEntriesMemory = [];
                 return [];
             }
         }
 
         function setRevenueTdEntriesLocal(entries) {
+            const safeRows = Array.isArray(entries) ? entries : [];
+            revenueTdEntriesMemory = safeRows;
             try {
-                localStorage.setItem(getRevenueTdStorageKey(), JSON.stringify(entries || []));
-            } catch (_) {}
+                localStorage.setItem(getRevenueTdStorageKey(), JSON.stringify(safeRows));
+            } catch (_) {
+                // localStorage bhar jaaye to bhi TD data memory me is session ke liye
+                // available rahega — localStorage me sirf current DC ka chhota/compact
+                // fallback save karne ki koshish karte hain taaki agli baar bhi kuch mile.
+                const activeDcKey = normalizeLookupValue(activeDC || "");
+                const compactRows = safeRows
+                    .filter((row) => !activeDcKey || normalizeLookupValue(row.dcName || "") === activeDcKey)
+                    .slice(0, 2500);
+                try { localStorage.setItem(getRevenueTdStorageKey(), JSON.stringify(compactRows)); } catch (_) {}
+            }
         }
 
         function getRevenueTdEntryLocal(ivrsNo) {
