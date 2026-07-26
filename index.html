@@ -89,12 +89,13 @@
                 <button type="button" class="header-menu-btn" onclick="toggleHeaderMenu(event)">⋮</button>
                 <div id="header-menu-list" class="header-menu-list">
                     <button type="button" class="header-menu-item revenue-header-menu-item live-progress-menu-item" onclick="openRevenueLiveProgress()">⏱️ Live Progress</button>
-                    <button type="button" class="header-menu-item revenue-header-menu-item" onclick="openRevenueReportDownload()" style="margin-top:6px; text-align:center;">📄 Date/Month Report</button>
-                    <button type="button" class="header-menu-item revenue-header-menu-item" onclick="openRevenuePendingList()" style="margin-top:6px; text-align:center;">⏳ Pending DO List</button>
-                    <button type="button" class="header-menu-item revenue-header-menu-item" onclick="openRevenueMessageCenter()" style="margin-top:6px; text-align:center;">💬 Send SMS / WhatsApp</button>
-                    <button type="button" class="header-menu-item revenue-header-menu-item" onclick="openRevenueCashReconcile()" style="margin-top:6px; text-align:center;">🧾 Paid by Staff vs NGB Cash List</button>
-                    <button type="button" class="header-menu-item revenue-header-menu-item" onclick="openRevenuePaidUpload()" style="margin-top:10px; text-align:center; background:#fee2e2; color:#b91c1c; border:1.5px solid #fca5a5; border-top:2px solid #f87171; padding-top:10px;">🔒 Admin Upload Cash List</button>
-                    <button id="staff-admin-header-menu-item" type="button" class="header-menu-item" onclick="openStaffAdmin()" style="display:none; text-align:center; background:#fff7ed; color:#c2410c; border:1.5px solid #fdba74;">STAFF ADMIN</button>
+                    <button type="button" class="header-menu-item revenue-header-menu-item" onclick="openRevenueReportDownload()">📄 Paid by Staff Date/Month</button>
+                    <button type="button" class="header-menu-item revenue-header-menu-item" onclick="openRevenueHqVillageReport()">📊 HQ / Village Wise Paid-Unpaid</button>
+                    <button type="button" class="header-menu-item revenue-header-menu-item" onclick="openRevenuePendingList()">⏳ Pending DO List</button>
+                    <button type="button" class="header-menu-item revenue-header-menu-item" onclick="openRevenueCashReconcile()">🧾 Paid by Staff vs NGB Cash List</button>
+                    <button type="button" class="header-menu-item revenue-header-menu-item" onclick="openRevenueMessageCenter()">💬 Send SMS / WhatsApp</button>
+                    <button type="button" class="header-menu-item revenue-header-menu-item" onclick="openRevenuePaidUpload()" style="margin-top:10px; background:#fee2e2; color:#b91c1c; border:1.5px solid #fca5a5; border-top:2px solid #f87171; padding-top:10px;">🔒 Admin Upload Cash List</button>
+                    <button id="staff-admin-header-menu-item" type="button" class="header-menu-item" onclick="openStaffAdmin()" style="display:none; background:#fff7ed; color:#c2410c; border:1.5px solid #fdba74;">STAFF ADMIN</button>
                 </div>
             </div>
         </header>
@@ -905,6 +906,53 @@
                     Pending list load ho rahi hai...
                 </div>
                 <div id="revenue-pending-list-box" style="width:100%; max-width:360px; margin:12px auto 0;"></div>
+            </div>
+        </main>
+
+        <main id="revenue-hq-village-view" class="view">
+            <div class="search-panel" style="padding-top:10px;">
+                <div style="width:100%; max-width:360px; background:#ecfdf5; border:1.2px solid #86efac; border-radius:14px; padding:9px 12px; text-align:center;">
+                    <div style="font-size:0.78rem; font-weight:950; color:#166534; text-transform:uppercase;">HQ / Village Wise Paid-Unpaid</div>
+                    <div id="revenue-hq-village-scope-label" style="font-size:0.58rem; font-weight:850; color:#475569; margin-top:2px;">Row par tap karke aage drill down karein</div>
+                </div>
+                <div style="display:flex; gap:8px; width:100%; max-width:360px; margin:9px auto 0;">
+                    <button id="revenue-hq-village-date-mode-btn" onclick="setRevenueHqVillageMode('DAILY')" style="flex:1; height:32px; border:none; border-radius:999px; background:#15803d; color:#ffffff; font-size:0.62rem; font-weight:950;">DATE WISE</button>
+                    <button id="revenue-hq-village-month-mode-btn" onclick="setRevenueHqVillageMode('MONTHLY')" style="flex:1; height:32px; border:none; border-radius:999px; background:#dcfce7; color:#15803d; font-size:0.62rem; font-weight:950;">MONTH WISE</button>
+                </div>
+                <div style="width:100%; max-width:360px; overflow:hidden; border-radius:12px; margin:8px auto 0;">
+                    <input id="revenue-hq-village-date" type="date" onchange="renderRevenueHqVillageReport()" style="width:100%; max-width:100%; min-width:0; box-sizing:border-box; height:38px; display:block; border:1.2px solid #86efac; border-radius:12px; text-align:center; padding:0 12px; font-size:0.72rem; font-weight:900; color:#0f172a;">
+                    <input id="revenue-hq-village-month" type="month" onchange="renderRevenueHqVillageReport()" style="width:100%; max-width:100%; min-width:0; box-sizing:border-box; height:38px; display:none; border:1.2px solid #86efac; border-radius:12px; text-align:center; padding:0 12px; font-size:0.72rem; font-weight:900; color:#0f172a;">
+                </div>
+                <div id="revenue-hq-village-summary" style="width:100%; max-width:360px; margin:0 auto;"></div>
+                <div id="revenue-hq-village-table" style="width:100%; max-width:360px; margin:10px auto 0;"></div>
+                <div style="display:flex; gap:10px; width:100%; max-width:360px; margin:9px auto 0;">
+                    <button id="revenue-hq-village-pdf-btn" onclick="downloadRevenueHqVillageReport('PDF')" style="flex:1; height:34px; border:none; border-radius:11px; background:#ef4444; color:#ffffff; font-size:0.66rem; font-weight:950;">PDF (Full Summary)</button>
+                    <button id="revenue-hq-village-excel-btn" onclick="downloadRevenueHqVillageReport('EXCEL')" style="flex:1; height:34px; border:none; border-radius:11px; background:#16a34a; color:#ffffff; font-size:0.66rem; font-weight:950;">EXCEL (Full Summary)</button>
+                </div>
+                <div id="revenue-hq-village-download-status" style="display:none; width:100%; max-width:360px; margin:8px auto 0; border-radius:12px; padding:8px; background:#ecfdf5; border:1.2px solid #86efac; color:#166534; font-size:0.66rem; font-weight:950; text-align:center;">Loading...</div>
+
+                <div id="revenue-hq-village-list-section" style="display:none; width:100%; max-width:360px; margin:20px auto 0; border-top:1.5px dashed #86efac; padding-top:16px;">
+                    <div style="text-align:center;">
+                        <div style="font-size:0.78rem; font-weight:950; color:#166534; text-transform:uppercase;">Particular List Nikaale</div>
+                        <div style="font-size:0.58rem; font-weight:850; color:#475569; margin-top:2px;">HQ, Village, Category aur Paid/Unpaid Status chuniye</div>
+                    </div>
+                    <select id="revenue-hq-village-list-hq" onchange="onRevenueHqVillageListHqChange()" style="width:100%; max-width:360px; height:48px; margin:10px auto 0; display:block; border:1.5px solid #86efac; border-radius:14px; padding:0 14px; font-size:0.8rem; font-weight:900; color:#0f172a; background:#ffffff;">
+                        <option value="">All HQ</option>
+                    </select>
+                    <select id="revenue-hq-village-list-village" onchange="onRevenueHqVillageListVillageChange()" style="width:100%; max-width:360px; height:48px; margin:8px auto 0; display:block; border:1.5px solid #86efac; border-radius:14px; padding:0 14px; font-size:0.8rem; font-weight:900; color:#0f172a; background:#ffffff;">
+                        <option value="">All Villages</option>
+                    </select>
+                    <select id="revenue-hq-village-list-category" onchange="renderRevenueHqVillageList()" style="width:100%; max-width:360px; height:48px; margin:8px auto 0; display:block; border:1.5px solid #86efac; border-radius:14px; padding:0 14px; font-size:0.8rem; font-weight:900; color:#0f172a; background:#ffffff;">
+                        <option value="">All Categories</option>
+                    </select>
+                    <select id="revenue-hq-village-list-status" onchange="renderRevenueHqVillageList()" style="width:100%; max-width:360px; height:48px; margin:8px auto 0; display:block; border:1.5px solid #86efac; border-radius:14px; padding:0 14px; font-size:0.8rem; font-weight:900; color:#0f172a; background:#ffffff;">
+                        <option value="ALL">All (Paid + Unpaid)</option>
+                        <option value="PAID">Paid Only</option>
+                        <option value="UNPAID">Unpaid Only</option>
+                    </select>
+                    <div id="revenue-hq-village-list-status-box" style="width:100%; max-width:360px; margin:12px auto 0; border-radius:14px; padding:10px; background:#f8fafc; border:1.2px dashed #86efac; color:#334155; font-size:0.72rem; font-weight:850; text-align:center;"></div>
+                    <div id="revenue-hq-village-list-box" style="width:100%; max-width:360px; margin:0 auto;"></div>
+                </div>
             </div>
         </main>
 
