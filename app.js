@@ -1460,11 +1460,25 @@
         function exportRevenueCategorySummary(fmt, rows, label, reportType, diagnostic = null) {
             const levelT = activeViewLevel === "DC" ? `DC - ${activeDC}` : (activeViewLevel === "DIVISION" ? activeDiv : "SEONI CIRCLE");
             const firstCols = activeViewLevel === "CIRCLE" ? ["DIVISION", "DC NAME"] : [activeViewLevel === "DC" ? "HQ NAME" : "DC NAME"];
-            const metricCols = revenueCategoryList.flatMap((category) => {
-                const label = getRevenueCategoryDisplayLabel(category);
-                return [`${label} PAID`, `${label} PAID %`, `${label} PAID AMT (LAKH)`, `${label} PAID AMT %`, `${label} UNPAID`, `${label} UNPAID AMT (LAKH)`];
+            // Naya layout: saari 5 category (LV1-LV5) + TOTAL ek hi table me cram karne
+            // ki jagah, DO ALAG TABLE banate hain - dono me SAARI DC/HQ rows (same order,
+            // repeat) rahengi:
+            //   Table 1 (upar): DOMESTIC + NON DOMESTIC + PUBLIC WATER WORKS (3 block)
+            //   Table 2 (niche): LT INDUSTRIAL + AGRICULTURE + TOTAL (3 block, TOTAL me
+            //                    ab bhi baaki categories jaisa hi PAID %/PAID AMT % hai)
+            // Har block same 6 metric-column shape follow karta hai (Paid, Paid %, Paid
+            // Amt (L), Paid Amt %, Unpaid, Unpaid Amt (L)) - isliye "3 upar 3 niche, 6-6
+            // column ke block" wala flow bana rehta hai, sirf columns kam (3 category
+            // per table) hone se har block wide/bada text me dikhta hai.
+            const groupACategories = revenueCategoryList.slice(0, 3);
+            const groupBCategories = revenueCategoryList.slice(3, 5);
+            const metricSubHeaders = ["PAID", "PAID %", "PAID AMT (LAKH)", "PAID AMT %", "UNPAID", "UNPAID AMT (LAKH)"];
+            const metricColsFor = (categories) => categories.flatMap((category) => {
+                const catLabel = getRevenueCategoryDisplayLabel(category);
+                return metricSubHeaders.map((h) => `${catLabel} ${h}`);
             });
-            const header = [...firstCols, ...metricCols, "TOTAL PAID", "TOTAL PAID AMT (LAKH)", "TOTAL UNPAID", "TOTAL UNPAID AMT (LAKH)"];
+            const headerA = [...firstCols, ...metricColsFor(groupACategories)];
+            const headerB = [...firstCols, ...metricColsFor(groupBCategories), ...metricSubHeaders.map((h) => `TOTAL ${h}`)];
             const diagnosticRows = diagnostic ? [
                 ["Uploaded Payment Rows", diagnostic.uploadedUnique],
                 ["Selected Month Payment Rows", diagnostic.selectedMonth],
@@ -1473,37 +1487,38 @@
                 ["Master Not Matched Rows", diagnostic.masterNotMatched],
                 ["Missing/Invalid Date", diagnostic.missingDate]
             ] : [];
-            const rowToArray = (row) => {
-                const leading = activeViewLevel === "CIRCLE" ? [row.type === "SUB_TOTAL" ? row.divisionName || "" : row.divisionName || "", row.name] : [row.name];
+            const leadingCells = (row) => activeViewLevel === "CIRCLE" ? [row.divisionName || "", row.name] : [row.name];
+            const categoryMetricCells = (category, row) => {
+                const c = row.categories?.[category] || {};
+                const paid = c.paid || 0, unpaid = c.unpaid || 0;
+                const paidAmount = c.paidAmount || 0, unpaidAmount = c.unpaidAmount || 0;
                 return [
-                    ...leading,
-                    ...revenueCategoryList.flatMap((category) => {
-                        const c = row.categories?.[category] || {};
-                        const paid = c.paid || 0, unpaid = c.unpaid || 0;
-                        const paidAmount = c.paidAmount || 0, unpaidAmount = c.unpaidAmount || 0;
-                        return [
-                            paid,
-                            formatRevenuePercent(paid, paid + unpaid),
-                            formatRevenueLakhValue(paidAmount),
-                            formatRevenuePercent(paidAmount, paidAmount + unpaidAmount),
-                            unpaid,
-                            formatRevenueLakhValue(unpaidAmount)
-                        ];
-                    }),
-                    row.paidTotal || 0,
-                    formatRevenueLakhValue(row.paidAmountTotal || 0),
-                    row.unpaidTotal || 0,
-                    formatRevenueLakhValue(row.unpaidAmountTotal || 0)
+                    paid,
+                    formatRevenuePercent(paid, paid + unpaid),
+                    formatRevenueLakhValue(paidAmount),
+                    formatRevenuePercent(paidAmount, paidAmount + unpaidAmount),
+                    unpaid,
+                    formatRevenueLakhValue(unpaidAmount)
                 ];
             };
+            const totalMetricCells = (paidTotal, unpaidTotal, paidAmountTotal, unpaidAmountTotal) => [
+                paidTotal || 0,
+                formatRevenuePercent(paidTotal, (paidTotal || 0) + (unpaidTotal || 0)),
+                formatRevenueLakhValue(paidAmountTotal || 0),
+                formatRevenuePercent(paidAmountTotal, (paidAmountTotal || 0) + (unpaidAmountTotal || 0)),
+                unpaidTotal || 0,
+                formatRevenueLakhValue(unpaidAmountTotal || 0)
+            ];
+            const rowToArrayA = (row) => [...leadingCells(row), ...groupACategories.flatMap((category) => categoryMetricCells(category, row))];
+            const rowToArrayB = (row) => [...leadingCells(row), ...groupBCategories.flatMap((category) => categoryMetricCells(category, row)), ...totalMetricCells(row.paidTotal, row.unpaidTotal, row.paidAmountTotal, row.unpaidAmountTotal)];
             const grand = getRevenueCategoryGrandTotals(rows);
+            const grandLeading = activeViewLevel === "CIRCLE" ? ["", "GRAND TOTAL"] : ["GRAND TOTAL"];
             const grandCategoryCells = (category) => {
                 const c = grand.categories[category];
-                return [c.paid, formatRevenuePercent(c.paid, c.paid + c.unpaid), formatRevenueLakhValue(c.paidAmount), formatRevenuePercent(c.paidAmount, c.paidAmount + c.unpaidAmount), c.unpaid, formatRevenueLakhValue(c.unpaidAmount)];
+                return categoryMetricCells(category, { categories: { [category]: c } });
             };
-            const grandRow = activeViewLevel === "CIRCLE"
-                ? ["", "GRAND TOTAL", ...revenueCategoryList.flatMap(grandCategoryCells), grand.paidTotal, formatRevenueLakhValue(grand.paidAmountTotal), grand.unpaidTotal, formatRevenueLakhValue(grand.unpaidAmountTotal)]
-                : ["GRAND TOTAL", ...revenueCategoryList.flatMap(grandCategoryCells), grand.paidTotal, formatRevenueLakhValue(grand.paidAmountTotal), grand.unpaidTotal, formatRevenueLakhValue(grand.unpaidAmountTotal)];
+            const grandRowA = [...grandLeading, ...groupACategories.flatMap(grandCategoryCells)];
+            const grandRowB = [...grandLeading, ...groupBCategories.flatMap(grandCategoryCells), ...totalMetricCells(grand.paidTotal, grand.unpaidTotal, grand.paidAmountTotal, grand.unpaidAmountTotal)];
             const title = `${levelT} ${reportType} CATEGORY WISE PAID/UNPAID SUMMARY`;
             const generatedAt = `${getCurrentDateDDMMYYYY()} ${getCurrentTimeHHMM()}`;
 
@@ -1520,9 +1535,15 @@
                     ["GENERATED AT", generatedAt],
                     ...(diagnosticRows.length ? [[], ["DIAGNOSTIC", "COUNT"], ...diagnosticRows] : []),
                     [],
-                    header,
-                    ...(rows || []).map(rowToArray),
-                    grandRow
+                    ["TABLE 1: DOMESTIC / NON DOMESTIC / PUBLIC WATER WORKS AND STREET LIGHTS"],
+                    headerA,
+                    ...(rows || []).map(rowToArrayA),
+                    grandRowA,
+                    [],
+                    ["TABLE 2: LT INDUSTRIAL / AGRICULTURE AND ALLIED ACTIVITIES / TOTAL"],
+                    headerB,
+                    ...(rows || []).map(rowToArrayB),
+                    grandRowB
                 ];
                 const link = document.createElement("a");
                 link.href = URL.createObjectURL(new Blob([lines.map((row) => row.map(csvSafe).join(",")).join("\n")], { type: "text/csv" }));
@@ -1559,39 +1580,63 @@
                 });
                 tableStartY = (doc.lastAutoTable?.finalY || 48) + 5;
             }
-            const groupedHead = [
+            const groupedHeadFor = (categoriesWithLabels) => [
                 [
                     ...firstCols.map((col) => ({ content: col, rowSpan: 2, styles: { valign: "middle", halign: "center", lineColor: [15, 23, 42], lineWidth: 0.25 } })),
-                    ...revenueCategoryList.map((category) => ({ content: getRevenueCategoryDisplayLabel(category), colSpan: 6, styles: { halign: "center", lineColor: [15, 23, 42], lineWidth: 0.25 } })),
-                    { content: "TOTAL", colSpan: 4, styles: { halign: "center", lineColor: [15, 23, 42], lineWidth: 0.25 } }
+                    ...categoriesWithLabels.map((groupLabel) => ({ content: groupLabel, colSpan: 6, styles: { halign: "center", lineColor: [15, 23, 42], lineWidth: 0.25 } }))
                 ],
                 [
-                    ...revenueCategoryList.flatMap(() => ["Paid", "Paid %", "Paid Amt (L)", "Paid Amt %", "Unpaid", "Unpaid Amt (L)"]),
-                    "Paid", "Paid Amt (L)", "Unpaid", "Unpaid Amt (L)"
+                    ...categoriesWithLabels.flatMap(() => metricSubHeaders)
                 ]
             ];
-            doc.autoTable({
-                startY: tableStartY,
-                head: groupedHead,
-                body: (rows || []).map(rowToArray),
-                foot: [grandRow],
-                theme: "grid",
-                styles: { fontSize: 4.5, cellPadding: 0.85, overflow: "linebreak", halign: "center", lineWidth: 0.12 },
-                headStyles: { fillColor: [37, 99, 235], halign: "center", fontSize: 4.5, lineColor: [15, 23, 42], lineWidth: 0.25 },
-                columnStyles: { 0: { halign: "left" }, 1: { halign: activeViewLevel === "CIRCLE" ? "left" : "center" } },
-                footStyles: { fillColor: [241, 245, 249], textColor: [190, 18, 60], fontStyle: "bold", halign: "center" },
-                didParseCell(data) {
-                    if (data.section === "body") {
-                        const raw = data.row.raw || [];
-                        if (raw.some((value) => /SUB TOTAL|DIVISION TOTAL/.test(String(value)))) {
-                            data.cell.styles.fontStyle = "bold";
-                            data.cell.styles.textColor = [30, 58, 138];
-                            data.cell.styles.fillColor = [239, 246, 255];
-                        }
+            const highlightTotalRows = (data) => {
+                if (data.section === "body") {
+                    const raw = data.row.raw || [];
+                    if (raw.some((value) => /SUB TOTAL|DIVISION TOTAL/.test(String(value)))) {
+                        data.cell.styles.fontStyle = "bold";
+                        data.cell.styles.textColor = [30, 58, 138];
+                        data.cell.styles.fillColor = [239, 246, 255];
                     }
                 }
+            };
+            // TABLE 1: DOMESTIC / NON DOMESTIC / PUBLIC WATER WORKS AND STREET LIGHTS
+            doc.setFontSize(8.5);
+            doc.setTextColor(29, 78, 216);
+            doc.text("TABLE 1: DOMESTIC / NON DOMESTIC / PUBLIC WATER WORKS AND STREET LIGHTS", 14, tableStartY);
+            doc.autoTable({
+                startY: tableStartY + 3,
+                head: groupedHeadFor(groupACategories.map(getRevenueCategoryDisplayLabel)),
+                body: (rows || []).map(rowToArrayA),
+                foot: [grandRowA],
+                theme: "grid",
+                styles: { fontSize: 6.5, cellPadding: 1.3, overflow: "linebreak", halign: "center", lineWidth: 0.12 },
+                headStyles: { fillColor: [37, 99, 235], halign: "center", fontSize: 6.5, lineColor: [15, 23, 42], lineWidth: 0.25 },
+                columnStyles: { 0: { halign: "left" }, 1: { halign: activeViewLevel === "CIRCLE" ? "left" : "center" } },
+                footStyles: { fillColor: [241, 245, 249], textColor: [190, 18, 60], fontStyle: "bold", halign: "center" },
+                didParseCell: highlightTotalRows
             });
-                savePdfDocumentForDevice(doc, `Revenue_Category_Summary_${levelT}_${reportType}.pdf`);
+            // TABLE 2: LT INDUSTRIAL / AGRICULTURE / TOTAL (TOTAL block ab %  ke saath)
+            let table2StartY = (doc.lastAutoTable?.finalY || tableStartY + 3) + 10;
+            if (table2StartY > 180) {
+                doc.addPage();
+                table2StartY = 20;
+            }
+            doc.setFontSize(8.5);
+            doc.setTextColor(29, 78, 216);
+            doc.text("TABLE 2: LT INDUSTRIAL / AGRICULTURE AND ALLIED ACTIVITIES / TOTAL", 14, table2StartY);
+            doc.autoTable({
+                startY: table2StartY + 3,
+                head: groupedHeadFor([...groupBCategories.map(getRevenueCategoryDisplayLabel), "TOTAL"]),
+                body: (rows || []).map(rowToArrayB),
+                foot: [grandRowB],
+                theme: "grid",
+                styles: { fontSize: 6.5, cellPadding: 1.3, overflow: "linebreak", halign: "center", lineWidth: 0.12 },
+                headStyles: { fillColor: [37, 99, 235], halign: "center", fontSize: 6.5, lineColor: [15, 23, 42], lineWidth: 0.25 },
+                columnStyles: { 0: { halign: "left" }, 1: { halign: activeViewLevel === "CIRCLE" ? "left" : "center" } },
+                footStyles: { fillColor: [241, 245, 249], textColor: [190, 18, 60], fontStyle: "bold", halign: "center" },
+                didParseCell: highlightTotalRows
+            });
+            savePdfDocumentForDevice(doc, `Revenue_Category_Summary_${levelT}_${reportType}.pdf`);
         }
 
         async function downloadProgressRevenueCategorySummary(fmt) {
@@ -2788,6 +2833,50 @@
                 document.documentElement.classList.add("dark-mode-on");
                 const btn = document.getElementById("dark-mode-toggle-btn");
                 if (btn) btn.innerText = "☀️";
+            }
+        }
+
+        // App ko dobara band-open kiye bina "refresh" karne ka feature:
+        // 1) Service worker ko turant check-for-update bolte hain (naya version mile to activate).
+        // 2) Sabhi Cache Storage entries clear karte hain (SHELL_FILES/CDN cache) taaki agli
+        //    fetch me purani cached copy kabhi na mile.
+        // 3) Naya service worker "waiting" me mile to usko turant skipWaiting bolke activate
+        //    karwate hain (controllerchange par page apne aap reload hoga).
+        // 4) Fallback: agar upar wala kuch bhi fail ho ya na chale (service worker support na ho),
+        //    phir bhi seedha location.reload() kar dete hain taaki user ko hamesha latest mile.
+        let appRefreshInProgress = false;
+        async function refreshAppNow() {
+            if (appRefreshInProgress) return;
+            appRefreshInProgress = true;
+            const btn = document.getElementById("app-refresh-btn");
+            if (btn) { btn.classList.add("app-refresh-spinning"); btn.disabled = true; }
+            showToast("App refresh ho raha hai, kripya wait kijiye...", true);
+            let reloaded = false;
+            const doReload = () => {
+                if (reloaded) return;
+                reloaded = true;
+                window.location.reload();
+            };
+            try {
+                if ("caches" in window) {
+                    const keys = await caches.keys();
+                    await Promise.all(keys.map((key) => caches.delete(key)));
+                }
+                if ("serviceWorker" in navigator) {
+                    const reg = await navigator.serviceWorker.getRegistration();
+                    if (reg) {
+                        navigator.serviceWorker.addEventListener("controllerchange", doReload, { once: true });
+                        await reg.update();
+                        if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
+                        // agar naya version na mila (waiting nahi bana) to controllerchange kabhi
+                        // fire nahi hoga - isliye chhoti si wait ke baad khud hi reload kar do.
+                        setTimeout(doReload, 1200);
+                        return;
+                    }
+                }
+                setTimeout(doReload, 300);
+            } catch (error) {
+                setTimeout(doReload, 300);
             }
         }
 
@@ -12533,6 +12622,13 @@
             const renderToken = ++revenueHqVillageRenderToken;
             if (statusBox) statusBox.style.display = "none";
             if (listSection) listSection.style.display = "none";
+            // Purana DC/Division ka summary + consumer list turant hata do - warna jab tak
+            // naye DC ka data load ho raha hai tab tak purani screen hi dikhti rehti hai aur
+            // aisa lagta hai ki "reset" nahi hua (jaise koi purani DC ka hi report dikh raha ho).
+            if (summaryBox) summaryBox.innerHTML = "";
+            revenueHqVillageTree = [];
+            revenueHqVillageDrillPath = [];
+            revenueHqVillageConsumerRows = [];
             // Race-condition safety: activeViewLevel kabhi-kabhi stale ho sakta hai (jaise DC
             // dashboard se seedhe is report par aane par), isliye activeDC/activeDiv se turant
             // dobara confirm kar lo - warna DC ka report bhi Division/Circle ki tarah sabhi
@@ -12598,34 +12694,80 @@
             return `HQ Village Wise Paid-Unpaid Summary - ${scope}`;
         }
 
+        // Date/Month ko hamesha DD/MM/YYYY (Indian) format me display karne ke liye - filename
+        // me dash hi rakhte hain (filesystem-safe), sirf header/period display me slash.
+        function formatRevenueDateIndian(value) {
+            const raw = String(value || "").trim();
+            const dashMatch = raw.match(/^(\d{2})-(\d{2})-(\d{4})$/);
+            if (dashMatch) return `${dashMatch[1]}/${dashMatch[2]}/${dashMatch[3]}`;
+            return raw.replace(/-/g, "/");
+        }
+
+        function getRevenueHqVillagePeriodDisplay() {
+            if (revenueHqVillageMode === "MONTHLY") {
+                return formatRevenueMonthYear(document.getElementById("revenue-hq-village-month")?.value || getTodayIsoDate().slice(0, 7));
+            }
+            return formatRevenueDateIndian(normalizeRevenueReportDate(document.getElementById("revenue-hq-village-date")?.value || getCurrentDateDDMMYYYY()));
+        }
+
+        function setRevenueHqVillageDownloadState(isLoading, message = "", ok = true) {
+            const pdfBtn = document.getElementById("revenue-hq-village-pdf-btn");
+            const excelBtn = document.getElementById("revenue-hq-village-excel-btn");
+            const statusBox = document.getElementById("revenue-hq-village-download-status");
+            const statusMessage = normalizeActionStatusMessage(message, isLoading, ok);
+            [pdfBtn, excelBtn].forEach((btn) => {
+                if (!btn) return;
+                btn.disabled = isLoading;
+                btn.style.opacity = isLoading ? "0.65" : "1";
+                btn.style.pointerEvents = isLoading ? "none" : "auto";
+            });
+            if (!statusBox) return;
+            statusBox.style.display = statusMessage ? "block" : "none";
+            statusBox.style.background = ok ? "#ecfdf5" : "#fff1f2";
+            statusBox.style.borderColor = ok ? "#86efac" : "#fda4af";
+            statusBox.style.color = ok ? "#166534" : "#991b1b";
+            statusBox.innerHTML = escapeHtml(statusMessage);
+        }
+
         function downloadRevenueHqVillageReport(type) {
             const flatRows = flattenRevenueHqVillageRows();
             if (!flatRows.length) return showToast("Report ke liye data nahi hai", false);
-            const headers = activeViewLevel === "DC"
-                ? ["HQ NAME", "VILLAGE", "PAID", "PAID AMT", "UNPAID", "UNPAID AMT"]
-                : ["DC NAME", "HQ NAME", "VILLAGE", "PAID", "PAID AMT", "UNPAID", "UNPAID AMT"];
-            const rows = flatRows.map((r) => [...r.path, r.paidTotal, formatProgressReportAmount(r.paidAmountTotal), r.unpaidTotal, formatProgressReportAmount(r.unpaidAmountTotal)]);
-            const reportTitle = getRevenueHqVillageReportTitle();
-            const suffix = revenueHqVillageMode === "MONTHLY"
-                ? (document.getElementById("revenue-hq-village-month")?.value || getTodayIsoDate().slice(0, 7))
-                : normalizeRevenueReportDate(document.getElementById("revenue-hq-village-date")?.value || getCurrentDateDDMMYYYY());
-            const fileName = `${reportTitle}-${suffix}`.replace(/[\\/:*?"<>|]+/g, "_");
-            if (type === "PDF") {
-                if (!window.jspdf?.jsPDF) return showToast("PDF library load nahi hui", false);
-                const { jsPDF } = window.jspdf;
-                const doc = new jsPDF({ orientation: "landscape" });
-                doc.setFontSize(13); doc.text(reportTitle, 148, 14, { align: "center" });
-                doc.setFontSize(8); doc.text(`Period: ${suffix}`, 148, 20, { align: "center" });
-                doc.autoTable({ startY: 26, head: [headers], body: rows, theme: "grid", styles: { fontSize: 6, cellPadding: 1, overflow: "linebreak" }, headStyles: { fillColor: [21, 128, 61] } });
-                savePdfDocumentForDevice(doc, `${fileName}.pdf`);
-                return;
+            setRevenueHqVillageDownloadState(true, `${type === "PDF" ? "PDF" : "Excel"} download ho raha hai... kripya wait kijiye`, true);
+            try {
+                const headers = activeViewLevel === "DC"
+                    ? ["HQ NAME", "VILLAGE", "PAID", "PAID AMT", "UNPAID", "UNPAID AMT"]
+                    : ["DC NAME", "HQ NAME", "VILLAGE", "PAID", "PAID AMT", "UNPAID", "UNPAID AMT"];
+                const rows = flatRows.map((r) => [...r.path, r.paidTotal, formatProgressReportAmount(r.paidAmountTotal), r.unpaidTotal, formatProgressReportAmount(r.unpaidAmountTotal)]);
+                const reportTitle = getRevenueHqVillageReportTitle();
+                const scopeLine = `Scope: ${activeViewLevel === "DC" ? `DC - ${activeDC}` : (activeViewLevel === "DIVISION" ? `Division - ${activeDiv}` : "Circle - SEONI CIRCLE")}`;
+                const periodLine = `Period: ${getRevenueHqVillagePeriodDisplay()}`;
+                const suffix = revenueHqVillageMode === "MONTHLY"
+                    ? (document.getElementById("revenue-hq-village-month")?.value || getTodayIsoDate().slice(0, 7))
+                    : normalizeRevenueReportDate(document.getElementById("revenue-hq-village-date")?.value || getCurrentDateDDMMYYYY());
+                const fileName = `${reportTitle}-${suffix}`.replace(/[\\/:*?"<>|]+/g, "_");
+                if (type === "PDF") {
+                    if (!window.jspdf?.jsPDF) { setRevenueHqVillageDownloadState(false, "PDF library load nahi hui", false); return; }
+                    const { jsPDF } = window.jspdf;
+                    const doc = new jsPDF({ orientation: "landscape" });
+                    doc.setFontSize(13); doc.text(reportTitle, 148, 12, { align: "center" });
+                    doc.setFontSize(9); doc.text(scopeLine, 148, 19, { align: "center" });
+                    doc.text(periodLine, 148, 25, { align: "center" });
+                    doc.autoTable({ startY: 31, head: [headers], body: rows, theme: "grid", styles: { fontSize: 6, cellPadding: 1, overflow: "linebreak" }, headStyles: { fillColor: [21, 128, 61] } });
+                    savePdfDocumentForDevice(doc, `${fileName}.pdf`);
+                    setRevenueHqVillageDownloadState(false, "PDF download ho chuki hai", true);
+                    return;
+                }
+                const csvSafe = (value) => { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
+                const csv = [[reportTitle], [scopeLine], [periodLine], [], headers, ...rows].map((row) => row.map(csvSafe).join(",")).join("\n");
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+                link.download = `${fileName}.csv`;
+                link.click();
+                setRevenueHqVillageDownloadState(false, "Excel download ho chuki hai", true);
+            } catch (error) {
+                setRevenueHqVillageDownloadState(false, "Download nahi ho paya", false);
+                showToast(error?.message || "Report download nahi ho payi", false);
             }
-            const csvSafe = (value) => { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
-            const csv = [[reportTitle], [`Period: ${suffix}`], [], headers, ...rows].map((row) => row.map(csvSafe).join(",")).join("\n");
-            const link = document.createElement("a");
-            link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-            link.download = `${fileName}.csv`;
-            link.click();
         }
 
         // =====================================================================
@@ -12729,17 +12871,20 @@
             const listBox = document.getElementById("revenue-hq-village-list-box");
             if (!statusBox || !listBox) return;
             const rows = getRevenueHqVillageListFilteredRows();
-            const hqValue = document.getElementById("revenue-hq-village-list-hq")?.value || "ALL";
-            const villageValue = document.getElementById("revenue-hq-village-list-village")?.value || "ALL";
-            const categoryValue = document.getElementById("revenue-hq-village-list-category")?.value || "ALL";
+            const hqValue = document.getElementById("revenue-hq-village-list-hq")?.value || "";
+            const villageValue = document.getElementById("revenue-hq-village-list-village")?.value || "";
+            const categoryValue = document.getElementById("revenue-hq-village-list-category")?.value || "";
             const statusValue = document.getElementById("revenue-hq-village-list-status")?.value || "ALL";
-            statusBox.innerHTML = `Consumer: <strong>${rows.length}</strong> | HQ: ${escapeHtml(hqValue)} | Village: ${escapeHtml(villageValue)} | Category: ${escapeHtml(categoryValue)} | Status: ${escapeHtml(statusValue)}`;
+            const categoryLabel = categoryValue ? getRevenueCategoryDisplayLabel(categoryValue) : "All Categories";
+            const statusLabel = statusValue === "PAID" ? "Paid Only" : (statusValue === "UNPAID" ? "Unpaid Only" : "All (Paid + Unpaid)");
+            statusBox.innerHTML = `Consumer: <strong>${rows.length}</strong> | HQ: ${escapeHtml(hqValue || "All HQ")} | Village: ${escapeHtml(villageValue || "All Villages")} | Category: ${escapeHtml(categoryLabel)} | Status: ${escapeHtml(statusLabel)}`;
             listBox.innerHTML = rows.length ? `
                 <div style="display:flex; gap:10px; width:100%; margin:10px auto 0;">
-                    <button onclick="downloadRevenueHqVillageList('PDF')" style="flex:1; height:44px; border:none; border-radius:14px; background:#ef4444; color:#ffffff; font-size:0.78rem; font-weight:950;">PDF</button>
-                    <button onclick="downloadRevenueHqVillageList('EXCEL')" style="flex:1; height:44px; border:none; border-radius:14px; background:#16a34a; color:#ffffff; font-size:0.78rem; font-weight:950;">EXCEL</button>
+                    <button id="revenue-hq-village-list-pdf-btn" onclick="downloadRevenueHqVillageList('PDF')" style="flex:1; height:44px; border:none; border-radius:14px; background:#ef4444; color:#ffffff; font-size:0.78rem; font-weight:950;">PDF</button>
+                    <button id="revenue-hq-village-list-excel-btn" onclick="downloadRevenueHqVillageList('EXCEL')" style="flex:1; height:44px; border:none; border-radius:14px; background:#16a34a; color:#ffffff; font-size:0.78rem; font-weight:950;">EXCEL</button>
                 </div>
             ` : `<div style="background:#ecfdf5; border:1.5px solid #86efac; border-radius:14px; padding:14px; color:#047857; font-size:0.8rem; font-weight:900; text-align:center; margin-top:10px;">Is filter me consumer nahi mila.</div>`;
+            setRevenueHqVillageListDownloadState(false, "", true);
         }
 
         function getRevenueHqVillageListExportHeaders() {
@@ -12762,36 +12907,72 @@
             ]);
         }
 
+        function setRevenueHqVillageListDownloadState(isLoading, message = "", ok = true) {
+            const pdfBtn = document.getElementById("revenue-hq-village-list-pdf-btn");
+            const excelBtn = document.getElementById("revenue-hq-village-list-excel-btn");
+            const statusBox = document.getElementById("revenue-hq-village-list-download-status");
+            const statusMessage = normalizeActionStatusMessage(message, isLoading, ok);
+            [pdfBtn, excelBtn].forEach((btn) => {
+                if (!btn) return;
+                btn.disabled = isLoading;
+                btn.style.opacity = isLoading ? "0.65" : "1";
+                btn.style.pointerEvents = isLoading ? "none" : "auto";
+            });
+            if (!statusBox) return;
+            statusBox.style.display = statusMessage ? "block" : "none";
+            statusBox.style.background = ok ? "#ecfdf5" : "#fff1f2";
+            statusBox.style.borderColor = ok ? "#86efac" : "#fda4af";
+            statusBox.style.color = ok ? "#166534" : "#991b1b";
+            statusBox.innerHTML = escapeHtml(statusMessage);
+        }
+
         function downloadRevenueHqVillageList(type) {
             const filteredRows = getRevenueHqVillageListFilteredRows();
             if (!filteredRows.length) return showToast("List ke liye data nahi hai", false);
-            const headers = getRevenueHqVillageListExportHeaders();
-            const rows = getRevenueHqVillageListExportRows(filteredRows);
-            const hqValue = document.getElementById("revenue-hq-village-list-hq")?.value || "ALL-HQ";
-            const villageValue = document.getElementById("revenue-hq-village-list-village")?.value || "ALL-VILLAGE";
-            const categoryValue = document.getElementById("revenue-hq-village-list-category")?.value || "ALL-CATEGORY";
-            const statusValue = document.getElementById("revenue-hq-village-list-status")?.value || "ALL";
-            const reportTitle = `Consumer List - ${hqValue} - ${villageValue} - ${categoryValue} - ${statusValue}`;
-            const suffix = revenueHqVillageMode === "MONTHLY"
-                ? (document.getElementById("revenue-hq-village-month")?.value || getTodayIsoDate().slice(0, 7))
-                : normalizeRevenueReportDate(document.getElementById("revenue-hq-village-date")?.value || getCurrentDateDDMMYYYY());
-            const fileName = `${reportTitle}-${suffix}`.replace(/[\\/:*?"<>|]+/g, "_");
-            if (type === "PDF") {
-                if (!window.jspdf?.jsPDF) return showToast("PDF library load nahi hui", false);
-                const { jsPDF } = window.jspdf;
-                const doc = new jsPDF({ orientation: "landscape" });
-                doc.setFontSize(11); doc.text(reportTitle, 148, 14, { align: "center" });
-                doc.setFontSize(8); doc.text(`Period: ${suffix}`, 148, 20, { align: "center" });
-                doc.autoTable({ startY: 26, head: [headers], body: rows, theme: "grid", styles: { fontSize: 6, cellPadding: 1, overflow: "linebreak" }, headStyles: { fillColor: [21, 128, 61] } });
-                savePdfDocumentForDevice(doc, `${fileName}.pdf`);
-                return;
+            setRevenueHqVillageListDownloadState(true, `${type === "PDF" ? "PDF" : "Excel"} download ho raha hai... kripya wait kijiye`, true);
+            try {
+                const headers = getRevenueHqVillageListExportHeaders();
+                const rows = getRevenueHqVillageListExportRows(filteredRows);
+                const hqValue = document.getElementById("revenue-hq-village-list-hq")?.value || "";
+                const villageValue = document.getElementById("revenue-hq-village-list-village")?.value || "";
+                const categoryValue = document.getElementById("revenue-hq-village-list-category")?.value || "";
+                const statusValue = document.getElementById("revenue-hq-village-list-status")?.value || "ALL";
+                const categoryLabel = categoryValue ? getRevenueCategoryDisplayLabel(categoryValue) : "All Categories";
+                const statusLabel = statusValue === "PAID" ? "Paid Only" : (statusValue === "UNPAID" ? "Unpaid Only" : "All (Paid + Unpaid)");
+                const reportTitle = "Consumer List - HQ/Village/Category Wise";
+                const filterLine1 = `HQ: ${hqValue || "All HQ"}  |  Village: ${villageValue || "All Villages"}`;
+                const filterLine2 = `Category: ${categoryLabel}  |  Status: ${statusLabel}`;
+                const periodLine = `Period: ${getRevenueHqVillagePeriodDisplay()}`;
+                const suffix = revenueHqVillageMode === "MONTHLY"
+                    ? (document.getElementById("revenue-hq-village-month")?.value || getTodayIsoDate().slice(0, 7))
+                    : normalizeRevenueReportDate(document.getElementById("revenue-hq-village-date")?.value || getCurrentDateDDMMYYYY());
+                const fileNameParts = [hqValue || "ALL-HQ", villageValue || "ALL-VILLAGE", categoryValue || "ALL-CATEGORY", statusValue];
+                const fileName = `Consumer-List-${fileNameParts.join("-")}-${suffix}`.replace(/[\\/:*?"<>|]+/g, "_");
+                if (type === "PDF") {
+                    if (!window.jspdf?.jsPDF) { setRevenueHqVillageListDownloadState(false, "PDF library load nahi hui", false); return; }
+                    const { jsPDF } = window.jspdf;
+                    const doc = new jsPDF({ orientation: "landscape" });
+                    doc.setFontSize(12); doc.text(reportTitle, 148, 11, { align: "center" });
+                    doc.setFontSize(9);
+                    doc.text(filterLine1, 148, 17, { align: "center" });
+                    doc.text(filterLine2, 148, 22, { align: "center" });
+                    doc.text(periodLine, 148, 27, { align: "center" });
+                    doc.autoTable({ startY: 33, head: [headers], body: rows, theme: "grid", styles: { fontSize: 6, cellPadding: 1, overflow: "linebreak" }, headStyles: { fillColor: [21, 128, 61] } });
+                    savePdfDocumentForDevice(doc, `${fileName}.pdf`);
+                    setRevenueHqVillageListDownloadState(false, "PDF download ho chuki hai", true);
+                    return;
+                }
+                const csvSafe = (value) => { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
+                const csv = [[reportTitle], [filterLine1], [filterLine2], [periodLine], [], headers, ...rows].map((row) => row.map(csvSafe).join(",")).join("\n");
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+                link.download = `${fileName}.csv`;
+                link.click();
+                setRevenueHqVillageListDownloadState(false, "Excel download ho chuki hai", true);
+            } catch (error) {
+                setRevenueHqVillageListDownloadState(false, "Download nahi ho paya", false);
+                showToast(error?.message || "List download nahi ho payi", false);
             }
-            const csvSafe = (value) => { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
-            const csv = [[reportTitle], [`Period: ${suffix}`], [], headers, ...rows].map((row) => row.map(csvSafe).join(",")).join("\n");
-            const link = document.createElement("a");
-            link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-            link.download = `${fileName}.csv`;
-            link.click();
         }
 
         function switchView(id) {
