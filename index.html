@@ -719,8 +719,12 @@
                     <div class="res-row"><span class="res-label">Old Mobile No</span><span id="res-old" class="res-val"></span></div>
                     <div class="res-row border-none"><span class="res-label">Address</span><span id="res-addr" class="res-val"></span></div>
 
-                    <div class="title-box-container" style="padding-top: 15px;"><div class="title-box" style="background-color: #fee2e2;"><span class="title-text-bold" style="color: #991b1b;">Enter Correct Mobile No</span></div></div>
-                    <input type="tel" id="new-mobile" class="teal-boundary-input" placeholder="Enter 10 Digit No..." oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,10)">
+                    <div id="mobile-already-submitted-box" style="display:none; margin-top:15px; background:#fff7ed; border:1.5px solid #fdba74; border-radius:14px; padding:12px 14px; font-size:0.78rem; font-weight:850; color:#9a3412; text-align:center; line-height:1.55;"></div>
+
+                    <div id="mobile-entry-box">
+                        <div class="title-box-container" style="padding-top: 15px;"><div class="title-box" style="background-color: #fee2e2;"><span class="title-text-bold" style="color: #991b1b;">Enter Correct Mobile No</span></div></div>
+                        <input type="tel" id="new-mobile" class="teal-boundary-input" placeholder="Enter 10 Digit No..." oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,10)">
+                    </div>
                 </div>
                 <button id="submit-btn" class="submit-sync-btn" onclick="submitToSheet()">Submit</button>
             </div>

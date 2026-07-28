@@ -401,11 +401,66 @@
             return String(value || "").replace(/\D/g, "");
         }
 
-        // NOTE: "Mobile already submitted" tracking subsystem (getMobileUpdateStorageMap,
-        // getMobileUpdateKey, isMobileAlreadySubmitted, isMobileAlreadySubmittedByIvrs,
-        // markMobileSubmitted, loadSubmittedMobileSheetMap) hata diya gaya hai - poori
-        // codebase me kahi bhi call nahi ho raha tha (abandoned/superseded feature tha,
-        // ek live fetch() bhi bekaar me define thi).
+        // "Mobile already submitted" duplicate-check: agar kisi consumer (DC + IVRS) ka
+        // mobile number pehle hi backend sheet me submit ho chuka hai, to Update Mobile
+        // No form usko dobara submit nahi hone deta - result me साफ़ बता देता hai ki pehle
+        // kaunsa number/kab submit hua tha. Data usi "getSummary" endpoint se aata hai jo
+        // Daily Progress ke mobile-update summary count me bhi use hota hai.
+        let mobileAlreadySubmittedMap = {};
+        let mobileAlreadySubmittedMapLoadedAt = 0;
+        const mobileAlreadySubmittedTtlMs = 60 * 1000;
+
+        async function loadMobileAlreadySubmittedMap(forceRefresh = false) {
+            if (!forceRefresh && mobileAlreadySubmittedMapLoadedAt && (Date.now() - mobileAlreadySubmittedMapLoadedAt) < mobileAlreadySubmittedTtlMs) {
+                return mobileAlreadySubmittedMap;
+            }
+            try {
+                const cloudData = await loadRemoteJson(`${scriptURL}?action=getSummary&t=${Date.now()}`);
+                const nextMap = {};
+                (Array.isArray(cloudData) ? cloudData : []).forEach((entry) => {
+                    const dc = normalizeLookupValue(entry.dc || "");
+                    const ivrs = normalizeLookupDigits(entry.ivrs || "");
+                    if (!dc || !ivrs) return;
+                    const key = `${dc}__${ivrs}`;
+                    const mobile = String(entry.correct_mobile || "").trim();
+                    const date = String(entry.date || entry.timestamp || "").trim();
+                    if (!nextMap[key] || date >= (nextMap[key].date || "")) {
+                        nextMap[key] = { mobile, date };
+                    }
+                });
+                mobileAlreadySubmittedMap = nextMap;
+                mobileAlreadySubmittedMapLoadedAt = Date.now();
+            } catch (_) {}
+            return mobileAlreadySubmittedMap;
+        }
+
+        function getMobileAlreadySubmittedEntry(dcName, ivrsNo) {
+            const dc = normalizeLookupValue(dcName || "");
+            const ivrs = normalizeLookupDigits(ivrsNo || "");
+            if (!dc || !ivrs) return null;
+            return mobileAlreadySubmittedMap[`${dc}__${ivrs}`] || null;
+        }
+
+        function applyMobileAlreadySubmittedUi(entry) {
+            const alreadyBox = document.getElementById("mobile-already-submitted-box");
+            const entryBox = document.getElementById("mobile-entry-box");
+            const submitBtn = document.getElementById("submit-btn");
+            if (entry) {
+                if (alreadyBox) {
+                    const mobileText = entry.mobile ? ` (${escapeHtml(entry.mobile)})` : "";
+                    const dateText = entry.date ? ` - ${escapeHtml(entry.date)}` : "";
+                    alreadyBox.innerHTML = `Is consumer ka mobile number pehle hi update ho chuka hai${mobileText}${dateText}. Dobara submit nahi ho sakta.`;
+                    alreadyBox.style.display = "block";
+                }
+                if (entryBox) entryBox.style.display = "none";
+                if (submitBtn) submitBtn.style.display = "none";
+            } else {
+                if (alreadyBox) alreadyBox.style.display = "none";
+                if (entryBox) entryBox.style.display = "block";
+                if (submitBtn) submitBtn.style.display = "block";
+            }
+        }
+
         function getCourtRecordStorageKey(record) {
             if (!record) return "";
             const dc = normalizeLookupValue(record.dcName || activeDC || "");
@@ -500,6 +555,8 @@
             currentData = null;
             document.getElementById("result-box").style.display = "none";
             document.getElementById("submit-btn").style.display = "none";
+            const alreadyBoxReset = document.getElementById("mobile-already-submitted-box");
+            if (alreadyBoxReset) alreadyBoxReset.style.display = "none";
             if (v.length !== 10) return showToast("Enter 10 digit IVRS", false);
             let rows = getConsumerRows(activeDC);
             if (!rows.length) {
@@ -530,12 +587,24 @@
             document.getElementById("res-old").innerText = currentData.old || "N/A";
             document.getElementById("res-addr").innerText = currentData.addr;
             document.getElementById("result-box").style.display = "block";
-            document.getElementById("submit-btn").style.display = "block";
+            // Is consumer (DC + IVRS) ka mobile number pehle hi submit ho chuka hai to
+            // dobara submit karne ka option hi na dikhe - "Enter Correct Mobile" input
+            // aur Submit button chhup jayenge, uski jagah ek clear message dikhega.
+            await loadMobileAlreadySubmittedMap();
+            applyMobileAlreadySubmittedUi(getMobileAlreadySubmittedEntry(activeDC, currentData.ivrs));
         }
 
         async function submitToSheet() {
             const n = document.getElementById("new-mobile").value;
             if (n.length !== 10) return showToast("Enter 10 Digit No", false);
+            // Safety re-check: agar isi beech (dusre device/tab se) yeh consumer already
+            // submit ho chuka ho, to yahan bhi block ho jaye - sirf UI par bharosa na rahe.
+            const alreadyEntry = getMobileAlreadySubmittedEntry(activeDC, currentData?.ivrs);
+            if (alreadyEntry) {
+                applyMobileAlreadySubmittedUi(alreadyEntry);
+                showToast("Is consumer ka mobile number pehle hi submit ho chuka hai", false);
+                return;
+            }
             const p = new URLSearchParams();
             p.append("ivrs", currentData.ivrs);
             p.append("name", currentData.name);
@@ -580,6 +649,12 @@
                     return;
                 }
                 setActionButtonState(btn, "done", "Submit");
+                // Local map turant update kar do (60-second cache wait na karna pade) taaki
+                // agar ye hi IVRS turant dobara search ho, to "already submitted" sahi dikhe.
+                const submittedKey = `${normalizeLookupValue(activeDC || "")}__${normalizeLookupDigits(currentData?.ivrs || "")}`;
+                if (submittedKey !== "__") {
+                    mobileAlreadySubmittedMap[submittedKey] = { mobile: n, date: new Date().toLocaleDateString("en-GB") };
+                }
                 resetForm(true);
                 const searchInput = document.getElementById("search-ivrs");
                 if (searchInput) searchInput.focus();
