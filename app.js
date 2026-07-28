@@ -9803,12 +9803,23 @@
             populateRevenueSelect(hqSelect, [], "All HQ Names");
             populateRevenueSelect(document.getElementById("revenue-pending-village"), [], "All Villages");
             populateRevenueSelect(document.getElementById("revenue-pending-category"), [], "All Categories");
-            revenuePendingPaidIvrsSet = getRevenuePendingPaidIvrsSetLocal();
-
+            // NOTE: pehle yahan turant local/purana paid-set (getRevenuePendingPaidIvrsSetLocal)
+            // laga ke list render kar dete the, aur sahi (uploaded cash list wala) paid-set
+            // background me chhup ke baad me update hota tha - isse "Pending Consumer: ..."
+            // wala number pehle GALAT dikhta tha, phir kisi dropdown ko chhedne par hi sahi
+            // hota tha (jaisa aapne report kiya). Ab Daily Progress jaisa hi strict flow hai:
+            // jab tak dono - base consumer rows AUR sahi paid-set (uploaded cash list) - fetch
+            // hoke ready nahi ho jaate, tab tak syncing bar hi dikhta rahega (1 se 99 dhire
+            // dhire, 99 par pahunch ke blink), display kabhi bhi galat number nahi dikhayega.
             try {
                 const dcKey = getRevenueCollectionDcKey(activeDC);
                 const fallbackRows = revenueCollectionRowsByDc[dcKey] || getConsumerRows(activeDC).map(mapRevenueConsumerRow).filter((row) => normalizeRevenueIvrs(row.ivrsNo));
-                const freshRows = await withTimeout(loadRevenueCollectionData(activeDC, true), 30000, []);
+                const [freshRows, paidSet] = await Promise.all([
+                    withTimeout(loadRevenueCollectionData(activeDC, true), 30000, []),
+                    getRevenuePendingPaidIvrsSet()
+                ]);
+                if (refreshToken !== revenuePendingPaidRefreshToken) { if (pendingListProgress) pendingListProgress.stop(); return; }
+                revenuePendingPaidIvrsSet = paidSet;
                 const loadedRows = freshRows.length ? freshRows : fallbackRows;
                 const assignedHq = revenueMessageSelectionMode ? String(revenueMessageSession?.staff?.hq_name || "").trim() : "";
                 revenuePendingBaseRows = loadedRows.filter((row) => (
@@ -9835,7 +9846,6 @@
                 if (pendingListProgress) await pendingListProgress.finish();
                 if (refreshToken !== revenuePendingPaidRefreshToken) return;
                 renderRevenuePendingList();
-                refreshRevenuePendingPaidSetInBackground(refreshToken);
             } catch (_) {
                 if (pendingListProgress) pendingListProgress.stop();
                 if (statusBox) {
@@ -10137,33 +10147,9 @@
             return paidSet;
         }
 
-        function getRevenuePendingPaidIvrsSetLocal() {
-            const paidSet = new Set();
-            getRevenueLiveEntries().forEach((row) => {
-                if (normalizeLookupValue(row.dcName || "") === normalizeLookupValue(activeDC || "")) {
-                    const ivrsNo = normalizeRevenueIvrs(row.ivrsNo);
-                    if (ivrsNo) paidSet.add(ivrsNo);
-                }
-            });
-            getRevenueUploadedPaidMasterRowsLocal().forEach((row) => {
-                const ivrsNo = normalizeRevenueIvrs(row.ivrs_no || row.ivrsNo || row.consumerNo);
-                if (ivrsNo) paidSet.add(ivrsNo);
-            });
-            return paidSet;
-        }
-
         function getRevenueUploadedPaidMasterRowsLocal() {
             const cache = getRevenueUploadedPaidCache();
             return Object.values(cache).filter((row) => normalizeLookupValue(row.dcName || row.dc_name || "") === normalizeLookupValue(activeDC || ""));
-        }
-
-        async function refreshRevenuePendingPaidSetInBackground(refreshToken) {
-            try {
-                const paidSet = await getRevenuePendingPaidIvrsSet();
-                if (refreshToken !== revenuePendingPaidRefreshToken || !document.getElementById("revenue-pending-list-view")?.classList.contains("active")) return;
-                revenuePendingPaidIvrsSet = paidSet;
-                renderRevenuePendingList();
-            } catch (_) {}
         }
 
         function withTimeout(promise, ms, fallbackValue) {
