@@ -10120,7 +10120,16 @@
                 });
             } catch (_) {}
 
-            const uploadedRows = await withTimeout(getRevenueUploadedPaidMasterRows(), 3500, getRevenueUploadedPaidMasterRowsLocal());
+            // NOTE: pehle yahan uploaded-paid-entries fetch ko sirf 3.5 second ka
+            // withTimeout diya hua tha (bina retry ke) - chhoti DC ke liye theek chal
+            // jaata tha, lekin bade DC (jaise KURAI - 7700+ rows) me Apps Script se itna
+            // bada sheet padhne me 3.5 second se zyada time lagta hai, isliye timeout ho
+            // jaata tha aur purana/khali local cache use hota tha - matlab Cash List
+            // upload karne ke baad bhi Pending DO List me wahi consumer "pending" dikhte
+            // rehte the jo asal me pehle hi paid ho chuke the. Ab yahan bhi Category
+            // Wise/HQ-Village report jaisa hi robust fetch (45 second + 2 retry) use
+            // karte hain, taaki bade DC ke liye bhi latest uploaded paid data sahi mile.
+            const uploadedRows = await getRevenueUploadedPaidMasterRows();
             uploadedRows.forEach((row) => {
                 const ivrsNo = normalizeRevenueIvrs(row.ivrs_no || row.ivrsNo || row.consumerNo);
                 if (ivrsNo) paidSet.add(ivrsNo);
@@ -10182,8 +10191,10 @@
         async function getRevenueUploadedPaidMasterRows() {
             if (revenueCollectionSubmitScriptUrl) {
                 try {
-                    const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getUploadedPaidEntries&dc_name=${encodeURIComponent(activeDC || "")}&t=${Date.now()}`);
-                    const parsed = await response.json();
+                    // fetchUploadedPaidEntriesWithRetry_ (45s timeout + 2 retry) - same
+                    // robust fetch Category Wise/HQ-Village report already use, taaki bade
+                    // DC (jaise KURAI - hazaaron rows) ke liye bhi fetch timeout na ho.
+                    const parsed = await fetchUploadedPaidEntriesWithRetry_(activeDC || "");
                     const rows = Array.isArray(parsed?.entries) ? parsed.entries : (Array.isArray(parsed?.data) ? parsed.data : []);
                     if (parsed && parsed.status === "success" && rows.length) {
                         saveRevenueUploadedPaidEntriesLocalBulk(rows, activeDC || "", true);
