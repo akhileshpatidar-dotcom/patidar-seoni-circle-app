@@ -12694,7 +12694,10 @@
             dfType: "urban",
             nodes: [],
             seals: [],
-            showReferenceInfo: false
+            draftSealDesignation: "Assistant Engineer (O&M)",
+            draftSealLocation: "",
+            showReferenceInfo: false,
+            menuOpen: false
         };
 
         function vrNextLabel(n) {
@@ -12886,16 +12889,16 @@
             if (!canvas) return;
             const ctx = canvas.getContext("2d");
             if (!nodes.length) {
-                canvas.width = 1300; canvas.height = 200;
+                canvas.width = 1300; canvas.height = 130;
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
                 return;
             }
 
-            const subBoxW = 175, subBoxH = 74, tickGap = 88, marginX = 20, gapAfterSub = 40;
+            const subBoxW = 120, subBoxH = 54, tickGap = 88, marginX = 20, gapAfterSub = 40;
             const hasProposed = nodes.some((n) => n.isProposed);
-            const lineY = 92;
+            const lineY = 62;
             const canvasW = marginX * 2 + subBoxW + gapAfterSub + Math.max(0, nodes.length - 1) * tickGap + 60;
-            const canvasH = lineY + (hasProposed ? 110 : 55);
+            const canvasH = lineY + (hasProposed ? 110 : 45);
 
             const RES = 2;
             canvas.width = canvasW * RES;
@@ -13038,50 +13041,84 @@
                 return;
             }
 
-            container.innerHTML = nodes.map((node, i) => {
+            const gridCols = isProposedStatus ? "34px 1fr 1fr 60px 34px" : "34px 1fr 1fr 34px";
+
+            let html = `<div class="vr-calc-node-thead" style="grid-template-columns:${gridCols};">`;
+            html += `<span></span><span>KVA</span><span>KM</span>`;
+            if (isProposedStatus) html += `<span>Proposed</span>`;
+            html += `<span></span></div>`;
+
+            html += nodes.map((node, i) => {
                 const showDistance = i > 0;
-                let html = '<div class="vr-calc-node-row">';
-                html += `<span class="vr-calc-node-label">${escapeHtml(node.label)}</span>`;
-                html += `<div class="vr-calc-field name"><label>Point Name</label><input type="text" value="${escapeHtml(node.name)}" data-index="${i}" data-field="name" onchange="vrHandleNodeChange(this)"></div>`;
+                let row = `<div class="vr-calc-node-trow" style="grid-template-columns:${gridCols};">`;
+                row += `<span class="vr-calc-node-label" title="${escapeHtml(node.name)}">${escapeHtml(node.label)}</span>`;
                 if (showDistance) {
-                    html += `<div class="vr-calc-field kva"><label>Load (KVA)</label><input type="number" value="${node.kva}" data-index="${i}" data-field="kva" onchange="vrHandleNodeChange(this)"></div>`;
-                    html += `<div class="vr-calc-field dist"><label>Distance (Km)</label><input type="number" step="0.1" value="${node.distance}" data-index="${i}" data-field="distance" onchange="vrHandleNodeChange(this)"></div>`;
+                    row += `<input type="number" value="${node.kva}" data-index="${i}" data-field="kva" onchange="vrHandleNodeChange(this)">`;
+                    row += `<input type="number" step="0.1" value="${node.distance}" data-index="${i}" data-field="distance" onchange="vrHandleNodeChange(this)">`;
+                } else {
+                    row += `<span class="vr-calc-node-dash">—</span><span class="vr-calc-node-dash">—</span>`;
                 }
                 if (isProposedStatus) {
-                    html += `<label class="vr-calc-proposed-check"><input type="checkbox" ${node.isProposed ? "checked" : ""} data-index="${i}" data-field="isProposed" onchange="vrHandleNodeChange(this)"> Proposed Load</label>`;
+                    row += `<input type="checkbox" ${node.isProposed ? "checked" : ""} data-index="${i}" data-field="isProposed" onchange="vrHandleNodeChange(this)" style="width:18px; height:18px; justify-self:center;">`;
                 }
+                row += `<button class="vr-calc-remove-btn" onclick="vrRemoveNode(${i})" title="Remove">✕</button>`;
+                row += `</div>`;
                 if (node.isProposed) {
-                    html += `<div class="vr-calc-field name"><label>Proposed Description</label><input type="text" placeholder="e.g. Rice Mill" value="${escapeHtml(node.proposedNote || "")}" data-index="${i}" data-field="proposedNote" onchange="vrHandleNodeChange(this)"></div>`;
+                    row += `<div class="vr-calc-node-note-row"><input type="text" placeholder="Proposed description e.g. Rice Mill" value="${escapeHtml(node.proposedNote || "")}" data-index="${i}" data-field="proposedNote" onchange="vrHandleNodeChange(this)"></div>`;
                 }
-                html += `<button class="vr-calc-remove-btn" onclick="vrRemoveNode(${i})">✕ Remove</button>`;
-                html += "</div>";
-                return html;
+                return row;
             }).join("");
+
+            container.innerHTML = html;
         }
 
         function vrRenderSeals() {
             const container = document.getElementById("vr-seal-list");
             if (!container) return;
             const seals = vrCalcState.seals;
+
+            let html = "";
             if (!seals.length) {
-                container.innerHTML = '<div style="font-size:12px; color:#888; margin-bottom:10px;">No seal added yet — click "+ Add Seal" below.</div>';
-                return;
+                html += '<div style="font-size:12px; color:#888; margin-bottom:10px;">No seal added yet — select designation and location below, then click Add.</div>';
+            } else {
+                html += seals.map((seal, i) => `
+                    <div class="vr-calc-seal-card">
+                        <span class="vr-calc-seal-desig">${escapeHtml(seal.designation || "")}</span>
+                        <span class="vr-calc-seal-loc">${escapeHtml(seal.location || "")}</span>
+                        <button class="vr-calc-seal-remove-sm" onclick="vrRemoveSeal(${i})" title="Remove">✕</button>
+                    </div>`).join("");
             }
-            container.innerHTML = seals.map((seal, i) => {
-                const options = vrDesignationOptions.map((opt) => `<option value="${escapeHtml(opt)}" ${seal.designation === opt ? "selected" : ""}>${escapeHtml(opt)}</option>`).join("");
-                return `
-                <div class="vr-calc-seal-row">
+
+            const designationOptions = vrDesignationOptions.map((opt) => `<option value="${escapeHtml(opt)}" ${vrCalcState.draftSealDesignation === opt ? "selected" : ""}>${escapeHtml(opt)}</option>`).join("");
+            html += `
+                <div class="vr-calc-seal-draft-row">
                     <div style="display:flex; flex-direction:column; gap:4px; flex:1 1 200px;">
                         <label style="font-size:10px; font-weight:800; text-transform:uppercase; color:#555;">Designation</label>
-                        <select data-index="${i}" data-field="designation" onchange="vrUpdateSeal(this)">${options}</select>
+                        <select onchange="vrSetDraftSealDesignation(this.value)">${designationOptions}</select>
                     </div>
                     <div style="display:flex; flex-direction:column; gap:4px; flex:1 1 180px;">
                         <label style="font-size:10px; font-weight:800; text-transform:uppercase; color:#555;">Location</label>
-                        <input type="text" placeholder="e.g. Narsinghpur" value="${escapeHtml(seal.location || "")}" data-index="${i}" data-field="location" onchange="vrUpdateSeal(this)">
+                        <input type="text" placeholder="e.g. Narsinghpur" value="${escapeHtml(vrCalcState.draftSealLocation || "")}" onchange="vrSetDraftSealLocation(this.value)">
                     </div>
-                    <button class="vr-calc-seal-remove" onclick="vrRemoveSeal(${i})">✕ Remove</button>
+                    <button class="btn vr-btn-primary" onclick="vrAddSeal()">+ Add Seal</button>
                 </div>`;
-            }).join("");
+
+            container.innerHTML = html;
+            vrRenderSealPrintRows();
+        }
+
+        function vrRenderSealPrintRows() {
+            const seals = vrCalcState.seals;
+            const rowsHtml = seals.map((seal) => `
+                <div style="text-align:center; font-size:10px; line-height:1.5; flex:0 0 140px; width:140px;">
+                    <div style="font-weight:700;">${escapeHtml(seal.designation || "")}</div>
+                    <div>M.P.P.K.V.V. CO. LTD.</div>
+                    <div>${escapeHtml(seal.location || "")}</div>
+                </div>`).join("");
+            const print1 = document.getElementById("vr-seal-print-1");
+            const print2 = document.getElementById("vr-seal-print-2");
+            if (print1) print1.innerHTML = rowsHtml;
+            if (print2) print2.innerHTML = rowsHtml;
         }
 
         function vrRenderCalc() {
@@ -13093,13 +13130,19 @@
                 conductorSelect.innerHTML = calc.conductorOptions.map((opt) => `<option value="${opt.key}" ${opt.key === conductorType ? "selected" : ""}>${escapeHtml(opt.label)} (CC ${opt.cc})</option>`).join("");
             }
 
-            const dfRow = document.getElementById("vr-df-row");
-            if (dfRow) dfRow.style.display = calc.isHT ? "none" : "block";
-
             const title1 = document.getElementById("vr-report-title-1");
             const title2 = document.getElementById("vr-report-title-2");
             if (title1) title1.innerText = "VOLTAGE REGULATION CALCULATION – " + calc.reportTitleLine1;
             if (title2) title2.innerText = headerDescription || "";
+
+            const printTitle1a = document.getElementById("vr-print-title-1a");
+            const printTitle1b = document.getElementById("vr-print-title-1b");
+            const printTitle2a = document.getElementById("vr-print-title-2a");
+            const printTitle2b = document.getElementById("vr-print-title-2b");
+            if (printTitle1a) printTitle1a.innerText = "SINGLE LINE DIAGRAM – " + calc.reportTitleLine1;
+            if (printTitle1b) printTitle1b.innerText = headerDescription || "";
+            if (printTitle2a) printTitle2a.innerText = "VOLTAGE REGULATION CALCULATION – " + calc.reportTitleLine1;
+            if (printTitle2b) printTitle2b.innerText = headerDescription || "";
 
             const rowsBody = document.getElementById("vr-section-rows");
             if (rowsBody) {
@@ -13213,15 +13256,19 @@
         }
 
         function vrAddSeal() {
-            vrCalcState.seals.unshift({ designation: "Assistant Engineer (O&M)", location: "" });
+            const designation = vrCalcState.draftSealDesignation || vrDesignationOptions[0];
+            const location = vrCalcState.draftSealLocation || "";
+            vrCalcState.seals.unshift({ designation, location });
+            vrCalcState.draftSealLocation = "";
             vrRenderSeals();
         }
 
-        function vrUpdateSeal(el) {
-            const index = parseInt(el.dataset.index, 10);
-            const field = el.dataset.field;
-            if (!vrCalcState.seals[index]) return;
-            vrCalcState.seals[index][field] = el.value;
+        function vrSetDraftSealDesignation(value) {
+            vrCalcState.draftSealDesignation = value;
+        }
+
+        function vrSetDraftSealLocation(value) {
+            vrCalcState.draftSealLocation = value;
         }
 
         function vrRemoveSeal(index) {
@@ -13229,20 +13276,29 @@
             vrRenderSeals();
         }
 
+        function vrToggleMenu() {
+            vrCalcState.menuOpen = !vrCalcState.menuOpen;
+            const dd = document.getElementById("vr-menu-dropdown");
+            if (dd) dd.style.display = vrCalcState.menuOpen ? "block" : "none";
+        }
+
         function vrToggleReferenceInfo() {
             vrCalcState.showReferenceInfo = !vrCalcState.showReferenceInfo;
+            vrCalcState.menuOpen = false;
             const box = document.getElementById("vr-reference-info");
             if (box) box.style.display = vrCalcState.showReferenceInfo ? "block" : "none";
+            const dd = document.getElementById("vr-menu-dropdown");
+            if (dd) dd.style.display = "none";
+            const btn = document.getElementById("vr-menu-toggle-ref-btn");
+            if (btn) btn.innerText = vrCalcState.showReferenceInfo ? "Hide Limits & CC Reference Table" : "Show Limits & CC Reference Table";
         }
 
         function initVrCalculation() {
             const statusSel = document.getElementById("vr-line-status");
             const typeSel = document.getElementById("vr-line-type");
-            const dfSel = document.getElementById("vr-df-type");
             const headerEl = document.getElementById("vr-header-desc");
             if (statusSel) statusSel.value = vrCalcState.lineStatus;
             if (typeSel) typeSel.value = vrCalcState.lineType;
-            if (dfSel) dfSel.value = vrCalcState.dfType;
             if (headerEl) headerEl.value = vrCalcState.headerDescription;
             vrRenderNodeList();
             vrRenderSeals();
@@ -13259,74 +13315,7 @@
         }
 
         function vrDownloadPDF() {
-            try {
-                const calc = vrComputeCalc();
-                const { headerDescription, nodes } = vrCalcState;
-                const { jsPDF } = window.jspdf;
-                const doc = new jsPDF({ orientation: "landscape" });
-                const pageW = doc.internal.pageSize.getWidth();
-
-                doc.setFontSize(14);
-                doc.setFont(undefined, "bold");
-                doc.text("VOLTAGE REGULATION CALCULATION – " + calc.reportTitleLine1, pageW / 2, 14, { align: "center" });
-                doc.setFontSize(10);
-                doc.setFont(undefined, "normal");
-                if (headerDescription) doc.text(headerDescription, pageW / 2, 20, { align: "center" });
-
-                let y = 26;
-                const flatCanvas = document.getElementById("vrFlatSldCanvas");
-                if (flatCanvas && nodes.length) {
-                    const imgW = Math.min(260, pageW - 20);
-                    const imgH = (flatCanvas.height / flatCanvas.width) * imgW;
-                    doc.addImage(flatCanvas.toDataURL("image/png"), "PNG", (pageW - imgW) / 2, y, imgW, imgH);
-                    y += imgH + 6;
-                }
-                const sldCanvas = document.getElementById("vrSldCanvas");
-                if (sldCanvas && nodes.length) {
-                    const imgW = Math.min(260, pageW - 20);
-                    const imgH = (sldCanvas.height / sldCanvas.width) * imgW;
-                    doc.addImage(sldCanvas.toDataURL("image/png"), "PNG", (pageW - imgW) / 2, y, imgW, imgH);
-                    y += imgH + 8;
-                }
-
-                doc.autoTable({
-                    startY: y,
-                    head: [["S.No", "Section", "Length (Km)", "KVA", "DF", "Conductor Constant", "KVA x Km", "VR (%)"]],
-                    body: calc.sectionRows.map((row) => [row.no, row.label, row.length, row.kva, row.df, row.cc, row.kvakm, row.vr]),
-                    foot: [["", calc.totalRowLabel, "", "", "", "", calc.totalKvaKm.toFixed(0), calc.totalVr.toFixed(2)]],
-                    theme: "grid",
-                    headStyles: { fillColor: [30, 64, 175], halign: "center" },
-                    footStyles: { fillColor: [219, 234, 254], textColor: [17, 17, 17], fontStyle: "bold" },
-                    styles: { fontSize: 8, halign: "center" }
-                });
-
-                let afterTableY = (doc.lastAutoTable && doc.lastAutoTable.finalY ? doc.lastAutoTable.finalY : y) + 10;
-                doc.setFontSize(10);
-                doc.setFont(undefined, "bold");
-                doc.text(`% VR = ${calc.totalKvaKm.toFixed(0)} / (${calc.cc} x ${calc.df.toFixed(1)}) = ${calc.totalVr.toFixed(2)}%`, 14, afterTableY);
-                afterTableY += 6;
-                doc.setFont(undefined, "normal");
-                doc.text(`Diversity Factor Used: ${calc.df.toFixed(1)} (${calc.dfNote})`, 14, afterTableY);
-                afterTableY += 6;
-                doc.text(`Conductor: ${calc.conductorObj.label}`, 14, afterTableY);
-
-                if (vrCalcState.seals.length) {
-                    let sealX = pageW - 14;
-                    doc.setFontSize(9);
-                    vrCalcState.seals.forEach((seal) => {
-                        doc.text(String(seal.designation || ""), sealX, afterTableY, { align: "right" });
-                        doc.text("M.P.P.K.V.V. CO. LTD.", sealX, afterTableY + 5, { align: "right" });
-                        doc.text(String(seal.location || ""), sealX, afterTableY + 10, { align: "right" });
-                        sealX -= 60;
-                    });
-                }
-
-                doc.save(`Voltage_Regulation_${vrCalcState.lineType.toUpperCase()}.pdf`);
-                vrSetDownloadStatus("PDF download ho gaya", true);
-            } catch (err) {
-                showToast(err?.message || "PDF download nahi ho paya", false);
-                vrSetDownloadStatus("PDF download nahi ho paya", false);
-            }
+            window.print();
         }
 
         function vrDownloadExcel() {
