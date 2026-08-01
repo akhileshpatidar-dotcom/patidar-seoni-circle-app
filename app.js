@@ -123,6 +123,7 @@
         // hain (jaisa is view ka baaki sab data already karta hai), koi alag scoping nahi.
         let progressRevenueReportType = "STAFF";
         let progressRevenueDefaultersLimit = 20;
+        let progressDefaultersGovtFilter = "";
         let lastRevenueProgressBoxData = null;
         let lastRevenueProgressStaffData = null;
         let suppressHistoryPush = false;
@@ -1954,6 +1955,9 @@
         function downloadProgressRevenueReportBox(fmt) {
             if (progressRevenueReportType === "TARGET") return downloadProgressRevenueTargetSummary(fmt);
             if (progressRevenueReportType === "DEFAULTERS") return downloadProgressRevenueDefaultersSummary(fmt);
+            if (progressRevenueReportType === "NONPAYEE_3M") return downloadProgressRevenueNonPayeeSummary(fmt, "3M");
+            if (progressRevenueReportType === "NONPAYEE_6M") return downloadProgressRevenueNonPayeeSummary(fmt, "6M");
+            if (progressRevenueReportType === "NONPAYEE_SINCE_CONNECTION") return downloadProgressRevenueNonPayeeSummary(fmt, "SINCE_CONNECTION");
             return downloadProgressRevenueCategorySummary(fmt);
         }
 
@@ -1999,27 +2003,40 @@
             }
         }
 
+        function getProgressDefaultersFilteredRows(mode, filterValue) {
+            const consumerRows = buildRevenueHqVillageConsumerRows(mode, filterValue);
+            const govtFilter = progressDefaultersGovtFilter;
+            return consumerRows
+                .filter((row) => !row.paid)
+                .filter((row) => !govtFilter || (govtFilter === "GOVT" ? !!row.govtFlag : !row.govtFlag))
+                .map((row) => ({ ...row, pendingAmount: parseRevenuePaidAmount(row.netBill || 0) }))
+                .filter((row) => row.pendingAmount > 0)
+                .sort((a, b) => b.pendingAmount - a.pendingAmount)
+                .slice(0, progressRevenueDefaultersLimit);
+        }
+
+        function setProgressDefaultersGovtFilter(value) {
+            progressDefaultersGovtFilter = value || "";
+            const body = document.getElementById("progress-revenue-body");
+            if (body) body.innerHTML = renderProgressRevenueBodyInner();
+        }
+
         function downloadProgressRevenueDefaultersSummary(fmt) {
             if (!lastRevenueProgressBoxData) return showToast("Report ke liye data nahi hai", false);
             const downloadTypeLabel = fmt === "PDF" ? "PDF" : "Excel";
             setProgressCategoryDownloadState(true, `${downloadTypeLabel} downloading... kripya wait kijiye`);
             try {
                 const { mode, filterValue } = lastRevenueProgressBoxData;
-                const consumerRows = buildRevenueHqVillageConsumerRows(mode, filterValue);
-                const rows = consumerRows
-                    .filter((row) => !row.paid)
-                    .map((row) => ({ ...row, pendingAmount: parseRevenuePaidAmount(row.netBill || 0) }))
-                    .filter((row) => row.pendingAmount > 0)
-                    .sort((a, b) => b.pendingAmount - a.pendingAmount)
-                    .slice(0, progressRevenueDefaultersLimit);
+                const rows = getProgressDefaultersFilteredRows(mode, filterValue);
                 if (!rows.length) { setProgressCategoryDownloadState(false, "Download ke liye data nahi hai"); return; }
-                const headers = ["RANK", "IVRS NO", "CONSUMER NAME", "HQ NAME", "VILLAGE", "MOBILE NO", "PENDING AMOUNT"];
-                const bodyRows = rows.map((row, index) => [index + 1, row.ivrsNo || "", row.consumerName || "", row.hqName || "", row.village || "", row.mobileNo || "", formatProgressReportAmount(row.pendingAmount)]);
+                const headers = ["RANK", "IVRS NO", "CONSUMER NAME", "HQ NAME", "VILLAGE", "GOVT/NON GOVT", "MOBILE NO", "PENDING AMOUNT"];
+                const bodyRows = rows.map((row, index) => [index + 1, row.ivrsNo || "", row.consumerName || "", row.hqName || "", row.village || "", row.govtFlag ? "GOVT" : "NON GOVT", row.mobileNo || "", formatProgressReportAmount(row.pendingAmount)]);
                 const scope = activeViewLevel === "DC" ? `DC - ${activeDC}` : (activeViewLevel === "DIVISION" ? activeDiv : "SEONI CIRCLE");
+                const govtLabel = progressDefaultersGovtFilter === "GOVT" ? "Govt" : (progressDefaultersGovtFilter === "NONGOVT" ? "Non Govt" : "All");
                 const reportTitle = `Top ${progressRevenueDefaultersLimit} Defaulters - ${scope}`;
                 const rawVal = document.getElementById("report-date")?.value || "";
                 const parsed = parseSummarySelection(rawVal, summaryMode);
-                const periodLine = `Period: ${parsed.label || getTodayIsoDate()}`;
+                const periodLine = `Period: ${parsed.label || getTodayIsoDate()}  |  Type: ${govtLabel}`;
                 const fileName = `${reportTitle}-${parsed.label || getTodayIsoDate()}`.replace(/[\\/:*?"<>|]+/g, "_");
                 if (fmt === "PDF") {
                     if (!window.jspdf?.jsPDF) { setProgressCategoryDownloadState(false, "PDF library load nahi hui"); return; }
@@ -2124,19 +2141,18 @@
         // Revenue tab me) bhi wahi consumer-level unpaid rows lekar, jo scope (DC/Division/
         // Circle) abhi active hai usi ke hisaab se top defaulters nikalte hain.
         function renderRevenueProgressDefaultersSummaryHtml(mode, filterValue) {
-            const consumerRows = buildRevenueHqVillageConsumerRows(mode, filterValue);
-            const rows = consumerRows
-                .filter((row) => !row.paid)
-                .map((row) => ({ ...row, pendingAmount: parseRevenuePaidAmount(row.netBill || 0) }))
-                .filter((row) => row.pendingAmount > 0)
-                .sort((a, b) => b.pendingAmount - a.pendingAmount)
-                .slice(0, progressRevenueDefaultersLimit);
+            const rows = getProgressDefaultersFilteredRows(mode, filterValue);
             let html = `
                 <div style="font-size:0.75rem; font-weight:950; color:#9f1239; text-align:center;">Top ${progressRevenueDefaultersLimit} Defaulters (Cash List ke baad bakaya)</div>
                 <div style="display:flex; gap:8px; width:100%; margin:9px auto 0;">
                     <div onclick="setProgressDefaultersLimit(20)" style="flex:1; height:28px; line-height:28px; text-align:center; border-radius:999px; cursor:pointer; font-size:0.6rem; font-weight:950; background:${progressRevenueDefaultersLimit === 20 ? "#9f1239" : "#ffe4e6"}; color:${progressRevenueDefaultersLimit === 20 ? "#ffffff" : "#9f1239"};">TOP 20</div>
                     <div onclick="setProgressDefaultersLimit(50)" style="flex:1; height:28px; line-height:28px; text-align:center; border-radius:999px; cursor:pointer; font-size:0.6rem; font-weight:950; background:${progressRevenueDefaultersLimit === 50 ? "#9f1239" : "#ffe4e6"}; color:${progressRevenueDefaultersLimit === 50 ? "#ffffff" : "#9f1239"};">TOP 50</div>
                 </div>
+                <select onchange="setProgressDefaultersGovtFilter(this.value)" style="width:100%; height:44px; margin:8px auto 0; display:block; border:1.5px solid #fda4af; border-radius:12px; padding:0 12px; font-size:0.76rem; font-weight:900; color:#0f172a; background:#ffffff;">
+                    <option value="">All (Govt + Non Govt)</option>
+                    <option value="GOVT" ${progressDefaultersGovtFilter === "GOVT" ? "selected" : ""}>Govt</option>
+                    <option value="NONGOVT" ${progressDefaultersGovtFilter === "NONGOVT" ? "selected" : ""}>Non Govt</option>
+                </select>
                 <div class="summary-wrapper" style="margin-top:8px;"><div class="summary-table-header" style="grid-template-columns: 0.4fr 1.3fr 1fr;"><div>#</div><div>CONSUMER</div><div>PENDING</div></div>
             `;
             if (!rows.length) {
@@ -2150,8 +2166,159 @@
             return html;
         }
 
+        // "LAST PAYMENT DATE" master-data column ke aadhar par 3 naye Non Payee aging
+        // report types - purane STAFF/CATEGORY/TARGET/DEFAULTERS jaisa hi dropdown-driven
+        // flow, wahi lastRevenueProgressBoxData (mode/filterValue) reuse hota hai. Inke
+        // saath HQ/Village/Category/Net Bill Slab/Govt-NonGovt - "Pending DO List" jaisa
+        // filter set bhi rahega, taaki koi bhi combination nikal sake.
+        let progressNonPayeeFilterState = { hq: "", village: "", category: "", slab: "", govt: "" };
+
+        function resetProgressNonPayeeFilterState() {
+            progressNonPayeeFilterState = { hq: "", village: "", category: "", slab: "", govt: "" };
+        }
+
+        function setProgressNonPayeeFilter(key, value) {
+            if (!(key in progressNonPayeeFilterState)) return;
+            progressNonPayeeFilterState[key] = value || "";
+            if (key === "hq") progressNonPayeeFilterState.village = "";
+            const body = document.getElementById("progress-revenue-body");
+            if (body) body.innerHTML = renderProgressRevenueBodyInner();
+        }
+
+        function isProgressNonPayeeNetBillInSlab(row, slabValue) {
+            if (!slabValue) return true;
+            const amount = Number(row.pendingAmount || 0);
+            if (slabValue === "0-500") return amount >= 0 && amount <= 500;
+            if (slabValue === "500-1000") return amount > 500 && amount <= 1000;
+            if (slabValue === "1000-5000") return amount > 1000 && amount <= 5000;
+            if (slabValue === "5000-10000") return amount > 5000 && amount <= 10000;
+            if (slabValue === "10000-25000") return amount > 10000 && amount <= 25000;
+            if (slabValue === "25000+") return amount > 25000;
+            return true;
+        }
+
+        function getProgressNonPayeeFilteredRows(mode, filterValue, bucket) {
+            const allRows = buildRevenueNonPayeeRows(mode, filterValue, bucket);
+            const f = progressNonPayeeFilterState;
+            const rows = allRows.filter((row) => (
+                (!f.hq || normalizeLookupValue(row.hqName) === normalizeLookupValue(f.hq))
+                && (!f.village || normalizeLookupValue(row.village) === normalizeLookupValue(f.village))
+                && (!f.category || normalizeLookupValue(row.tariffCategory) === normalizeLookupValue(f.category))
+                && isProgressNonPayeeNetBillInSlab(row, f.slab)
+                && (!f.govt || (f.govt === "GOVT" ? !!row.govtFlag : !row.govtFlag))
+            ));
+            return { allRows, rows };
+        }
+
+        function buildProgressNonPayeeOptionsHtml(values, selectedValue, placeholder) {
+            const options = [`<option value="">${escapeHtml(placeholder)}</option>`].concat(
+                (values || []).map((v) => `<option value="${escapeHtml(v)}" ${v === selectedValue ? "selected" : ""}>${escapeHtml(v)}</option>`)
+            );
+            return options.join("");
+        }
+
+        function renderRevenueProgressNonPayeeSummaryHtml(mode, filterValue, bucket) {
+            const { allRows, rows } = getProgressNonPayeeFilteredRows(mode, filterValue, bucket);
+            const f = progressNonPayeeFilterState;
+            const bucketLabel = getRevenueNonPayeeBucketLabel(bucket);
+            const totalPending = rows.reduce((sum, r) => sum + Number(r.pendingAmount || 0), 0);
+            const villageScoped = allRows.filter((row) => !f.hq || normalizeLookupValue(row.hqName) === normalizeLookupValue(f.hq));
+            const hqOptionsHtml = buildProgressNonPayeeOptionsHtml(getRevenueUniqueValues(allRows, "hqName"), f.hq, "All HQ Names");
+            const villageOptionsHtml = buildProgressNonPayeeOptionsHtml(getRevenueUniqueValues(villageScoped, "village"), f.village, "All Villages");
+            const categoryOptionsHtml = buildProgressNonPayeeOptionsHtml(getRevenueUniqueValues(allRows, "tariffCategory"), f.category, "All Categories");
+            const selectStyle = "width:100%; height:46px; margin:8px auto 0; display:block; border:1.5px solid #fb923c; border-radius:14px; padding:0 12px; font-size:0.8rem; font-weight:900; color:#0f172a; background:#ffffff;";
+            let html = `
+                <div style="font-size:0.75rem; font-weight:950; color:#9f1239; text-align:center;">${escapeHtml(bucketLabel)}</div>
+                <select onchange="setProgressNonPayeeFilter('hq', this.value)" style="${selectStyle}">${hqOptionsHtml}</select>
+                <select onchange="setProgressNonPayeeFilter('village', this.value)" style="${selectStyle}">${villageOptionsHtml}</select>
+                <select onchange="setProgressNonPayeeFilter('category', this.value)" style="${selectStyle}">${categoryOptionsHtml}</select>
+                <select onchange="setProgressNonPayeeFilter('slab', this.value)" style="${selectStyle}">
+                    <option value="">All Net Bill Slabs</option>
+                    <option value="0-500" ${f.slab === "0-500" ? "selected" : ""}>₹0 - ₹500</option>
+                    <option value="500-1000" ${f.slab === "500-1000" ? "selected" : ""}>₹500 - ₹1,000</option>
+                    <option value="1000-5000" ${f.slab === "1000-5000" ? "selected" : ""}>₹1,000 - ₹5,000</option>
+                    <option value="5000-10000" ${f.slab === "5000-10000" ? "selected" : ""}>₹5,000 - ₹10,000</option>
+                    <option value="10000-25000" ${f.slab === "10000-25000" ? "selected" : ""}>₹10,000 - ₹25,000</option>
+                    <option value="25000+" ${f.slab === "25000+" ? "selected" : ""}>₹25,000 Above</option>
+                </select>
+                <select onchange="setProgressNonPayeeFilter('govt', this.value)" style="${selectStyle}">
+                    <option value="">All (Govt + Non Govt)</option>
+                    <option value="GOVT" ${f.govt === "GOVT" ? "selected" : ""}>Govt</option>
+                    <option value="NONGOVT" ${f.govt === "NONGOVT" ? "selected" : ""}>Non Govt</option>
+                </select>
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; width:100%; margin:10px auto 0;">
+                    <div style="background:#fff1f2; border-radius:12px; padding:8px 4px; text-align:center;"><div style="font-size:0.54rem; font-weight:850; color:#9f1239; text-transform:uppercase;">Consumers</div><div style="font-size:0.95rem; font-weight:950; color:#9f1239; margin-top:2px;">${rows.length}</div></div>
+                    <div style="background:#fff1f2; border-radius:12px; padding:8px 4px; text-align:center;"><div style="font-size:0.54rem; font-weight:850; color:#9f1239; text-transform:uppercase;">Total Pending</div><div style="font-size:0.85rem; font-weight:950; color:#9f1239; margin-top:2px;">${formatProgressReportAmount(totalPending)}</div></div>
+                </div>
+                <div class="summary-wrapper" style="margin-top:10px;"><div class="summary-table-header" style="grid-template-columns: 1.3fr 0.7fr 1fr;"><div>CONSUMER</div><div>${bucket === "SINCE_CONNECTION" ? "TYPE" : "MONTHS"}</div><div>PENDING</div></div>
+            `;
+            if (!rows.length) {
+                html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div class="text-rose-600">Is filter me koi consumer nahi mila (ya master sheet me LAST PAYMENT DATE column abhi update nahi hui).</div></div>`;
+            } else {
+                rows.slice(0, 200).forEach((row) => {
+                    const middleCell = bucket === "SINCE_CONNECTION" ? "Never Paid" : `${row.monthsSincePayment} mo`;
+                    html += `<div class="summary-table-row" style="grid-template-columns: 1.3fr 0.7fr 1fr;"><div>${escapeHtml(row.consumerName || "-")}<br><span style="font-size:0.56rem; color:#64748b;">${escapeHtml(row.hqName)} / ${escapeHtml(row.village)}</span></div><div class="font-black">${escapeHtml(middleCell)}</div><div class="text-rose-700 font-black">${formatProgressReportAmount(row.pendingAmount)}</div></div>`;
+                });
+                if (rows.length > 200) {
+                    html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div style="text-align:center; color:#64748b; font-size:0.62rem; padding:6px;">... ${rows.length - 200} aur consumer, poori list Excel/PDF download me milegi</div></div>`;
+                }
+            }
+            html += `</div>`;
+            return html;
+        }
+
+        function downloadProgressRevenueNonPayeeSummary(fmt, bucket) {
+            if (!lastRevenueProgressBoxData) return showToast("Report ke liye data nahi hai", false);
+            const downloadTypeLabel = fmt === "PDF" ? "PDF" : "Excel";
+            setProgressCategoryDownloadState(true, `${downloadTypeLabel} downloading... kripya wait kijiye`);
+            try {
+                const { mode, filterValue } = lastRevenueProgressBoxData;
+                const { rows } = getProgressNonPayeeFilteredRows(mode || "DAILY", filterValue || "", bucket);
+                if (!rows.length) { setProgressCategoryDownloadState(false, "Download ke liye data nahi hai"); return; }
+                const headers = ["IVRS NO", "CONSUMER NAME", "HQ NAME", "VILLAGE", "TARRIF CATEGORY", "GOVT/NON GOVT", "MOBILE NO", bucket === "SINCE_CONNECTION" ? "STATUS" : "MONTHS SINCE PAYMENT", "LAST PAYMENT DATE", "PENDING AMOUNT"];
+                const bodyRows = rows.map((row) => [
+                    row.ivrsNo || "", row.consumerName || "", row.hqName || "", row.village || "", row.tariffCategory || "",
+                    row.govtFlag ? "GOVT" : "NON GOVT", row.mobileNo || "",
+                    bucket === "SINCE_CONNECTION" ? "Never Paid" : `${row.monthsSincePayment}`,
+                    row.lastPaymentDate || "Never Paid",
+                    formatProgressReportAmount(row.pendingAmount)
+                ]);
+                const scope = activeViewLevel === "DC" ? `DC - ${activeDC}` : (activeViewLevel === "DIVISION" ? activeDiv : "SEONI CIRCLE");
+                const f = progressNonPayeeFilterState;
+                const filterLine = `HQ: ${f.hq || "All"}  |  Village: ${f.village || "All"}  |  Category: ${f.category || "All"}  |  Net Bill Slab: ${f.slab || "All"}  |  Type: ${f.govt === "GOVT" ? "Govt" : (f.govt === "NONGOVT" ? "Non Govt" : "All")}`;
+                const reportTitle = `${getRevenueNonPayeeBucketLabel(bucket)} - ${scope}`;
+                const asOfLine = `As of: ${formatRevenueDateIndian(normalizeRevenueReportDate(getCurrentDateDDMMYYYY()))}`;
+                const fileName = `${reportTitle}-${getTodayIsoDate()}`.replace(/[\\/:*?"<>|]+/g, "_");
+                if (fmt === "PDF") {
+                    if (!window.jspdf?.jsPDF) { setProgressCategoryDownloadState(false, "PDF library load nahi hui"); return; }
+                    const { jsPDF } = window.jspdf;
+                    const doc = new jsPDF({ orientation: "landscape" });
+                    doc.setFontSize(13); doc.text(reportTitle, 148, 12, { align: "center" });
+                    doc.setFontSize(9); doc.text(`Scope: ${scope}`, 148, 19, { align: "center" });
+                    doc.text(filterLine, 148, 25, { align: "center" });
+                    doc.text(asOfLine, 148, 30, { align: "center" });
+                    doc.autoTable({ startY: 36, head: [headers], body: bodyRows, theme: "grid", styles: { fontSize: 6, cellPadding: 1, overflow: "linebreak" }, headStyles: { fillColor: [159, 18, 57] } });
+                    savePdfDocumentForDevice(doc, `${fileName}.pdf`);
+                } else {
+                    const csvSafe = (value) => { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
+                    const csv = [[reportTitle], [`Scope: ${scope}`], [filterLine], [asOfLine], [], headers, ...bodyRows].map((row) => row.map(csvSafe).join(",")).join("\n");
+                    const link = document.createElement("a");
+                    link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+                    link.download = `${fileName}.csv`;
+                    link.click();
+                }
+                setTimeout(() => setProgressCategoryDownloadState(false, `${downloadTypeLabel} download ho chuki hai`), 500);
+            } catch (error) {
+                setProgressCategoryDownloadState(false, "Download nahi ho paya");
+                showToast(error?.message || "Non Payee report download nahi ho payi", false);
+            }
+        }
+
         function setProgressRevenueReportType(value) {
-            progressRevenueReportType = ["STAFF", "CATEGORY", "TARGET", "DEFAULTERS"].includes(value) ? value : "STAFF";
+            const validValues = ["STAFF", "CATEGORY", "TARGET", "DEFAULTERS", "NONPAYEE_3M", "NONPAYEE_6M", "NONPAYEE_SINCE_CONNECTION"];
+            progressRevenueReportType = validValues.includes(value) ? value : "STAFF";
+            resetProgressNonPayeeFilterState();
+            progressDefaultersGovtFilter = "";
             const body = document.getElementById("progress-revenue-body");
             if (body) body.innerHTML = renderProgressRevenueBodyInner();
         }
@@ -2166,6 +2333,9 @@
             if (progressRevenueReportType === "TARGET") return "Target vs Achievement";
             if (progressRevenueReportType === "DEFAULTERS") return `Top ${progressRevenueDefaultersLimit} Defaulters`;
             if (progressRevenueReportType === "STAFF") return "Paid by Staff";
+            if (progressRevenueReportType === "NONPAYEE_3M") return "Non Payee From 3 Month";
+            if (progressRevenueReportType === "NONPAYEE_6M") return "Non Payee From 6 Month";
+            if (progressRevenueReportType === "NONPAYEE_SINCE_CONNECTION") return "Non Payee From Date of Connection";
             return "Category Wise";
         }
 
@@ -2241,6 +2411,12 @@
                 bodyHtml = data.hqVillageSummaryData ? renderRevenueProgressTargetSummaryHtml(data.hqVillageSummaryData) : `<div style="font-size:0.75rem; font-weight:950; color:#1d4ed8; text-align:center;">Data nahi mila.</div>`;
             } else if (progressRevenueReportType === "DEFAULTERS") {
                 bodyHtml = renderRevenueProgressDefaultersSummaryHtml(data.mode || "DAILY", data.filterValue || "");
+            } else if (progressRevenueReportType === "NONPAYEE_3M") {
+                bodyHtml = renderRevenueProgressNonPayeeSummaryHtml(data.mode || "DAILY", data.filterValue || "", "3M");
+            } else if (progressRevenueReportType === "NONPAYEE_6M") {
+                bodyHtml = renderRevenueProgressNonPayeeSummaryHtml(data.mode || "DAILY", data.filterValue || "", "6M");
+            } else if (progressRevenueReportType === "NONPAYEE_SINCE_CONNECTION") {
+                bodyHtml = renderRevenueProgressNonPayeeSummaryHtml(data.mode || "DAILY", data.filterValue || "", "SINCE_CONNECTION");
             } else {
                 bodyHtml = data.hqVillageSummaryData ? renderRevenueProgressHqVillageSummaryHtml(data.hqVillageSummaryData) : `<div style="font-size:0.75rem; font-weight:950; color:#1d4ed8; text-align:center;">Category Wise Paid/Unpaid Summary</div>`;
             }
@@ -2258,7 +2434,7 @@
         }
 
         function renderProgressRevenueBodyInner() {
-            if (progressRevenueReportType === "CATEGORY" || progressRevenueReportType === "TARGET" || progressRevenueReportType === "DEFAULTERS") {
+            if (["CATEGORY", "TARGET", "DEFAULTERS", "NONPAYEE_3M", "NONPAYEE_6M", "NONPAYEE_SINCE_CONNECTION"].includes(progressRevenueReportType)) {
                 return renderRevenueProgressNonStaffBoxHtml();
             }
             const staffData = lastRevenueProgressStaffData || { rows: [], label: "" };
@@ -2274,6 +2450,9 @@
                     <option value="CATEGORY" ${progressRevenueReportType === "CATEGORY" ? "selected" : ""}>Category Wise</option>
                     <option value="TARGET" ${progressRevenueReportType === "TARGET" ? "selected" : ""}>Target vs Achievement</option>
                     <option value="DEFAULTERS" ${progressRevenueReportType === "DEFAULTERS" ? "selected" : ""}>Top 20/50 Defaulters</option>
+                    <option value="NONPAYEE_3M" ${progressRevenueReportType === "NONPAYEE_3M" ? "selected" : ""}>Non Payee From 3 Month</option>
+                    <option value="NONPAYEE_6M" ${progressRevenueReportType === "NONPAYEE_6M" ? "selected" : ""}>Non Payee From 6 Month</option>
+                    <option value="NONPAYEE_SINCE_CONNECTION" ${progressRevenueReportType === "NONPAYEE_SINCE_CONNECTION" ? "selected" : ""}>Non Payee From Date of Connection</option>
                 </select>
             `;
             return `${selectHtml}<div id="progress-revenue-body">${renderProgressRevenueBodyInner()}</div>`;
@@ -8560,9 +8739,17 @@
             const mobileIndex = findIndex(["MOBILENO", "MOBILE"], 6);
             const arrearsIndex = findIndex(["ARREARS"], 7);
             const netBillIndex = findIndex(["NETBILL", "NET"], 8);
+            // Yeh 2 column optional hain (sirf jin DC ki sheet update ho chuki hai unme
+            // milenge) - isliye koi positional fallback nahi, sirf tabhi milenge jab header
+            // name se mile. Na milne par -1 rehta hai, aur neeche wahi "column missing" wala
+            // safe-default (govtFlag false, hasPaymentDateData false) apply hota hai jaisa
+            // mapRevenueConsumerRow() me hai.
+            const govtIndex = findIndex(["GOVTNONGOVT", "GOVT", "ISGOVERNMENT"], -1);
+            const lastPaymentIndex = findIndex(["LASTPAYMENTDATE", "LASTPAYMENT"], -1);
 
             return lines.slice(headerLineIndex + 1).map((line) => {
                 const cols = splitCsvLine(line);
+                const lastPaymentDate = lastPaymentIndex >= 0 ? parseConsumerLastPaymentDate(cols[lastPaymentIndex]) : "";
                 return {
                     ivrsNo: String(cols[ivrsIndex] || "").trim(),
                     consumerName: String(cols[nameIndex] || "").trim(),
@@ -8572,12 +8759,42 @@
                     tariffCategory: String(cols[categoryIndex] || "").trim(),
                     mobileNo: String(cols[mobileIndex] || "").trim(),
                     arrears: String(cols[arrearsIndex] || "").trim(),
-                    netBill: String(cols[netBillIndex] || "").trim()
+                    netBill: String(cols[netBillIndex] || "").trim(),
+                    govtFlag: govtIndex >= 0 ? parseConsumerGovtFlag(cols[govtIndex]) : false,
+                    lastPaymentDate: lastPaymentDate,
+                    hasPaymentDateData: lastPaymentIndex >= 0,
+                    neverPaid: lastPaymentIndex >= 0 ? !lastPaymentDate : false
                 };
             }).filter((row) => normalizeRevenueIvrs(row.ivrsNo));
         }
 
+        function parseConsumerGovtFlag(value) {
+            const raw = String(value == null ? "" : value).trim().toUpperCase();
+            if (!raw) return false;
+            return raw === "TRUE" || raw === "YES" || raw === "Y" || raw === "1" || raw === "GOVT" || raw === "GOVERNMENT";
+        }
+
+        function parseConsumerLastPaymentDate(value) {
+            const raw = String(value == null ? "" : value).trim();
+            if (!raw || raw === "0") return "";
+            return raw;
+        }
+
+        // Sheet me column hi maujood hai ya nahi (chahe value khaali ho) - yeh check karta
+        // hai. Zaroori hai kyoki "column missing" (jo DC ki sheet abhi update nahi hui) aur
+        // "column hai lekin khaali/0" (jo waqai never-paid consumer hai) do alag cheezein
+        // hain - inhe ek jaisa treat karna Non Payee reports ko galat bana dega un DC ke liye
+        // jinki sheet abhi update nahi hui.
+        function hasConsumerField(row, aliases) {
+            if (!row) return false;
+            return aliases.some((alias) => Object.prototype.hasOwnProperty.call(row, normalizeDcName(alias)));
+        }
+
         function mapRevenueConsumerRow(row) {
+            const lastPaymentAliases = ["LAST PAYMENT DATE", "LAST PAYMENT"];
+            const hasPaymentDateData = hasConsumerField(row, lastPaymentAliases);
+            const lastPaymentRaw = getConsumerField(row, lastPaymentAliases);
+            const lastPaymentDate = parseConsumerLastPaymentDate(lastPaymentRaw);
             return {
                 ivrsNo: getConsumerField(row, ["IVRS", "IVRS NO", "IVRS NUMBER"]),
                 consumerName: getConsumerField(row, ["CONSUMER NAME", "NAME"]),
@@ -8587,7 +8804,11 @@
                 tariffCategory: getConsumerField(row, ["TARRIF CATEGORY", "TARIFF CATEGORY", "CATEGORY"]),
                 mobileNo: getConsumerField(row, ["MOBILE NO", "MOBILE NUMBER", "MOBILE"]),
                 arrears: getConsumerField(row, ["ARREARS", "ARREAR"]),
-                netBill: getConsumerField(row, ["NET BILL", "NETBILL", "NET AMOUNT", "BILL AMOUNT"])
+                netBill: getConsumerField(row, ["NET BILL", "NETBILL", "NET AMOUNT", "BILL AMOUNT"]),
+                govtFlag: parseConsumerGovtFlag(getConsumerField(row, ["GOVT/NON GOVT", "GOVT NON GOVT", "GOVT", "IS GOVERNMENT"])),
+                lastPaymentDate: lastPaymentDate,
+                hasPaymentDateData: hasPaymentDateData,
+                neverPaid: hasPaymentDateData ? !lastPaymentDate : false
             };
         }
 
@@ -8762,6 +8983,8 @@
             const mobileIndex = findIndex(["MOBILENO", "MOBILE"], 6);
             const arrearsIndex = findIndex(["ARREARS"], 7);
             const netBillIndex = findIndex(["NETBILL", "NET"], 8);
+            const govtIndex = findIndex(["GOVTNONGOVT", "GOVT", "ISGOVERNMENT"], -1);
+            const lastPaymentIndex = findIndex(["LASTPAYMENTDATE", "LASTPAYMENT"], -1);
             const cellValue = (cells, index) => {
                 const cell = cells[index] || {};
                 return String(cell.f || cell.v || "").trim();
@@ -8769,6 +8992,7 @@
 
             return (response.table.rows || []).map((row) => {
                 const cells = row.c || [];
+                const lastPaymentDate = lastPaymentIndex >= 0 ? parseConsumerLastPaymentDate(cellValue(cells, lastPaymentIndex)) : "";
                 return {
                     ivrsNo: cellValue(cells, ivrsIndex),
                     consumerName: cellValue(cells, nameIndex),
@@ -8778,7 +9002,11 @@
                     tariffCategory: cellValue(cells, categoryIndex),
                     mobileNo: cellValue(cells, mobileIndex),
                     arrears: cellValue(cells, arrearsIndex),
-                    netBill: cellValue(cells, netBillIndex)
+                    netBill: cellValue(cells, netBillIndex),
+                    govtFlag: govtIndex >= 0 ? parseConsumerGovtFlag(cellValue(cells, govtIndex)) : false,
+                    lastPaymentDate: lastPaymentDate,
+                    hasPaymentDateData: lastPaymentIndex >= 0,
+                    neverPaid: lastPaymentIndex >= 0 ? !lastPaymentDate : false
                 };
             }).filter((row) => normalizeRevenueIvrs(row.ivrsNo));
         }
@@ -10524,6 +10752,7 @@
             const villageValue = document.getElementById("revenue-pending-village")?.value || "";
             const categoryValue = document.getElementById("revenue-pending-category")?.value || "";
             const slabValue = document.getElementById("revenue-pending-arrears-slab")?.value || "";
+            const govtValue = document.getElementById("revenue-pending-govt")?.value || "";
             const ivrsSearch = normalizeRevenueIvrs(document.getElementById("revenue-pending-ivrs-search")?.value || "");
             return revenuePendingBaseRows.filter((row) => {
                 const ivrsNo = normalizeRevenueIvrs(row.ivrsNo);
@@ -10534,6 +10763,7 @@
                     && (!villageValue || normalizeLookupValue(row.village) === normalizeLookupValue(villageValue))
                     && (!categoryValue || normalizeLookupValue(row.tariffCategory) === normalizeLookupValue(categoryValue))
                     && isRevenuePendingNetBillInSlab(row, slabValue)
+                    && (!govtValue || (govtValue === "GOVT" ? !!row.govtFlag : !row.govtFlag))
                     && !isRevenuePendingIvrsPaid(ivrsNo);
             }).sort((a, b) => {
                 const nameCompare = String(a.consumerName || "").trim().localeCompare(
@@ -10560,6 +10790,8 @@
             const villageValue = document.getElementById("revenue-pending-village")?.value || "";
             const categoryValue = document.getElementById("revenue-pending-category")?.value || "";
             const slabValue = document.getElementById("revenue-pending-arrears-slab")?.value || "";
+            const govtValue = document.getElementById("revenue-pending-govt")?.value || "";
+            const govtLabel = govtValue === "GOVT" ? "Govt" : (govtValue === "NONGOVT" ? "Non Govt" : "ALL");
             const ivrsSearch = normalizeRevenueIvrs(document.getElementById("revenue-pending-ivrs-search")?.value || "");
             if (!statusBox || !listBox) return;
 
@@ -10568,7 +10800,7 @@
                 renderRevenueMessagePendingSelection(rows, statusBox, listBox);
                 return;
             }
-            statusBox.innerHTML = `Pending Consumer: <strong>${rows.length}</strong> | HQ: ${escapeHtml(hqValue || "ALL")} | Village: ${escapeHtml(villageValue || "ALL")} | Category: ${escapeHtml(categoryValue || "ALL")} | Net Bill Slab: ${escapeHtml(slabValue || "ALL")} | IVRS: ${escapeHtml(ivrsSearch || "ALL")}`;
+            statusBox.innerHTML = `Pending Consumer: <strong>${rows.length}</strong> | HQ: ${escapeHtml(hqValue || "ALL")} | Village: ${escapeHtml(villageValue || "ALL")} | Category: ${escapeHtml(categoryValue || "ALL")} | Net Bill Slab: ${escapeHtml(slabValue || "ALL")} | Type: ${escapeHtml(govtLabel)} | IVRS: ${escapeHtml(ivrsSearch || "ALL")}`;
             listBox.innerHTML = rows.length ? `
                 <div style="display:flex; gap:10px; width:100%; margin:0 auto;">
                     <button id="revenue-pending-pdf-btn" onclick="downloadRevenuePendingList('PDF')" style="flex:1; height:44px; border:none; border-radius:14px; background:#ef4444; color:#ffffff; font-size:0.78rem; font-weight:950;">PDF</button>
@@ -10582,7 +10814,7 @@
         }
 
         function getRevenuePendingExportHeaders() {
-            return ["IVRS NO", "CONSUMER NAME", "FATHER NAME", "VILLAGE", "HQ NAME", "TARRIF CATEGORY", "MOBILE NO", "ARREARS", "NET BILL"];
+            return ["IVRS NO", "CONSUMER NAME", "FATHER NAME", "VILLAGE", "HQ NAME", "TARRIF CATEGORY", "GOVT/NON GOVT", "MOBILE NO", "ARREARS", "NET BILL"];
         }
 
         function getRevenuePendingExportRows(rows) {
@@ -10593,6 +10825,7 @@
                 row.village || "",
                 row.hqName || "",
                 row.tariffCategory || "",
+                row.govtFlag ? "GOVT" : "NON GOVT",
                 row.mobileNo || "",
                 row.arrears || "",
                 row.netBill || ""
@@ -10604,7 +10837,8 @@
             const villageValue = document.getElementById("revenue-pending-village")?.value || "ALL-VILLAGES";
             const categoryValue = document.getElementById("revenue-pending-category")?.value || "ALL-CATEGORIES";
             const slabValue = document.getElementById("revenue-pending-arrears-slab")?.value || "ALL-NET-BILL";
-            return `pending-list-${activeDC || "DC"}-${hqValue}-${villageValue}-${categoryValue}-${slabValue}`.replace(/[\\/:*?"<>|]+/g, "_");
+            const govtValue = document.getElementById("revenue-pending-govt")?.value || "ALL-TYPE";
+            return `pending-list-${activeDC || "DC"}-${hqValue}-${villageValue}-${categoryValue}-${slabValue}-${govtValue}`.replace(/[\\/:*?"<>|]+/g, "_");
         }
 
         function setRevenuePendingDownloadState(isLoading, message = "", ok = true) {
@@ -12603,7 +12837,7 @@
             renderRevenueHqVillageReport();
         }
 
-        function buildRevenueHqVillagePaidUnpaidTree(mode, filterValue) {
+        function buildRevenueHqVillagePaidUnpaidTree(mode, filterValue, govtFilter) {
             const paidInfoByDc = buildRevenueCategoryUploadedPaidInfo(mode, filterValue);
 
             const leafTotals = (name) => ({ name, paidTotal: 0, unpaidTotal: 0, paidAmountTotal: 0, unpaidAmountTotal: 0, children: null });
@@ -12620,6 +12854,8 @@
                 const paidCountedIvrsSet = new Set();
                 const hqMap = {};
                 getRevenueMasterRowsForDc(dcName).forEach((row) => {
+                    if (govtFilter === "GOVT" && !row.govtFlag) return;
+                    if (govtFilter === "NONGOVT" && row.govtFlag) return;
                     const hqName = String(row.hqName || "GENERAL").trim().toUpperCase() || "GENERAL";
                     const village = String(row.village || "UNKNOWN").trim().toUpperCase() || "UNKNOWN";
                     if (!hqMap[hqName]) hqMap[hqName] = {};
@@ -13216,7 +13452,8 @@
                 const filterValue = mode === "MONTHLY"
                     ? (document.getElementById("revenue-target-month")?.value || getTodayIsoDate().slice(0, 7))
                     : (document.getElementById("revenue-target-date")?.value || getTodayIsoDate());
-                const tree = buildRevenueHqVillagePaidUnpaidTree(mode, filterValue);
+                const govtFilter = document.getElementById("revenue-target-govt")?.value || "";
+                const tree = buildRevenueHqVillagePaidUnpaidTree(mode, filterValue, govtFilter);
                 revenueTargetTree = tree;
                 revenueTargetDrillPath = [];
                 const totals = (tree || []).filter((row) => row.type !== "SUB_TOTAL" && row.type !== "SUBDN_TOTAL").reduce((acc, row) => {
@@ -13289,7 +13526,9 @@
                 const headers = [colLabel, "TARGET", "ACHIEVED", "%"];
                 const rows = flatRows.map((r) => [r.name, formatProgressReportAmount(r.target), formatProgressReportAmount(r.paidAmountTotal), `${r.pct}%`]);
                 const reportTitle = getRevenueTargetReportTitle();
-                const scopeLine = `Scope: ${activeViewLevel === "DC" ? `DC - ${activeDC}` : (activeViewLevel === "DIVISION" ? `Division - ${activeDiv}` : "Circle - SEONI CIRCLE")}`;
+                const govtFilterValue = document.getElementById("revenue-target-govt")?.value || "";
+                const govtFilterLabel = govtFilterValue === "GOVT" ? "Govt Only" : (govtFilterValue === "NONGOVT" ? "Non Govt Only" : "All (Govt + Non Govt)");
+                const scopeLine = `Scope: ${activeViewLevel === "DC" ? `DC - ${activeDC}` : (activeViewLevel === "DIVISION" ? `Division - ${activeDiv}` : "Circle - SEONI CIRCLE")}  |  Type: ${govtFilterLabel}`;
                 const periodLine = `Period: ${getRevenueTargetPeriodDisplay()}`;
                 const suffix = revenueTargetMode === "MONTHLY"
                     ? (document.getElementById("revenue-target-month")?.value || getTodayIsoDate().slice(0, 7))
@@ -13367,10 +13606,12 @@
         function getRevenueDefaultersFilteredRows() {
             const hqValue = document.getElementById("revenue-defaulters-hq")?.value || "";
             const villageValue = document.getElementById("revenue-defaulters-village")?.value || "";
+            const govtValue = document.getElementById("revenue-defaulters-govt")?.value || "";
             return revenueDefaultersRows
                 .filter((row) => (
                     (!hqValue || normalizeLookupValue(row.hqName) === normalizeLookupValue(hqValue))
                     && (!villageValue || normalizeLookupValue(row.village) === normalizeLookupValue(villageValue))
+                    && (!govtValue || (govtValue === "GOVT" ? !!row.govtFlag : !row.govtFlag))
                 ))
                 .sort((a, b) => b.pendingAmount - a.pendingAmount)
                 .slice(0, revenueDefaultersLimit);
@@ -13383,7 +13624,9 @@
             const rows = getRevenueDefaultersFilteredRows();
             const hqValue = document.getElementById("revenue-defaulters-hq")?.value || "";
             const villageValue = document.getElementById("revenue-defaulters-village")?.value || "";
-            statusBox.innerHTML = `Showing: <strong>Top ${revenueDefaultersLimit}</strong> | HQ: ${escapeHtml(hqValue || "All HQ")} | Village: ${escapeHtml(villageValue || "All Villages")} | Found: ${rows.length}`;
+            const govtValue = document.getElementById("revenue-defaulters-govt")?.value || "";
+            const govtLabel = govtValue === "GOVT" ? "Govt Only" : (govtValue === "NONGOVT" ? "Non Govt Only" : "All");
+            statusBox.innerHTML = `Showing: <strong>Top ${revenueDefaultersLimit}</strong> | HQ: ${escapeHtml(hqValue || "All HQ")} | Village: ${escapeHtml(villageValue || "All Villages")} | Type: ${escapeHtml(govtLabel)} | Found: ${rows.length}`;
             if (!rows.length) {
                 tableBox.innerHTML = `<div style="background:#ecfdf5; border:1.5px solid #86efac; border-radius:14px; padding:14px; color:#047857; font-size:0.8rem; font-weight:900; text-align:center; margin-top:10px;">Is filter me koi bakaya consumer nahi mila.</div>`;
                 return;
@@ -13431,6 +13674,8 @@
                 populateRevenueSelect(villageSelect, getRevenueUniqueValues(revenueDefaultersRows, "village"), "All Villages");
                 if (hqSelect) hqSelect.value = "";
                 if (villageSelect) villageSelect.value = "";
+                const govtSelect = document.getElementById("revenue-defaulters-govt");
+                if (govtSelect) govtSelect.value = "";
                 renderRevenueDefaultersTable();
             } catch (error) {
                 progress.stop();
@@ -13467,8 +13712,8 @@
             if (!rows.length) return showToast("Download ke liye data nahi hai", false);
             setRevenueDefaultersDownloadState(true, `${type === "PDF" ? "PDF" : "Excel"} download ho raha hai... kripya wait kijiye`, true);
             try {
-                const headers = ["RANK", "IVRS NO", "CONSUMER NAME", "HQ NAME", "VILLAGE", "MOBILE NO", "PENDING AMOUNT"];
-                const bodyRows = rows.map((row, index) => [index + 1, row.ivrsNo || "", row.consumerName || "", row.hqName || "", row.village || "", row.mobileNo || "", formatProgressReportAmount(row.pendingAmount)]);
+                const headers = ["RANK", "IVRS NO", "CONSUMER NAME", "HQ NAME", "VILLAGE", "GOVT/NON GOVT", "MOBILE NO", "PENDING AMOUNT"];
+                const bodyRows = rows.map((row, index) => [index + 1, row.ivrsNo || "", row.consumerName || "", row.hqName || "", row.village || "", row.govtFlag ? "GOVT" : "NON GOVT", row.mobileNo || "", formatProgressReportAmount(row.pendingAmount)]);
                 const reportTitle = getRevenueDefaultersReportTitle();
                 const scopeLine = `Scope: ${activeViewLevel === "DC" ? `DC - ${activeDC}` : (activeViewLevel === "DIVISION" ? `Division - ${activeDiv}` : "Circle - SEONI CIRCLE")}`;
                 const periodLine = `Date: ${formatRevenueDateIndian(normalizeRevenueReportDate(document.getElementById("revenue-defaulters-date")?.value || getCurrentDateDDMMYYYY()))}`;
@@ -13541,11 +13786,61 @@
                         netBill: row.netBill || "",
                         dcName: normalizedDc,
                         paid,
-                        paidAmount: paid ? getRevenueMasterConsumerPaidAmount(info) : 0
+                        paidAmount: paid ? getRevenueMasterConsumerPaidAmount(info) : 0,
+                        govtFlag: !!row.govtFlag,
+                        lastPaymentDate: row.lastPaymentDate || "",
+                        neverPaid: !!row.neverPaid,
+                        hasPaymentDateData: !!row.hasPaymentDateData
                     });
                 });
             });
             return rows;
+        }
+
+        // =====================================================================
+        // NON PAYEE (aging) reports - "LAST PAYMENT DATE" master-data column ke
+        // aadhar par. Sirf un DC ke consumers is report me aate hain jinki sheet me
+        // yeh column maujood hai (hasPaymentDateData true) - baaki DC (jinki sheet
+        // abhi update nahi hui) automatically is report se bahar rehte hain, taaki
+        // galat "sabhi never-paid" jaisa data kabhi na dikhe.
+        // Net Bill zero ya negative wale consumers hamesha ignore honge (koi bhi
+        // bucket ho) - unke paas asal me koi bakaya hi nahi hai.
+        // =====================================================================
+        function getRevenueMonthsSincePaymentDate(dateStr) {
+            const raw = String(dateStr || "").trim();
+            const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+            if (!match) return null;
+            const paymentDate = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+            if (isNaN(paymentDate.getTime())) return null;
+            const today = new Date();
+            let months = (today.getFullYear() - paymentDate.getFullYear()) * 12 + (today.getMonth() - paymentDate.getMonth());
+            if (today.getDate() < paymentDate.getDate()) months -= 1;
+            return Math.max(0, months);
+        }
+
+        function buildRevenueNonPayeeRows(mode, filterValue, bucket) {
+            const consumerRows = buildRevenueHqVillageConsumerRows(mode, filterValue);
+            const withPendingAmount = (row) => ({ ...row, pendingAmount: parseRevenuePaidAmount(row.netBill || 0) });
+            if (bucket === "SINCE_CONNECTION") {
+                return consumerRows
+                    .filter((row) => row.hasPaymentDateData && row.neverPaid)
+                    .map(withPendingAmount)
+                    .filter((row) => row.pendingAmount > 0)
+                    .sort((a, b) => b.pendingAmount - a.pendingAmount);
+            }
+            const monthThreshold = bucket === "6M" ? 6 : 3;
+            return consumerRows
+                .filter((row) => row.hasPaymentDateData && !row.neverPaid && row.lastPaymentDate)
+                .map((row) => ({ ...withPendingAmount(row), monthsSincePayment: getRevenueMonthsSincePaymentDate(row.lastPaymentDate) }))
+                .filter((row) => row.monthsSincePayment !== null && row.monthsSincePayment >= monthThreshold)
+                .filter((row) => row.pendingAmount > 0)
+                .sort((a, b) => (b.monthsSincePayment - a.monthsSincePayment) || (b.pendingAmount - a.pendingAmount));
+        }
+
+        function getRevenueNonPayeeBucketLabel(bucket) {
+            if (bucket === "6M") return "Non Payee From 6 Month";
+            if (bucket === "SINCE_CONNECTION") return "Non Payee From Date of Connection";
+            return "Non Payee From 3 Month";
         }
 
         function initRevenueHqVillageListDropdowns() {
@@ -13553,6 +13848,7 @@
             const villageSelect = document.getElementById("revenue-hq-village-list-village");
             const categorySelect = document.getElementById("revenue-hq-village-list-category");
             const statusSelect = document.getElementById("revenue-hq-village-list-status");
+            const govtSelect = document.getElementById("revenue-hq-village-list-govt");
             populateRevenueSelect(hqSelect, getRevenueUniqueValues(revenueHqVillageConsumerRows, "hqName"), "All HQ");
             populateRevenueSelect(villageSelect, getRevenueUniqueValues(revenueHqVillageConsumerRows, "village"), "All Villages");
             populateRevenueSelect(categorySelect, getRevenueUniqueValues(revenueHqVillageConsumerRows, "tariffCategory"), "All Categories");
@@ -13560,6 +13856,7 @@
             if (villageSelect) villageSelect.value = "";
             if (categorySelect) categorySelect.value = "";
             if (statusSelect) statusSelect.value = "ALL";
+            if (govtSelect) govtSelect.value = "";
             renderRevenueHqVillageList();
         }
 
@@ -13587,11 +13884,13 @@
             const villageValue = document.getElementById("revenue-hq-village-list-village")?.value || "";
             const categoryValue = document.getElementById("revenue-hq-village-list-category")?.value || "";
             const statusValue = document.getElementById("revenue-hq-village-list-status")?.value || "ALL";
+            const govtValue = document.getElementById("revenue-hq-village-list-govt")?.value || "";
             return revenueHqVillageConsumerRows.filter((row) => (
                 (!hqValue || normalizeLookupValue(row.hqName) === normalizeLookupValue(hqValue))
                 && (!villageValue || normalizeLookupValue(row.village) === normalizeLookupValue(villageValue))
                 && (!categoryValue || normalizeLookupValue(row.tariffCategory) === normalizeLookupValue(categoryValue))
                 && (statusValue === "ALL" || (statusValue === "PAID" ? row.paid : !row.paid))
+                && (!govtValue || (govtValue === "GOVT" ? !!row.govtFlag : !row.govtFlag))
             ));
         }
 
@@ -13604,9 +13903,11 @@
             const villageValue = document.getElementById("revenue-hq-village-list-village")?.value || "";
             const categoryValue = document.getElementById("revenue-hq-village-list-category")?.value || "";
             const statusValue = document.getElementById("revenue-hq-village-list-status")?.value || "ALL";
+            const govtValue = document.getElementById("revenue-hq-village-list-govt")?.value || "";
             const categoryLabel = categoryValue ? getRevenueCategoryDisplayLabel(categoryValue) : "All Categories";
             const statusLabel = statusValue === "PAID" ? "Paid Only" : (statusValue === "UNPAID" ? "Unpaid Only" : "All (Paid + Unpaid)");
-            statusBox.innerHTML = `Consumer: <strong>${rows.length}</strong> | HQ: ${escapeHtml(hqValue || "All HQ")} | Village: ${escapeHtml(villageValue || "All Villages")} | Category: ${escapeHtml(categoryLabel)} | Status: ${escapeHtml(statusLabel)}`;
+            const govtLabel = govtValue === "GOVT" ? "Govt Only" : (govtValue === "NONGOVT" ? "Non Govt Only" : "All");
+            statusBox.innerHTML = `Consumer: <strong>${rows.length}</strong> | HQ: ${escapeHtml(hqValue || "All HQ")} | Village: ${escapeHtml(villageValue || "All Villages")} | Category: ${escapeHtml(categoryLabel)} | Status: ${escapeHtml(statusLabel)} | Type: ${escapeHtml(govtLabel)}`;
             listBox.innerHTML = rows.length ? `
                 <div style="display:flex; gap:10px; width:100%; margin:10px auto 0;">
                     <button id="revenue-hq-village-list-pdf-btn" onclick="downloadRevenueHqVillageList('PDF')" style="flex:1; height:44px; border:none; border-radius:14px; background:#ef4444; color:#ffffff; font-size:0.78rem; font-weight:950;">PDF</button>
@@ -13617,7 +13918,7 @@
         }
 
         function getRevenueHqVillageListExportHeaders() {
-            return ["STATUS", "IVRS NO", "CONSUMER NAME", "FATHER NAME", "VILLAGE", "HQ NAME", "CATEGORY", "MOBILE NO", "NET BILL", "PAID AMOUNT", "DC NAME"];
+            return ["STATUS", "IVRS NO", "CONSUMER NAME", "FATHER NAME", "VILLAGE", "HQ NAME", "CATEGORY", "GOVT/NON GOVT", "MOBILE NO", "NET BILL", "PAID AMOUNT", "DC NAME"];
         }
 
         function getRevenueHqVillageListExportRows(rows) {
@@ -13629,6 +13930,7 @@
                 row.village || "",
                 row.hqName || "",
                 row.tariffCategory || "",
+                row.govtFlag ? "GOVT" : "NON GOVT",
                 row.mobileNo || "",
                 row.netBill || "",
                 row.paid ? formatProgressReportAmount(row.paidAmount) : "",
@@ -13666,16 +13968,18 @@
                 const villageValue = document.getElementById("revenue-hq-village-list-village")?.value || "";
                 const categoryValue = document.getElementById("revenue-hq-village-list-category")?.value || "";
                 const statusValue = document.getElementById("revenue-hq-village-list-status")?.value || "ALL";
+                const govtValue = document.getElementById("revenue-hq-village-list-govt")?.value || "";
                 const categoryLabel = categoryValue ? getRevenueCategoryDisplayLabel(categoryValue) : "All Categories";
                 const statusLabel = statusValue === "PAID" ? "Paid Only" : (statusValue === "UNPAID" ? "Unpaid Only" : "All (Paid + Unpaid)");
+                const govtLabel = govtValue === "GOVT" ? "Govt Only" : (govtValue === "NONGOVT" ? "Non Govt Only" : "All");
                 const reportTitle = "Consumer List - HQ/Village/Category Wise";
                 const filterLine1 = `HQ: ${hqValue || "All HQ"}  |  Village: ${villageValue || "All Villages"}`;
-                const filterLine2 = `Category: ${categoryLabel}  |  Status: ${statusLabel}`;
+                const filterLine2 = `Category: ${categoryLabel}  |  Status: ${statusLabel}  |  Type: ${govtLabel}`;
                 const periodLine = `Period: ${getRevenueHqVillagePeriodDisplay()}`;
                 const suffix = revenueHqVillageMode === "MONTHLY"
                     ? (document.getElementById("revenue-hq-village-month")?.value || getTodayIsoDate().slice(0, 7))
                     : normalizeRevenueReportDate(document.getElementById("revenue-hq-village-date")?.value || getCurrentDateDDMMYYYY());
-                const fileNameParts = [hqValue || "ALL-HQ", villageValue || "ALL-VILLAGE", categoryValue || "ALL-CATEGORY", statusValue];
+                const fileNameParts = [hqValue || "ALL-HQ", villageValue || "ALL-VILLAGE", categoryValue || "ALL-CATEGORY", statusValue, govtValue || "ALL-TYPE"];
                 const fileName = `Consumer-List-${fileNameParts.join("-")}-${suffix}`.replace(/[\\/:*?"<>|]+/g, "_");
                 if (type === "PDF") {
                     if (!window.jspdf?.jsPDF) { setRevenueHqVillageListDownloadState(false, "PDF library load nahi hui", false); return; }
