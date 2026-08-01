@@ -117,6 +117,14 @@
         ];
 
         let activeDiv = "", activeDC = "", activeGrad = "bg-teal-grad", summaryMode = "DAILY", summaryModule = "MOBILE", activeViewLevel = "", currentData = null, pendingLevel = "", dcCacheRaw = {}, dcCacheRows = {}, uiListSummary = [], grandTC = 0, grandTU = 0, courtCaseRaw = "", courtCaseCacheByDc = {}, courtCaseLines = [], courtCaseRecords = [], lokDistributedRows = [], lokDistributedLoaded = false, currentCourtRecord = null, receiverGeoData = null;
+        // Progress Report (Daily Progress) ke Revenue tab me Category Wise ke saath-saath
+        // Target vs Achievement aur Top 20/50 Defaulters bhi dropdown se select ho sakein -
+        // teeno DC/Division/Circle scope automatically activeViewLevel se hi follow karte
+        // hain (jaisa is view ka baaki sab data already karta hai), koi alag scoping nahi.
+        let progressRevenueReportType = "STAFF";
+        let progressRevenueDefaultersLimit = 20;
+        let lastRevenueProgressBoxData = null;
+        let lastRevenueProgressStaffData = null;
         let suppressHistoryPush = false;
         let progressSummaryDownloadInProgress = false;
         let selectedStockReceiveItem = null, selectedStockIssueItem = null, pendingReceiveItems = [], pendingIssueItems = [];
@@ -458,6 +466,257 @@
                 if (alreadyBox) alreadyBox.style.display = "none";
                 if (entryBox) entryBox.style.display = "block";
                 if (submitBtn) submitBtn.style.display = "block";
+            }
+        }
+
+        // =====================================================================
+        // MOBILE NO UPDATE - DOWNLOAD REPORT (HQ Wise / Village Wise)
+        // "Mobile No Update" screen hamesha ek specific DC ke andar hi khulti hai
+        // (Division/Circle scope yahan lagta hi nahi) - isliye yeh report bhi sirf
+        // activeDC ke consumer master (getConsumerRows) aur mobileAlreadySubmittedMap
+        // (jo already is DC ke "already submitted" check ke liye load hota hai) se
+        // Total/Updated/Pending consumer count nikalti hai, HQ ya Village level par.
+        // Staff-wise breakdown abhi possible nahi hai kyonki submitToSheet() koi staff
+        // identity record hi nahi karta - user se confirm karke abhi sirf yeh rakha hai.
+        // =====================================================================
+        let mobileUpdateReportViewBy = "HQ";
+        let mobileUpdateReportMode = "ALL";
+        let mobileUpdateReportTree = null;
+        let mobileUpdateReportRenderToken = 0;
+
+        function openMobileUpdateReport() {
+            closeHeaderMenu();
+            switchView("mobile-update-report");
+        }
+
+        function initMobileUpdateReport() {
+            const select = document.getElementById("mobile-update-report-viewby");
+            if (select) select.value = mobileUpdateReportViewBy;
+            const dateInput = document.getElementById("mobile-update-report-date");
+            const monthInput = document.getElementById("mobile-update-report-month");
+            if (dateInput && !dateInput.value) dateInput.value = getTodayIsoDate();
+            if (monthInput && !monthInput.value) monthInput.value = getTodayIsoDate().slice(0, 7);
+            const scopeLabel = document.getElementById("mobile-update-report-scope-label");
+            if (scopeLabel) scopeLabel.innerText = activeDC ? `DC: ${activeDC} - Total / Updated / Pending consumer` : "Total / Updated / Pending consumer";
+            setMobileUpdateReportMode(mobileUpdateReportMode || "ALL");
+        }
+
+        function setMobileUpdateReportMode(mode) {
+            mobileUpdateReportMode = ["DAILY", "MONTHLY"].includes(mode) ? mode : "ALL";
+            const dateInput = document.getElementById("mobile-update-report-date");
+            const monthInput = document.getElementById("mobile-update-report-month");
+            const allBtn = document.getElementById("mobile-update-report-all-mode-btn");
+            const dateBtn = document.getElementById("mobile-update-report-date-mode-btn");
+            const monthBtn = document.getElementById("mobile-update-report-month-mode-btn");
+            if (dateInput) dateInput.style.display = mobileUpdateReportMode === "DAILY" ? "block" : "none";
+            if (monthInput) monthInput.style.display = mobileUpdateReportMode === "MONTHLY" ? "block" : "none";
+            if (allBtn) { allBtn.style.background = mobileUpdateReportMode === "ALL" ? "#991b1b" : "#ffe4e6"; allBtn.style.color = mobileUpdateReportMode === "ALL" ? "#ffffff" : "#991b1b"; }
+            if (dateBtn) { dateBtn.style.background = mobileUpdateReportMode === "DAILY" ? "#991b1b" : "#ffe4e6"; dateBtn.style.color = mobileUpdateReportMode === "DAILY" ? "#ffffff" : "#991b1b"; }
+            if (monthBtn) { monthBtn.style.background = mobileUpdateReportMode === "MONTHLY" ? "#991b1b" : "#ffe4e6"; monthBtn.style.color = mobileUpdateReportMode === "MONTHLY" ? "#ffffff" : "#991b1b"; }
+            renderMobileUpdateReport();
+        }
+
+        function setMobileUpdateReportViewBy(value) {
+            mobileUpdateReportViewBy = value === "VILLAGE" ? "VILLAGE" : "HQ";
+            if (!mobileUpdateReportTree) return;
+            const tableBox = document.getElementById("mobile-update-report-table");
+            if (tableBox) tableBox.innerHTML = renderMobileUpdateReportTableHtml();
+        }
+
+        // mobileAlreadySubmittedMap ka "date" field backend se DD/MM/YYYY, DD-MM-YYYY, ya
+        // YYYY-MM-DD kisi bhi format me aa sakta hai (submitToSheet() khud toLocaleDateString
+        // "en-GB" se DD/MM/YYYY bhejta hai) - isliye yahan sabhi common format handle kiye hain.
+        function parseMobileUpdateDateParts(raw) {
+            const s = String(raw || "").trim();
+            let m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+            if (m) return { day: m[1].padStart(2, "0"), month: m[2].padStart(2, "0"), year: m[3] };
+            m = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+            if (m) return { day: m[3].padStart(2, "0"), month: m[2].padStart(2, "0"), year: m[1] };
+            return null;
+        }
+
+        function isMobileUpdateEntryInPeriod(entry, period) {
+            if (!entry) return false;
+            if (!period || period.mode === "ALL") return true;
+            const parts = parseMobileUpdateDateParts(entry.date);
+            if (!parts) return false;
+            if (period.mode === "MONTHLY") return parts.month === period.month && parts.year === period.year;
+            return parts.day === period.day && parts.month === period.month && parts.year === period.year;
+        }
+
+        function getMobileUpdateReportPeriod() {
+            if (mobileUpdateReportMode === "DAILY") {
+                const raw = document.getElementById("mobile-update-report-date")?.value || getTodayIsoDate();
+                const [day, month, year] = normalizeRevenueReportDate(raw).split("-");
+                return { mode: "DAILY", day, month, year };
+            }
+            if (mobileUpdateReportMode === "MONTHLY") {
+                const raw = document.getElementById("mobile-update-report-month")?.value || getTodayIsoDate().slice(0, 7);
+                const [year, month] = raw.split("-");
+                return { mode: "MONTHLY", month, year };
+            }
+            return { mode: "ALL" };
+        }
+
+        function buildMobileUpdateReportData(rows, dcName, period) {
+            const hqMap = {};
+            let totalConsumer = 0, totalUpdated = 0;
+            rows.forEach((row) => {
+                const ivrs = normalizeLookupDigits(row.ivrsNo);
+                if (!ivrs) return;
+                const hqName = String(row.hqName || "GENERAL").trim().toUpperCase() || "GENERAL";
+                const village = String(row.village || "UNKNOWN").trim().toUpperCase() || "UNKNOWN";
+                if (!hqMap[hqName]) hqMap[hqName] = { total: 0, updated: 0, villages: {} };
+                if (!hqMap[hqName].villages[village]) hqMap[hqName].villages[village] = { total: 0, updated: 0 };
+                const isUpdated = isMobileUpdateEntryInPeriod(getMobileAlreadySubmittedEntry(dcName, ivrs), period);
+                hqMap[hqName].total++;
+                hqMap[hqName].villages[village].total++;
+                totalConsumer++;
+                if (isUpdated) {
+                    hqMap[hqName].updated++;
+                    hqMap[hqName].villages[village].updated++;
+                    totalUpdated++;
+                }
+            });
+            return { hqMap, totalConsumer, totalUpdated };
+        }
+
+        function renderMobileUpdateReportSummaryHtml(data) {
+            const pct = data.totalConsumer ? Math.round((data.totalUpdated / data.totalConsumer) * 1000) / 10 : 0;
+            return `
+                <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:8px; width:100%; margin:0 auto;">
+                    <div style="background:#f1f5f9; border-radius:14px; padding:10px 6px; text-align:center;"><div style="font-size:0.56rem; font-weight:850; color:#64748b; text-transform:uppercase;">Total Consumer</div><div style="font-size:1.05rem; font-weight:950; color:#0f172a; margin-top:3px;">${data.totalConsumer}</div></div>
+                    <div style="background:#ecfdf5; border-radius:14px; padding:10px 6px; text-align:center;"><div style="font-size:0.56rem; font-weight:850; color:#166534; text-transform:uppercase;">Updated</div><div style="font-size:1.05rem; font-weight:950; color:#166534; margin-top:3px;">${data.totalUpdated}</div></div>
+                    <div style="background:#fff1f2; border-radius:14px; padding:10px 6px; text-align:center;"><div style="font-size:0.56rem; font-weight:850; color:#9f1239; text-transform:uppercase;">Pending</div><div style="font-size:1.05rem; font-weight:950; color:#9f1239; margin-top:3px;">${data.totalConsumer - data.totalUpdated}</div></div>
+                </div>
+                <div style="text-align:center; margin-top:8px; font-size:0.7rem; font-weight:950; color:#991b1b;">${pct}% Updated</div>
+            `;
+        }
+
+        function getMobileUpdateReportRows() {
+            if (!mobileUpdateReportTree) return [];
+            const rows = [];
+            Object.keys(mobileUpdateReportTree.hqMap).sort((a, b) => a.localeCompare(b)).forEach((hqName) => {
+                const hq = mobileUpdateReportTree.hqMap[hqName];
+                if (mobileUpdateReportViewBy === "HQ") {
+                    rows.push({ name: hqName, total: hq.total, updated: hq.updated });
+                } else {
+                    Object.keys(hq.villages).sort((a, b) => a.localeCompare(b)).forEach((villageName) => {
+                        const v = hq.villages[villageName];
+                        rows.push({ name: `${villageName} (${hqName})`, total: v.total, updated: v.updated });
+                    });
+                }
+            });
+            return rows;
+        }
+
+        function renderMobileUpdateReportTableHtml() {
+            const rows = getMobileUpdateReportRows();
+            const colLabel = mobileUpdateReportViewBy === "HQ" ? "HQ NAME" : "VILLAGE";
+            let html = `<div class="summary-wrapper"><div class="summary-table-header" style="grid-template-columns: 1.4fr 0.85fr 0.85fr 0.85fr;"><div>${colLabel}</div><div>TOTAL</div><div>UPDATED</div><div>PENDING</div></div>`;
+            if (!rows.length) {
+                html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div class="text-rose-600">Data nahi mila.</div></div>`;
+            } else {
+                rows.forEach((row) => {
+                    const pending = row.total - row.updated;
+                    html += `<div class="summary-table-row" style="grid-template-columns: 1.4fr 0.85fr 0.85fr 0.85fr;"><div>${escapeHtml(row.name)}</div><div class="font-black">${row.total}</div><div class="text-emerald-700 font-black">${row.updated}</div><div class="text-rose-700 font-black">${pending}</div></div>`;
+                });
+            }
+            html += `</div>`;
+            return html;
+        }
+
+        async function renderMobileUpdateReport() {
+            const summaryBox = document.getElementById("mobile-update-report-summary");
+            const tableBox = document.getElementById("mobile-update-report-table");
+            const statusBox = document.getElementById("mobile-update-report-download-status");
+            if (!tableBox) return;
+            const renderToken = ++mobileUpdateReportRenderToken;
+            if (statusBox) statusBox.style.display = "none";
+            if (summaryBox) summaryBox.innerHTML = "";
+            mobileUpdateReportTree = null;
+            const dcName = activeDC;
+            const isRenderValid = () => renderToken === mobileUpdateReportRenderToken && document.getElementById("mobile-update-report-view")?.classList.contains("active");
+            const progress = renderSyncingProgress(tableBox, isRenderValid, "SYNCING LATEST DATA...");
+            try {
+                if (!dcName) throw new Error("DC select nahi hai");
+                await ensureConsumerDataLoadedFor([dcName]);
+                await loadMobileAlreadySubmittedMap();
+                if (!isRenderValid()) { progress.stop(); return; }
+                const rows = getConsumerRows(dcName).map(mapRevenueConsumerRow).filter((row) => normalizeLookupDigits(row.ivrsNo));
+                const period = getMobileUpdateReportPeriod();
+                mobileUpdateReportTree = buildMobileUpdateReportData(rows, dcName, period);
+                await progress.finish();
+                if (!isRenderValid()) return;
+                if (summaryBox) summaryBox.innerHTML = renderMobileUpdateReportSummaryHtml(mobileUpdateReportTree);
+                tableBox.innerHTML = renderMobileUpdateReportTableHtml();
+            } catch (error) {
+                progress.stop();
+                if (statusBox) {
+                    statusBox.style.display = "block";
+                    statusBox.style.background = "#fff1f2";
+                    statusBox.style.borderColor = "#fca5a5";
+                    statusBox.style.color = "#991b1b";
+                    statusBox.innerText = "Report load nahi ho payi";
+                }
+            }
+        }
+
+        function setMobileUpdateReportDownloadState(isLoading, message = "", ok = true) {
+            const pdfBtn = document.getElementById("mobile-update-report-pdf-btn");
+            const excelBtn = document.getElementById("mobile-update-report-excel-btn");
+            const statusBox = document.getElementById("mobile-update-report-download-status");
+            const statusMessage = normalizeActionStatusMessage(message, isLoading, ok);
+            [pdfBtn, excelBtn].forEach((btn) => {
+                if (!btn) return;
+                btn.disabled = isLoading;
+                btn.style.opacity = isLoading ? "0.65" : "1";
+                btn.style.pointerEvents = isLoading ? "none" : "auto";
+            });
+            if (!statusBox) return;
+            statusBox.style.display = statusMessage ? "block" : "none";
+            statusBox.style.background = ok ? "#ecfdf5" : "#fff1f2";
+            statusBox.style.borderColor = ok ? "#86efac" : "#fca5a5";
+            statusBox.style.color = ok ? "#166534" : "#991b1b";
+            statusBox.innerHTML = escapeHtml(statusMessage);
+        }
+
+        function downloadMobileUpdateReport(type) {
+            const rows = getMobileUpdateReportRows();
+            if (!rows.length) return showToast("Report ke liye data nahi hai", false);
+            setMobileUpdateReportDownloadState(true, `${type === "PDF" ? "PDF" : "Excel"} download ho raha hai... kripya wait kijiye`, true);
+            try {
+                const colLabel = mobileUpdateReportViewBy === "HQ" ? "HQ NAME" : "VILLAGE";
+                const headers = [colLabel, "TOTAL", "UPDATED", "PENDING"];
+                const bodyRows = rows.map((row) => [row.name, row.total, row.updated, row.total - row.updated]);
+                const period = getMobileUpdateReportPeriod();
+                const periodLabel = period.mode === "DAILY" ? `${period.day}/${period.month}/${period.year}` : (period.mode === "MONTHLY" ? `${period.month}/${period.year}` : "All Time");
+                const reportTitle = `Mobile No Update Report - DC ${activeDC}`;
+                const scopeLine = `Scope: DC - ${activeDC}`;
+                const periodLine = `Period: ${periodLabel}`;
+                const fileName = `${reportTitle}-${periodLabel}`.replace(/[\\/:*?"<>|]+/g, "_");
+                if (type === "PDF") {
+                    if (!window.jspdf?.jsPDF) { setMobileUpdateReportDownloadState(false, "PDF library load nahi hui", false); return; }
+                    const { jsPDF } = window.jspdf;
+                    const doc = new jsPDF({ orientation: "landscape" });
+                    doc.setFontSize(13); doc.text(reportTitle, 148, 12, { align: "center" });
+                    doc.setFontSize(9); doc.text(scopeLine, 148, 19, { align: "center" });
+                    doc.text(periodLine, 148, 25, { align: "center" });
+                    doc.autoTable({ startY: 31, head: [headers], body: bodyRows, theme: "grid", styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" }, headStyles: { fillColor: [185, 28, 28] } });
+                    savePdfDocumentForDevice(doc, `${fileName}.pdf`);
+                    setMobileUpdateReportDownloadState(false, "PDF download ho chuki hai", true);
+                    return;
+                }
+                const csvSafe = (value) => { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
+                const csv = [[reportTitle], [scopeLine], [periodLine], [], headers, ...bodyRows].map((row) => row.map(csvSafe).join(",")).join("\n");
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+                link.download = `${fileName}.csv`;
+                link.click();
+                setMobileUpdateReportDownloadState(false, "Excel download ho chuki hai", true);
+            } catch (error) {
+                setMobileUpdateReportDownloadState(false, "Download nahi ho paya", false);
+                showToast(error?.message || "Report download nahi ho payi", false);
             }
         }
 
@@ -1432,7 +1691,7 @@
         let categoryDownloadProgressToken = 0;
         function setProgressCategoryDownloadState(isDownloading, message = "") {
             const status = document.getElementById("progress-category-download-status");
-            const buttons = document.querySelectorAll("#progress-category-download-box button");
+            const buttons = document.querySelectorAll("#progress-revenue-body .btn-export-row button");
             const statusMessage = normalizeActionStatusMessage(message, isDownloading, !String(message || "").toLowerCase().includes("nahi"));
             buttons.forEach((button) => {
                 button.disabled = isDownloading;
@@ -1688,6 +1947,104 @@
             }
         }
 
+        // Dropdown se jo bhi report type (Category Wise / Target vs Achievement / Top
+        // 20-50 Defaulters) select hai, usi ke hisaab se sahi download function call karta
+        // hai. Category Wise ke liye purani, poori tarah test-ki-hui exportRevenueCategory-
+        // Summary() hi chalti hai - Target/Defaulters ke liye alag, seedhe simple export.
+        function downloadProgressRevenueReportBox(fmt) {
+            if (progressRevenueReportType === "TARGET") return downloadProgressRevenueTargetSummary(fmt);
+            if (progressRevenueReportType === "DEFAULTERS") return downloadProgressRevenueDefaultersSummary(fmt);
+            return downloadProgressRevenueCategorySummary(fmt);
+        }
+
+        function downloadProgressRevenueTargetSummary(fmt) {
+            if (!lastRevenueProgressBoxData?.hqVillageSummaryData) return showToast("Report ke liye data nahi hai", false);
+            const downloadTypeLabel = fmt === "PDF" ? "PDF" : "Excel";
+            setProgressCategoryDownloadState(true, `${downloadTypeLabel} downloading... kripya wait kijiye`);
+            try {
+                const tree = lastRevenueProgressBoxData.hqVillageSummaryData.tree || [];
+                const colLabel = activeViewLevel === "DC" ? "HQ NAME" : "DC NAME";
+                const headers = [colLabel, "TARGET", "ACHIEVED", "%"];
+                const rows = tree.map((row) => {
+                    const target = Number(row.paidAmountTotal || 0) + Number(row.unpaidAmountTotal || 0);
+                    return [row.name, formatProgressReportAmount(target), formatProgressReportAmount(row.paidAmountTotal), `${getRevenueAchievementPct(row.paidAmountTotal, target)}%`];
+                });
+                const scope = activeViewLevel === "DC" ? `DC - ${activeDC}` : (activeViewLevel === "DIVISION" ? activeDiv : "SEONI CIRCLE");
+                const reportTitle = `Target vs Achievement Summary - ${scope}`;
+                const rawVal = document.getElementById("report-date")?.value || "";
+                const parsed = parseSummarySelection(rawVal, summaryMode);
+                const periodLine = `Period: ${parsed.label || getTodayIsoDate()}`;
+                const fileName = `${reportTitle}-${parsed.label || getTodayIsoDate()}`.replace(/[\\/:*?"<>|]+/g, "_");
+                if (fmt === "PDF") {
+                    if (!window.jspdf?.jsPDF) { setProgressCategoryDownloadState(false, "PDF library load nahi hui"); return; }
+                    const { jsPDF } = window.jspdf;
+                    const doc = new jsPDF({ orientation: "landscape" });
+                    doc.setFontSize(13); doc.text(reportTitle, 148, 12, { align: "center" });
+                    doc.setFontSize(9); doc.text(`Scope: ${scope}`, 148, 19, { align: "center" });
+                    doc.text(periodLine, 148, 25, { align: "center" });
+                    doc.autoTable({ startY: 31, head: [headers], body: rows, theme: "grid", styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" }, headStyles: { fillColor: [29, 78, 216] } });
+                    savePdfDocumentForDevice(doc, `${fileName}.pdf`);
+                } else {
+                    const csvSafe = (value) => { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
+                    const csv = [[reportTitle], [`Scope: ${scope}`], [periodLine], [], headers, ...rows].map((row) => row.map(csvSafe).join(",")).join("\n");
+                    const link = document.createElement("a");
+                    link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+                    link.download = `${fileName}.csv`;
+                    link.click();
+                }
+                setTimeout(() => setProgressCategoryDownloadState(false, `${downloadTypeLabel} download ho chuki hai`), 500);
+            } catch (error) {
+                setProgressCategoryDownloadState(false, "Download nahi ho paya");
+                showToast(error?.message || "Target vs Achievement download nahi ho payi", false);
+            }
+        }
+
+        function downloadProgressRevenueDefaultersSummary(fmt) {
+            if (!lastRevenueProgressBoxData) return showToast("Report ke liye data nahi hai", false);
+            const downloadTypeLabel = fmt === "PDF" ? "PDF" : "Excel";
+            setProgressCategoryDownloadState(true, `${downloadTypeLabel} downloading... kripya wait kijiye`);
+            try {
+                const { mode, filterValue } = lastRevenueProgressBoxData;
+                const consumerRows = buildRevenueHqVillageConsumerRows(mode, filterValue);
+                const rows = consumerRows
+                    .filter((row) => !row.paid)
+                    .map((row) => ({ ...row, pendingAmount: parseRevenuePaidAmount(row.netBill || 0) }))
+                    .filter((row) => row.pendingAmount > 0)
+                    .sort((a, b) => b.pendingAmount - a.pendingAmount)
+                    .slice(0, progressRevenueDefaultersLimit);
+                if (!rows.length) { setProgressCategoryDownloadState(false, "Download ke liye data nahi hai"); return; }
+                const headers = ["RANK", "IVRS NO", "CONSUMER NAME", "HQ NAME", "VILLAGE", "MOBILE NO", "PENDING AMOUNT"];
+                const bodyRows = rows.map((row, index) => [index + 1, row.ivrsNo || "", row.consumerName || "", row.hqName || "", row.village || "", row.mobileNo || "", formatProgressReportAmount(row.pendingAmount)]);
+                const scope = activeViewLevel === "DC" ? `DC - ${activeDC}` : (activeViewLevel === "DIVISION" ? activeDiv : "SEONI CIRCLE");
+                const reportTitle = `Top ${progressRevenueDefaultersLimit} Defaulters - ${scope}`;
+                const rawVal = document.getElementById("report-date")?.value || "";
+                const parsed = parseSummarySelection(rawVal, summaryMode);
+                const periodLine = `Period: ${parsed.label || getTodayIsoDate()}`;
+                const fileName = `${reportTitle}-${parsed.label || getTodayIsoDate()}`.replace(/[\\/:*?"<>|]+/g, "_");
+                if (fmt === "PDF") {
+                    if (!window.jspdf?.jsPDF) { setProgressCategoryDownloadState(false, "PDF library load nahi hui"); return; }
+                    const { jsPDF } = window.jspdf;
+                    const doc = new jsPDF({ orientation: "landscape" });
+                    doc.setFontSize(13); doc.text(reportTitle, 148, 12, { align: "center" });
+                    doc.setFontSize(9); doc.text(`Scope: ${scope}`, 148, 19, { align: "center" });
+                    doc.text(periodLine, 148, 25, { align: "center" });
+                    doc.autoTable({ startY: 31, head: [headers], body: bodyRows, theme: "grid", styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" }, headStyles: { fillColor: [159, 18, 57] } });
+                    savePdfDocumentForDevice(doc, `${fileName}.pdf`);
+                } else {
+                    const csvSafe = (value) => { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
+                    const csv = [[reportTitle], [`Scope: ${scope}`], [periodLine], [], headers, ...bodyRows].map((row) => row.map(csvSafe).join(",")).join("\n");
+                    const link = document.createElement("a");
+                    link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+                    link.download = `${fileName}.csv`;
+                    link.click();
+                }
+                setTimeout(() => setProgressCategoryDownloadState(false, `${downloadTypeLabel} download ho chuki hai`), 500);
+            } catch (error) {
+                setProgressCategoryDownloadState(false, "Download nahi ho paya");
+                showToast(error?.message || "Top Defaulters download nahi ho payi", false);
+            }
+        }
+
         function setProgressSummaryDownloadState(isDownloading, message = "") {
             const status = document.getElementById("progress-summary-download-status");
             const buttons = document.querySelectorAll("#summary-content .btn-export-row button");
@@ -1722,6 +2079,96 @@
             return html;
         }
 
+        function renderRevenueTargetStaticTableHtml(tree, colLabel) {
+            const rows = tree || [];
+            let html = `<div class="summary-wrapper" style="margin-top:6px;"><div class="summary-table-header" style="grid-template-columns: 1.4fr 0.85fr 0.85fr 0.7fr;"><div>${colLabel}</div><div>TARGET</div><div>ACHIEVED</div><div>%</div></div>`;
+            if (!rows.length) {
+                html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div class="text-rose-600">Data nahi mila.</div></div>`;
+            } else {
+                rows.forEach((row) => {
+                    const rowClass = row.type === "SUB_TOTAL" ? " blue-bold" : (row.type === "SUBDN_TOTAL" ? " subdn-bold" : "");
+                    const target = Number(row.paidAmountTotal || 0) + Number(row.unpaidAmountTotal || 0);
+                    const pct = getRevenueAchievementPct(row.paidAmountTotal, target);
+                    const pctColor = pct >= 75 ? "#166534" : (pct >= 40 ? "#b45309" : "#9f1239");
+                    html += `<div class="summary-table-row${rowClass}" style="grid-template-columns: 1.4fr 0.85fr 0.85fr 0.7fr;"><div>${escapeHtml(row.name)}</div><div class="font-black">${formatProgressReportAmount(target)}</div><div class="text-emerald-700 font-black">${formatProgressReportAmount(row.paidAmountTotal)}</div><div style="color:${pctColor}; font-weight:950;">${pct}%</div></div>`;
+                });
+            }
+            html += `</div>`;
+            return html;
+        }
+
+        // Target vs Achievement ka wahi tree (buildRevenueHqVillagePaidUnpaidTree se aaya
+        // hua, jo hqVillageSummaryData.tree me already available hai - Category Wise summary
+        // ke liye load ho hi chuka hai) reuse karte hain, sirf presentation Target/Achieved/%
+        // ki hai. Isliye koi extra fetch nahi chahiye - dropdown switch turant, bina reload ke.
+        function renderRevenueProgressTargetSummaryHtml(data) {
+            const target = Number(data.totals.paidAmountTotal || 0) + Number(data.totals.unpaidAmountTotal || 0);
+            const pct = getRevenueAchievementPct(data.totals.paidAmountTotal, target);
+            const pctColor = pct >= 75 ? "#166534" : (pct >= 40 ? "#b45309" : "#9f1239");
+            const colLabel = activeViewLevel === "DC" ? "HQ NAME" : "DC NAME";
+            return `
+                <div style="font-size:0.75rem; font-weight:950; color:#1d4ed8; text-align:center;">Target vs Achievement (Net Bill vs Paid)</div>
+                <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:8px; width:100%; margin:10px auto 0;">
+                    <div style="background:#f1f5f9; border-radius:12px; padding:8px 4px; text-align:center;"><div style="font-size:0.54rem; font-weight:850; color:#64748b; text-transform:uppercase;">Target</div><div style="font-size:0.82rem; font-weight:950; color:#0f172a; margin-top:2px;">${formatProgressReportAmount(target)}</div></div>
+                    <div style="background:#ecfdf5; border-radius:12px; padding:8px 4px; text-align:center;"><div style="font-size:0.54rem; font-weight:850; color:#166534; text-transform:uppercase;">Achieved</div><div style="font-size:0.82rem; font-weight:950; color:#166534; margin-top:2px;">${formatProgressReportAmount(data.totals.paidAmountTotal)}</div></div>
+                    <div style="background:#eff6ff; border-radius:12px; padding:8px 4px; text-align:center;"><div style="font-size:0.54rem; font-weight:850; color:#1d4ed8; text-transform:uppercase;">%</div><div style="font-size:0.95rem; font-weight:950; color:${pctColor}; margin-top:2px;">${pct}%</div></div>
+                </div>
+                <div style="font-size:0.62rem; font-weight:900; color:#1d4ed8; text-align:center; margin-top:10px;">${colLabel} WISE</div>
+                ${renderRevenueTargetStaticTableHtml(data.tree, colLabel)}
+            `;
+        }
+
+        // Top 20/50 Defaulters ka data buildRevenueHqVillageConsumerRows() se aata hai - isi
+        // function ka data "HQ / Village Wise Paid-Unpaid" list section aur dedicated "Top
+        // 20/50 Defaulters" report dono use karte hain. Yahan par (Daily/Progress Report ki
+        // Revenue tab me) bhi wahi consumer-level unpaid rows lekar, jo scope (DC/Division/
+        // Circle) abhi active hai usi ke hisaab se top defaulters nikalte hain.
+        function renderRevenueProgressDefaultersSummaryHtml(mode, filterValue) {
+            const consumerRows = buildRevenueHqVillageConsumerRows(mode, filterValue);
+            const rows = consumerRows
+                .filter((row) => !row.paid)
+                .map((row) => ({ ...row, pendingAmount: parseRevenuePaidAmount(row.netBill || 0) }))
+                .filter((row) => row.pendingAmount > 0)
+                .sort((a, b) => b.pendingAmount - a.pendingAmount)
+                .slice(0, progressRevenueDefaultersLimit);
+            let html = `
+                <div style="font-size:0.75rem; font-weight:950; color:#9f1239; text-align:center;">Top ${progressRevenueDefaultersLimit} Defaulters (Cash List ke baad bakaya)</div>
+                <div style="display:flex; gap:8px; width:100%; margin:9px auto 0;">
+                    <div onclick="setProgressDefaultersLimit(20)" style="flex:1; height:28px; line-height:28px; text-align:center; border-radius:999px; cursor:pointer; font-size:0.6rem; font-weight:950; background:${progressRevenueDefaultersLimit === 20 ? "#9f1239" : "#ffe4e6"}; color:${progressRevenueDefaultersLimit === 20 ? "#ffffff" : "#9f1239"};">TOP 20</div>
+                    <div onclick="setProgressDefaultersLimit(50)" style="flex:1; height:28px; line-height:28px; text-align:center; border-radius:999px; cursor:pointer; font-size:0.6rem; font-weight:950; background:${progressRevenueDefaultersLimit === 50 ? "#9f1239" : "#ffe4e6"}; color:${progressRevenueDefaultersLimit === 50 ? "#ffffff" : "#9f1239"};">TOP 50</div>
+                </div>
+                <div class="summary-wrapper" style="margin-top:8px;"><div class="summary-table-header" style="grid-template-columns: 0.4fr 1.3fr 1fr;"><div>#</div><div>CONSUMER</div><div>PENDING</div></div>
+            `;
+            if (!rows.length) {
+                html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div class="text-rose-600">Is scope me koi bakaya consumer nahi mila.</div></div>`;
+            } else {
+                rows.forEach((row, index) => {
+                    html += `<div class="summary-table-row" style="grid-template-columns: 0.4fr 1.3fr 1fr;"><div class="font-black">${index + 1}</div><div>${escapeHtml(row.consumerName || "-")}<br><span style="font-size:0.56rem; color:#64748b;">${escapeHtml(row.hqName)} / ${escapeHtml(row.village)}</span></div><div class="text-rose-700 font-black">${formatProgressReportAmount(row.pendingAmount)}</div></div>`;
+                });
+            }
+            html += `</div>`;
+            return html;
+        }
+
+        function setProgressRevenueReportType(value) {
+            progressRevenueReportType = ["STAFF", "CATEGORY", "TARGET", "DEFAULTERS"].includes(value) ? value : "STAFF";
+            const body = document.getElementById("progress-revenue-body");
+            if (body) body.innerHTML = renderProgressRevenueBodyInner();
+        }
+
+        function setProgressDefaultersLimit(limit) {
+            progressRevenueDefaultersLimit = limit === 50 ? 50 : 20;
+            const body = document.getElementById("progress-revenue-body");
+            if (body) body.innerHTML = renderProgressRevenueBodyInner();
+        }
+
+        function getProgressRevenueReportTypeLabel() {
+            if (progressRevenueReportType === "TARGET") return "Target vs Achievement";
+            if (progressRevenueReportType === "DEFAULTERS") return `Top ${progressRevenueDefaultersLimit} Defaulters`;
+            if (progressRevenueReportType === "STAFF") return "Paid by Staff";
+            return "Category Wise";
+        }
+
         // Daily Progress (DC/Division/Circle) me sirf summary dikhani hai - koi drill-down
         // ya per-consumer list/download yahan nahi, sirf Total/Paid/Unpaid + category-wise +
         // HQ ya DC-wise (level ke hisaab se) numbers. Poora consumer-level list/dropdown sirf
@@ -1752,7 +2199,10 @@
             `;
         }
 
-        function renderRevenueProgressSummary(rows, label, hqVillageSummaryData = null) {
+        // "Paid by Staff" (jo pehle hamesha upar dikhta tha) ab bhi wahi table hai, sirf
+        // ab dropdown se select hone par hi dikhta hai - baaki 3 report type isi jagah
+        // (usi #progress-revenue-body me) unke apne render se replace ho jate hain.
+        function renderRevenueProgressStaffBodyHtml(rows, label) {
             const colLabel = getRevenueProgressColumnLabel();
             const totals = getRevenueProgressTotals(rows);
             let html = `<div class="summary-wrapper"><div class="summary-table-header" style="grid-template-columns: 1.15fr 0.75fr 0.95fr 0.75fr 0.95fr;"><div>${colLabel}</div><div>PAID</div><div>PAID AMT</div><div>LINE TD</div><div>TD AMT</div></div>`;
@@ -1778,16 +2228,55 @@
                     </button>
                 </div>
                 <div id="progress-summary-download-status" style="display:none; text-align:center; font-weight:900; border-radius:16px; padding:10px 12px; width:100%; margin-top:12px;"></div>
-                <div id="progress-category-download-box" style="margin-top:12px; border:1.5px dashed #93c5fd; background:#eff6ff; border-radius:16px; padding:10px;">
-                    ${hqVillageSummaryData ? renderRevenueProgressHqVillageSummaryHtml(hqVillageSummaryData) : `<div style="font-size:0.75rem; font-weight:950; color:#1d4ed8; text-align:center;">Category Wise Paid/Unpaid Summary</div>`}
+            </div>`;
+            return html;
+        }
+
+        // Category Wise / Target vs Achievement / Top 20-50 Defaulters - teeno isi dashed
+        // box me, jo bhi type dropdown me select hai usi ka content + usi ka Excel/PDF.
+        function renderRevenueProgressNonStaffBoxHtml() {
+            const data = lastRevenueProgressBoxData || {};
+            let bodyHtml;
+            if (progressRevenueReportType === "TARGET") {
+                bodyHtml = data.hqVillageSummaryData ? renderRevenueProgressTargetSummaryHtml(data.hqVillageSummaryData) : `<div style="font-size:0.75rem; font-weight:950; color:#1d4ed8; text-align:center;">Data nahi mila.</div>`;
+            } else if (progressRevenueReportType === "DEFAULTERS") {
+                bodyHtml = renderRevenueProgressDefaultersSummaryHtml(data.mode || "DAILY", data.filterValue || "");
+            } else {
+                bodyHtml = data.hqVillageSummaryData ? renderRevenueProgressHqVillageSummaryHtml(data.hqVillageSummaryData) : `<div style="font-size:0.75rem; font-weight:950; color:#1d4ed8; text-align:center;">Category Wise Paid/Unpaid Summary</div>`;
+            }
+            const typeLabel = getProgressRevenueReportTypeLabel();
+            return `
+                <div style="border:1.5px dashed #93c5fd; background:#eff6ff; border-radius:16px; padding:10px;">
+                    ${bodyHtml}
                     <div class="btn-export-row" style="margin-top:8px;">
-                        <button class="btn-unique btn-excel-unique" onclick="downloadProgressRevenueCategorySummary('XLS')">Category Excel</button>
-                        <button class="btn-unique btn-pdf-unique" onclick="downloadProgressRevenueCategorySummary('PDF')">Category PDF</button>
+                        <button class="btn-unique btn-excel-unique" onclick="downloadProgressRevenueReportBox('XLS')">${escapeHtml(typeLabel)} Excel</button>
+                        <button class="btn-unique btn-pdf-unique" onclick="downloadProgressRevenueReportBox('PDF')">${escapeHtml(typeLabel)} PDF</button>
                     </div>
                     <div id="progress-category-download-status" style="display:none; text-align:center; font-weight:900; border-radius:14px; padding:8px 10px; width:100%; margin-top:8px;"></div>
                 </div>
-            </div>`;
-            return html;
+            `;
+        }
+
+        function renderProgressRevenueBodyInner() {
+            if (progressRevenueReportType === "CATEGORY" || progressRevenueReportType === "TARGET" || progressRevenueReportType === "DEFAULTERS") {
+                return renderRevenueProgressNonStaffBoxHtml();
+            }
+            const staffData = lastRevenueProgressStaffData || { rows: [], label: "" };
+            return renderRevenueProgressStaffBodyHtml(staffData.rows, staffData.label);
+        }
+
+        function renderRevenueProgressSummary(rows, label, hqVillageSummaryData = null, revenueMode = "DAILY", revenueFilterValue = "") {
+            lastRevenueProgressBoxData = { hqVillageSummaryData, mode: revenueMode, filterValue: revenueFilterValue };
+            lastRevenueProgressStaffData = { rows, label };
+            const selectHtml = `
+                <select onchange="setProgressRevenueReportType(this.value)" style="width:100%; max-width:360px; height:44px; margin:0 auto 10px; display:block; border:1.5px solid #0f766e; border-radius:12px; padding:0 12px; font-size:0.78rem; font-weight:950; color:#0f766e; background:#ffffff;">
+                    <option value="STAFF" ${progressRevenueReportType === "STAFF" ? "selected" : ""}>Paid by Staff (Daily/Monthly)</option>
+                    <option value="CATEGORY" ${progressRevenueReportType === "CATEGORY" ? "selected" : ""}>Category Wise</option>
+                    <option value="TARGET" ${progressRevenueReportType === "TARGET" ? "selected" : ""}>Target vs Achievement</option>
+                    <option value="DEFAULTERS" ${progressRevenueReportType === "DEFAULTERS" ? "selected" : ""}>Top 20/50 Defaulters</option>
+                </select>
+            `;
+            return `${selectHtml}<div id="progress-revenue-body">${renderProgressRevenueBodyInner()}</div>`;
         }
 
         function renderSyncingProgress(cont, isStillValid, label = "SYNCING ALL DC DATA...") {
@@ -2054,7 +2543,7 @@
                         hqVillageSummaryData = null;
                     }
 
-                    cont.innerHTML = renderRevenueProgressSummary(uiListSummary, label, hqVillageSummaryData);
+                    cont.innerHTML = renderRevenueProgressSummary(uiListSummary, label, hqVillageSummaryData, revenueMode, revenueFilterValue);
                 } catch (error) {
                     cont.innerHTML = '<p class="text-center text-red-500 py-10 font-black">REVENUE REPORT LOAD NAHI HO PAYI</p>';
                 }
@@ -9304,6 +9793,16 @@
             switchView("revenue-hq-village");
         }
 
+        function openRevenueTargetAchievement() {
+            closeHeaderMenu();
+            switchView("revenue-target-achievement");
+        }
+
+        function openRevenueTopDefaulters() {
+            closeHeaderMenu();
+            switchView("revenue-top-defaulters");
+        }
+
         function openRevenueCashReconcile() {
             closeHeaderMenu();
             switchView("revenue-cash-reconcile");
@@ -12458,6 +12957,549 @@
         }
 
         // =====================================================================
+        // TARGET VS ACHIEVEMENT % (Target = Net Bill, Achievement = Paid via Cash
+        // List). Existing buildRevenueHqVillagePaidUnpaidTree() ka hi paidAmountTotal/
+        // unpaidAmountTotal reuse karte hain - Target = paidAmountTotal + unpaidAmountTotal,
+        // Achievement = paidAmountTotal. Sirf summary chahiye, koi consumer list nahi.
+        // =====================================================================
+        let revenueTargetMode = "DAILY";
+        let revenueTargetTree = [];
+        let revenueTargetDrillPath = [];
+        let revenueTargetRenderToken = 0;
+        // View-by: DC scope me natural top level "HQ" hai, Division/Circle scope me "DC".
+        // Dropdown se seedha "HQ WISE" ya "VILLAGE WISE" flat/sorted comparison bhi mil jata
+        // hai - tap-drill kiye bina - taaki DC ke andar sabhi HQ (ya sabhi Village) ek sath
+        // achievement % ke hisab se compare ho sake (jaise kaunsi HQ ne accha kaam kiya).
+        let revenueTargetViewBy = "HQ";
+
+        function getRevenueTargetNaturalLevel() {
+            return activeViewLevel === "DC" ? "HQ" : "DC";
+        }
+
+        function refreshRevenueTargetViewByOptions() {
+            const select = document.getElementById("revenue-target-viewby");
+            if (!select) return;
+            const isDc = activeViewLevel === "DC";
+            select.innerHTML = isDc
+                ? `<option value="HQ">HQ WISE</option><option value="VILLAGE">VILLAGE WISE</option>`
+                : `<option value="DC">DC WISE</option><option value="HQ">HQ WISE</option><option value="VILLAGE">VILLAGE WISE</option>`;
+            const validValues = isDc ? ["HQ", "VILLAGE"] : ["DC", "HQ", "VILLAGE"];
+            if (!validValues.includes(revenueTargetViewBy)) revenueTargetViewBy = getRevenueTargetNaturalLevel();
+            select.value = revenueTargetViewBy;
+        }
+
+        function setRevenueTargetViewBy(value) {
+            revenueTargetViewBy = ["DC", "HQ", "VILLAGE"].includes(value) ? value : getRevenueTargetNaturalLevel();
+            revenueTargetDrillPath = [];
+            const tableBox = document.getElementById("revenue-target-table");
+            if (tableBox) tableBox.innerHTML = renderRevenueTargetTable();
+        }
+
+        function initRevenueTargetAchievement() {
+            const dateInput = document.getElementById("revenue-target-date");
+            const monthInput = document.getElementById("revenue-target-month");
+            if (dateInput && !dateInput.value) dateInput.value = getTodayIsoDate();
+            if (monthInput && !monthInput.value) monthInput.value = getTodayIsoDate().slice(0, 7);
+            revenueTargetDrillPath = [];
+            setRevenueTargetMode(revenueTargetMode || "DAILY");
+        }
+
+        function setRevenueTargetMode(mode) {
+            revenueTargetMode = mode === "MONTHLY" ? "MONTHLY" : "DAILY";
+            const dateInput = document.getElementById("revenue-target-date");
+            const monthInput = document.getElementById("revenue-target-month");
+            const dateBtn = document.getElementById("revenue-target-date-mode-btn");
+            const monthBtn = document.getElementById("revenue-target-month-mode-btn");
+            if (dateInput) dateInput.style.display = revenueTargetMode === "DAILY" ? "block" : "none";
+            if (monthInput) monthInput.style.display = revenueTargetMode === "MONTHLY" ? "block" : "none";
+            if (dateBtn) {
+                dateBtn.style.background = revenueTargetMode === "DAILY" ? "#1d4ed8" : "#dbeafe";
+                dateBtn.style.color = revenueTargetMode === "DAILY" ? "#ffffff" : "#1d4ed8";
+            }
+            if (monthBtn) {
+                monthBtn.style.background = revenueTargetMode === "MONTHLY" ? "#1d4ed8" : "#dbeafe";
+                monthBtn.style.color = revenueTargetMode === "MONTHLY" ? "#ffffff" : "#1d4ed8";
+            }
+            revenueTargetDrillPath = [];
+            renderRevenueTargetAchievement();
+        }
+
+        function getRevenueAchievementPct(paidAmount, target) {
+            if (!target) return 0;
+            return Math.round((paidAmount / target) * 1000) / 10;
+        }
+
+        function findRevenueTargetNode(nodes, name) {
+            return (nodes || []).find((n) => n.name === name && n.type !== "SUB_TOTAL" && n.type !== "SUBDN_TOTAL");
+        }
+
+        function getRevenueTargetCurrentRows() {
+            let nodes = revenueTargetTree;
+            for (const step of revenueTargetDrillPath) {
+                const node = findRevenueTargetNode(nodes, step);
+                if (!node || !node.children) return [];
+                nodes = node.children;
+            }
+            return nodes;
+        }
+
+        function getRevenueTargetColumnLabel() {
+            const depth = revenueTargetDrillPath.length;
+            if (activeViewLevel === "DC") return depth === 0 ? "HQ NAME" : "VILLAGE";
+            if (depth === 0) return "DC NAME";
+            if (depth === 1) return "HQ NAME";
+            return "VILLAGE";
+        }
+
+        function pushRevenueTargetDrill(el) {
+            const name = el?.dataset?.drillName;
+            if (!name) return;
+            revenueTargetDrillPath.push(name);
+            const tableBox = document.getElementById("revenue-target-table");
+            if (tableBox) tableBox.innerHTML = renderRevenueTargetTable();
+        }
+
+        function popRevenueTargetDrill() {
+            revenueTargetDrillPath.pop();
+            const tableBox = document.getElementById("revenue-target-table");
+            if (tableBox) tableBox.innerHTML = renderRevenueTargetTable();
+        }
+
+        // DC scope me root tree hi HQ nodes hain (children = village leaves).
+        // Division/Circle scope me root tree DC nodes hain (SUB_TOTAL/SUBDN_TOTAL rows
+        // ke saath mixed) jinke children HQ nodes, unke children village leaves.
+        // Yeh function jo bhi "level" chuna gaya hai (HQ ya VILLAGE) uska ek FLAT,
+        // achievement % ke hisab se sorted list bana deta hai - taaki DC ke andar sabhi
+        // HQ (ya sabhi Village) ek sath compare ho sakein, tap-drill kiye bina.
+        function buildRevenueTargetFlatRows(level) {
+            const rows = [];
+            if (activeViewLevel === "DC") {
+                (revenueTargetTree || []).forEach((hq) => {
+                    if (hq.type) return;
+                    if (level === "HQ") {
+                        rows.push({ name: hq.name, paidAmountTotal: hq.paidAmountTotal, unpaidAmountTotal: hq.unpaidAmountTotal });
+                    } else {
+                        (hq.children || []).forEach((v) => {
+                            rows.push({ name: `${v.name} (${hq.name})`, paidAmountTotal: v.paidAmountTotal, unpaidAmountTotal: v.unpaidAmountTotal });
+                        });
+                    }
+                });
+            } else if (level === "DC") {
+                (revenueTargetTree || []).forEach((dc) => {
+                    if (dc.type) return;
+                    rows.push({ name: dc.name, paidAmountTotal: dc.paidAmountTotal, unpaidAmountTotal: dc.unpaidAmountTotal });
+                });
+            } else {
+                (revenueTargetTree || []).forEach((dc) => {
+                    if (dc.type) return;
+                    if (level === "HQ") {
+                        (dc.children || []).forEach((hq) => {
+                            rows.push({ name: `${hq.name} (${dc.name})`, paidAmountTotal: hq.paidAmountTotal, unpaidAmountTotal: hq.unpaidAmountTotal });
+                        });
+                    } else {
+                        (dc.children || []).forEach((hq) => {
+                            (hq.children || []).forEach((v) => {
+                                rows.push({ name: `${v.name} (${hq.name}/${dc.name})`, paidAmountTotal: v.paidAmountTotal, unpaidAmountTotal: v.unpaidAmountTotal });
+                            });
+                        });
+                    }
+                });
+            }
+            rows.forEach((row) => {
+                row.target = Number(row.paidAmountTotal || 0) + Number(row.unpaidAmountTotal || 0);
+                row.pct = getRevenueAchievementPct(row.paidAmountTotal, row.target);
+            });
+            rows.sort((a, b) => b.pct - a.pct);
+            return rows;
+        }
+
+        function renderRevenueTargetFlatTable(level) {
+            const rows = buildRevenueTargetFlatRows(level);
+            const colLabel = level === "HQ" ? "HQ NAME" : "VILLAGE";
+            let html = `<div class="summary-wrapper"><div style="padding:9px 10px; margin-bottom:6px; background:#eff6ff; border:1.2px solid #93c5fd; border-radius:10px; font-size:0.64rem; font-weight:900; color:#1d4ed8; text-align:center;">Sabhi ${colLabel === "HQ NAME" ? "HQ" : "Village"} - Achievement % ke hisab se sorted (best se worst)</div><div class="summary-table-header" style="grid-template-columns: 1.5fr 0.9fr 0.9fr 0.6fr;"><div>${colLabel}</div><div>TARGET</div><div>ACHIEVED</div><div>%</div></div>`;
+            if (!rows.length) {
+                html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div class="text-rose-600">Is scope me data nahi mila.</div></div>`;
+            } else {
+                rows.forEach((row, index) => {
+                    const pctColor = row.pct >= 75 ? "#166534" : (row.pct >= 40 ? "#b45309" : "#9f1239");
+                    html += `<div class="summary-table-row" style="grid-template-columns: 1.5fr 0.9fr 0.9fr 0.6fr;"><div><span style="color:#94a3b8; font-weight:900;">${index + 1}.</span> ${escapeHtml(row.name)}</div><div class="font-black">${formatProgressReportAmount(row.target)}</div><div class="text-emerald-700 font-black">${formatProgressReportAmount(row.paidAmountTotal)}</div><div style="color:${pctColor}; font-weight:950;">${row.pct}%</div></div>`;
+                });
+            }
+            const totals = rows.reduce((acc, row) => { acc.paidAmountTotal += row.paidAmountTotal; acc.target += row.target; return acc; }, { paidAmountTotal: 0, target: 0 });
+            const grandPct = getRevenueAchievementPct(totals.paidAmountTotal, totals.target);
+            html += `</div><div class="summary-footer"><div class="font-black text-slate-800 text-center">TOTAL (${colLabel} SCOPE)</div><div class="mt-2 grid grid-cols-3 gap-2 text-center text-[11px] font-black"><div class="rounded-xl bg-slate-100 border border-slate-200 p-2">Target<br>${formatProgressReportAmount(totals.target)}</div><div class="rounded-xl bg-emerald-50 border border-emerald-200 p-2">Achieved<br>${formatProgressReportAmount(totals.paidAmountTotal)}</div><div class="rounded-xl bg-blue-50 border border-blue-200 p-2">%<br>${grandPct}%</div></div></div>`;
+            return html;
+        }
+
+        function renderRevenueTargetTable() {
+            if (revenueTargetViewBy !== getRevenueTargetNaturalLevel()) {
+                return renderRevenueTargetFlatTable(revenueTargetViewBy);
+            }
+            const rows = getRevenueTargetCurrentRows();
+            const colLabel = getRevenueTargetColumnLabel();
+            const depth = revenueTargetDrillPath.length;
+            const canDrillDeeper = activeViewLevel === "DC" ? depth < 1 : depth < 2;
+
+            let breadcrumbHtml = "";
+            if (depth > 0) {
+                const crumbLabel = revenueTargetDrillPath.join(" › ");
+                breadcrumbHtml = `<div onclick="popRevenueTargetDrill()" style="display:flex; align-items:center; gap:6px; padding:9px 10px; margin-bottom:6px; background:#eff6ff; border:1.2px solid #93c5fd; border-radius:10px; font-size:0.68rem; font-weight:900; color:#1d4ed8; cursor:pointer;">⬅ ${escapeHtml(crumbLabel)} - Back</div>`;
+            }
+
+            let html = `<div class="summary-wrapper">${breadcrumbHtml}<div class="summary-table-header" style="grid-template-columns: 1.2fr 0.95fr 0.95fr 0.7fr;"><div>${colLabel}</div><div>TARGET</div><div>ACHIEVED</div><div>%</div></div>`;
+
+            if (!rows || !rows.length) {
+                html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div class="text-rose-600">Is scope me data nahi mila.</div></div>`;
+            } else {
+                rows.forEach((row) => {
+                    const rowClass = row.type === "SUB_TOTAL" ? " blue-bold" : (row.type === "SUBDN_TOTAL" ? " subdn-bold" : "");
+                    const clickable = canDrillDeeper && !row.type && row.children && row.children.length;
+                    const attrs = clickable ? ` data-drill-name="${escapeHtml(row.name)}" onclick="pushRevenueTargetDrill(this)" style="cursor:pointer;"` : "";
+                    const nameCell = clickable ? `${escapeHtml(row.name)} ›` : escapeHtml(row.name);
+                    const target = Number(row.paidAmountTotal || 0) + Number(row.unpaidAmountTotal || 0);
+                    const pct = getRevenueAchievementPct(row.paidAmountTotal, target);
+                    const pctColor = pct >= 75 ? "#166534" : (pct >= 40 ? "#b45309" : "#9f1239");
+                    html += `<div class="summary-table-row${rowClass}" style="grid-template-columns: 1.2fr 0.95fr 0.95fr 0.7fr;"${attrs}><div>${nameCell}</div><div class="font-black">${formatProgressReportAmount(target)}</div><div class="text-emerald-700 font-black">${formatProgressReportAmount(row.paidAmountTotal)}</div><div style="color:${pctColor}; font-weight:950;">${pct}%</div></div>`;
+                });
+            }
+
+            const totals = (rows || []).filter((row) => row.type !== "SUB_TOTAL" && row.type !== "SUBDN_TOTAL").reduce((acc, row) => {
+                acc.paidAmountTotal += Number(row.paidAmountTotal || 0);
+                acc.unpaidAmountTotal += Number(row.unpaidAmountTotal || 0);
+                return acc;
+            }, { paidAmountTotal: 0, unpaidAmountTotal: 0 });
+            const grandTarget = totals.paidAmountTotal + totals.unpaidAmountTotal;
+            const grandPct = getRevenueAchievementPct(totals.paidAmountTotal, grandTarget);
+
+            html += `</div><div class="summary-footer"><div class="font-black text-slate-800 text-center">TOTAL (${colLabel} SCOPE)</div><div class="mt-2 grid grid-cols-3 gap-2 text-center text-[11px] font-black"><div class="rounded-xl bg-slate-100 border border-slate-200 p-2">Target<br>${formatProgressReportAmount(grandTarget)}</div><div class="rounded-xl bg-emerald-50 border border-emerald-200 p-2">Achieved<br>${formatProgressReportAmount(totals.paidAmountTotal)}</div><div class="rounded-xl bg-blue-50 border border-blue-200 p-2">%<br>${grandPct}%</div></div></div>`;
+            return html;
+        }
+
+        function renderRevenueTargetSummaryCardsHtml(totals) {
+            const target = totals.paidAmountTotal + totals.unpaidAmountTotal;
+            const pct = getRevenueAchievementPct(totals.paidAmountTotal, target);
+            const pctColor = pct >= 75 ? "#166534" : (pct >= 40 ? "#b45309" : "#9f1239");
+            return `
+                <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:8px; width:100%; max-width:360px; margin:12px auto 0;">
+                    <div style="background:#f1f5f9; border-radius:14px; padding:10px 6px; text-align:center;"><div style="font-size:0.56rem; font-weight:850; color:#64748b; text-transform:uppercase;">Target (Net Bill)</div><div style="font-size:0.9rem; font-weight:950; color:#0f172a; margin-top:3px;">${formatProgressReportAmount(target)}</div></div>
+                    <div style="background:#ecfdf5; border-radius:14px; padding:10px 6px; text-align:center;"><div style="font-size:0.56rem; font-weight:850; color:#166534; text-transform:uppercase;">Achieved</div><div style="font-size:0.9rem; font-weight:950; color:#166534; margin-top:3px;">${formatProgressReportAmount(totals.paidAmountTotal)}</div></div>
+                    <div style="background:#eff6ff; border-radius:14px; padding:10px 6px; text-align:center;"><div style="font-size:0.56rem; font-weight:850; color:#1d4ed8; text-transform:uppercase;">Achievement</div><div style="font-size:1.05rem; font-weight:950; color:${pctColor}; margin-top:3px;">${pct}%</div></div>
+                </div>
+                <div style="font-size:0.6rem; font-weight:950; color:#1d4ed8; text-align:center; margin:14px auto 0; max-width:360px; text-transform:uppercase;">${activeViewLevel === "DC" ? "HQ Wise" : "DC Wise"} (tap karke aage drill down karein)</div>
+            `;
+        }
+
+        async function renderRevenueTargetAchievement() {
+            const tableBox = document.getElementById("revenue-target-table");
+            const summaryBox = document.getElementById("revenue-target-summary");
+            const statusBox = document.getElementById("revenue-target-download-status");
+            if (!tableBox) return;
+            const renderToken = ++revenueTargetRenderToken;
+            if (statusBox) statusBox.style.display = "none";
+            if (summaryBox) summaryBox.innerHTML = "";
+            revenueTargetTree = [];
+            revenueTargetDrillPath = [];
+            if (activeDC) activeViewLevel = "DC";
+            else if (activeDiv) activeViewLevel = "DIVISION";
+            else activeViewLevel = "CIRCLE";
+            const isRenderValid = () => renderToken === revenueTargetRenderToken && document.getElementById("revenue-target-achievement-view")?.classList.contains("active");
+            const progress = renderSyncingProgress(tableBox, isRenderValid, "SYNCING LATEST REPORT...");
+            try {
+                const targetDcs = getRevenueCategoryTargetDcs();
+                await Promise.all([
+                    ensureRevenueCategoryMasterDataLoaded(targetDcs),
+                    ensureRevenueCategoryRawPaymentRowsLoaded(),
+                    warmRevenueCategoryUploadedPaidCache()
+                ]);
+                if (!isRenderValid()) { progress.stop(); return; }
+                const mode = revenueTargetMode === "MONTHLY" ? "MONTHLY" : "DAILY";
+                const filterValue = mode === "MONTHLY"
+                    ? (document.getElementById("revenue-target-month")?.value || getTodayIsoDate().slice(0, 7))
+                    : (document.getElementById("revenue-target-date")?.value || getTodayIsoDate());
+                const tree = buildRevenueHqVillagePaidUnpaidTree(mode, filterValue);
+                revenueTargetTree = tree;
+                revenueTargetDrillPath = [];
+                const totals = (tree || []).filter((row) => row.type !== "SUB_TOTAL" && row.type !== "SUBDN_TOTAL").reduce((acc, row) => {
+                    acc.paidAmountTotal += Number(row.paidAmountTotal || 0);
+                    acc.unpaidAmountTotal += Number(row.unpaidAmountTotal || 0);
+                    return acc;
+                }, { paidAmountTotal: 0, unpaidAmountTotal: 0 });
+                await progress.finish();
+                if (!isRenderValid()) return;
+                refreshRevenueTargetViewByOptions();
+                if (summaryBox) summaryBox.innerHTML = renderRevenueTargetSummaryCardsHtml(totals);
+                tableBox.innerHTML = renderRevenueTargetTable();
+            } catch (error) {
+                progress.stop();
+                if (statusBox) {
+                    statusBox.style.display = "block";
+                    statusBox.style.background = "#fff1f2";
+                    statusBox.style.borderColor = "#fda4af";
+                    statusBox.style.color = "#991b1b";
+                    statusBox.innerText = "Report load nahi ho payi";
+                }
+            }
+        }
+
+        function getRevenueTargetReportTitle() {
+            const scope = activeViewLevel === "DC" ? `DC - ${activeDC}` : (activeViewLevel === "DIVISION" ? activeDiv : "SEONI CIRCLE");
+            return `Target vs Achievement Summary - ${scope}`;
+        }
+
+        function getRevenueTargetPeriodDisplay() {
+            if (revenueTargetMode === "MONTHLY") {
+                return formatRevenueMonthYear(document.getElementById("revenue-target-month")?.value || getTodayIsoDate().slice(0, 7));
+            }
+            return formatRevenueDateIndian(normalizeRevenueReportDate(document.getElementById("revenue-target-date")?.value || getCurrentDateDDMMYYYY()));
+        }
+
+        function setRevenueTargetDownloadState(isLoading, message = "", ok = true) {
+            const pdfBtn = document.getElementById("revenue-target-pdf-btn");
+            const excelBtn = document.getElementById("revenue-target-excel-btn");
+            const statusBox = document.getElementById("revenue-target-download-status");
+            const statusMessage = normalizeActionStatusMessage(message, isLoading, ok);
+            [pdfBtn, excelBtn].forEach((btn) => {
+                if (!btn) return;
+                btn.disabled = isLoading;
+                btn.style.opacity = isLoading ? "0.65" : "1";
+                btn.style.pointerEvents = isLoading ? "none" : "auto";
+            });
+            if (!statusBox) return;
+            statusBox.style.display = statusMessage ? "block" : "none";
+            statusBox.style.background = ok ? "#eff6ff" : "#fff1f2";
+            statusBox.style.borderColor = ok ? "#93c5fd" : "#fda4af";
+            statusBox.style.color = ok ? "#1d4ed8" : "#991b1b";
+            statusBox.innerHTML = escapeHtml(statusMessage);
+        }
+
+        function downloadRevenueTargetAchievement(type) {
+            // Download hamesha usi granularity par ho jo abhi screen par select hai
+            // (revenueTargetViewBy) - HQ select hai to sirf HQ-level summary, VILLAGE
+            // select hai to village-level, DC select hai to DC-level. Pehle yahan
+            // "natural level" par purani flattenRevenueTargetRows() (jo hamesha leaf/
+            // village tak flatten karti thi) use ho rahi thi - isi wajah se HQ WISE
+            // select karne par bhi PDF me saari village aa rahi thi. Ab hamesha
+            // buildRevenueTargetFlatRows() hi use hoga, jo screen ke summary jaisa
+            // hi granularity rakhta hai.
+            const flatRows = buildRevenueTargetFlatRows(revenueTargetViewBy);
+            if (!flatRows.length) return showToast("Report ke liye data nahi hai", false);
+            setRevenueTargetDownloadState(true, `${type === "PDF" ? "PDF" : "Excel"} download ho raha hai... kripya wait kijiye`, true);
+            try {
+                const colLabel = revenueTargetViewBy === "DC" ? "DC NAME" : (revenueTargetViewBy === "HQ" ? "HQ NAME" : "VILLAGE");
+                const headers = [colLabel, "TARGET", "ACHIEVED", "%"];
+                const rows = flatRows.map((r) => [r.name, formatProgressReportAmount(r.target), formatProgressReportAmount(r.paidAmountTotal), `${r.pct}%`]);
+                const reportTitle = getRevenueTargetReportTitle();
+                const scopeLine = `Scope: ${activeViewLevel === "DC" ? `DC - ${activeDC}` : (activeViewLevel === "DIVISION" ? `Division - ${activeDiv}` : "Circle - SEONI CIRCLE")}`;
+                const periodLine = `Period: ${getRevenueTargetPeriodDisplay()}`;
+                const suffix = revenueTargetMode === "MONTHLY"
+                    ? (document.getElementById("revenue-target-month")?.value || getTodayIsoDate().slice(0, 7))
+                    : normalizeRevenueReportDate(document.getElementById("revenue-target-date")?.value || getCurrentDateDDMMYYYY());
+                const fileName = `${reportTitle}-${suffix}`.replace(/[\\/:*?"<>|]+/g, "_");
+                if (type === "PDF") {
+                    if (!window.jspdf?.jsPDF) { setRevenueTargetDownloadState(false, "PDF library load nahi hui", false); return; }
+                    const { jsPDF } = window.jspdf;
+                    const doc = new jsPDF({ orientation: "landscape" });
+                    doc.setFontSize(13); doc.text(reportTitle, 148, 12, { align: "center" });
+                    doc.setFontSize(9); doc.text(scopeLine, 148, 19, { align: "center" });
+                    doc.text(periodLine, 148, 25, { align: "center" });
+                    doc.autoTable({ startY: 31, head: [headers], body: rows, theme: "grid", styles: { fontSize: 6, cellPadding: 1, overflow: "linebreak" }, headStyles: { fillColor: [29, 78, 216] } });
+                    savePdfDocumentForDevice(doc, `${fileName}.pdf`);
+                    setRevenueTargetDownloadState(false, "PDF download ho chuki hai", true);
+                    return;
+                }
+                const csvSafe = (value) => { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
+                const csv = [[reportTitle], [scopeLine], [periodLine], [], headers, ...rows].map((row) => row.map(csvSafe).join(",")).join("\n");
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+                link.download = `${fileName}.csv`;
+                link.click();
+                setRevenueTargetDownloadState(false, "Excel download ho chuki hai", true);
+            } catch (error) {
+                setRevenueTargetDownloadState(false, "Download nahi ho paya", false);
+                showToast(error?.message || "Report download nahi ho payi", false);
+            }
+        }
+
+        // =====================================================================
+        // TOP DEFAULTERS (Top 20 / Top 50) - Cash List ke baad jo balance/pending
+        // reh gaya (Net Bill, jo consumer abhi tak unpaid hai), usi ko sabse zyada
+        // bakaya wale order me sort karke dikhate hain. Same buildRevenueHqVillage-
+        // ConsumerRows() data reuse karte hain jo particular-list section use karta hai.
+        // =====================================================================
+        let revenueDefaultersLimit = 20;
+        let revenueDefaultersRows = [];
+        let revenueDefaultersRenderToken = 0;
+
+        function initRevenueTopDefaulters() {
+            const dateInput = document.getElementById("revenue-defaulters-date");
+            if (dateInput && !dateInput.value) dateInput.value = getTodayIsoDate();
+            setRevenueDefaultersButtonState();
+            renderRevenueTopDefaulters();
+        }
+
+        function setRevenueDefaultersButtonState() {
+            const top20Btn = document.getElementById("revenue-defaulters-top20-btn");
+            const top50Btn = document.getElementById("revenue-defaulters-top50-btn");
+            if (top20Btn) {
+                top20Btn.style.background = revenueDefaultersLimit === 20 ? "#9f1239" : "#ffe4e6";
+                top20Btn.style.color = revenueDefaultersLimit === 20 ? "#ffffff" : "#9f1239";
+            }
+            if (top50Btn) {
+                top50Btn.style.background = revenueDefaultersLimit === 50 ? "#9f1239" : "#ffe4e6";
+                top50Btn.style.color = revenueDefaultersLimit === 50 ? "#ffffff" : "#9f1239";
+            }
+        }
+
+        function setRevenueDefaultersLimit(limit) {
+            revenueDefaultersLimit = limit === 50 ? 50 : 20;
+            setRevenueDefaultersButtonState();
+            renderRevenueTopDefaulters();
+        }
+
+        function onRevenueDefaultersHqChange() {
+            const hqValue = document.getElementById("revenue-defaulters-hq")?.value || "";
+            const allRows = revenueDefaultersRows;
+            const scoped = allRows.filter((row) => !hqValue || normalizeLookupValue(row.hqName) === normalizeLookupValue(hqValue));
+            populateRevenueSelect(document.getElementById("revenue-defaulters-village"), getRevenueUniqueValues(scoped, "village"), "All Villages");
+            renderRevenueDefaultersTable();
+        }
+
+        function getRevenueDefaultersFilteredRows() {
+            const hqValue = document.getElementById("revenue-defaulters-hq")?.value || "";
+            const villageValue = document.getElementById("revenue-defaulters-village")?.value || "";
+            return revenueDefaultersRows
+                .filter((row) => (
+                    (!hqValue || normalizeLookupValue(row.hqName) === normalizeLookupValue(hqValue))
+                    && (!villageValue || normalizeLookupValue(row.village) === normalizeLookupValue(villageValue))
+                ))
+                .sort((a, b) => b.pendingAmount - a.pendingAmount)
+                .slice(0, revenueDefaultersLimit);
+        }
+
+        function renderRevenueDefaultersTable() {
+            const statusBox = document.getElementById("revenue-defaulters-status-box");
+            const tableBox = document.getElementById("revenue-defaulters-table");
+            if (!statusBox || !tableBox) return;
+            const rows = getRevenueDefaultersFilteredRows();
+            const hqValue = document.getElementById("revenue-defaulters-hq")?.value || "";
+            const villageValue = document.getElementById("revenue-defaulters-village")?.value || "";
+            statusBox.innerHTML = `Showing: <strong>Top ${revenueDefaultersLimit}</strong> | HQ: ${escapeHtml(hqValue || "All HQ")} | Village: ${escapeHtml(villageValue || "All Villages")} | Found: ${rows.length}`;
+            if (!rows.length) {
+                tableBox.innerHTML = `<div style="background:#ecfdf5; border:1.5px solid #86efac; border-radius:14px; padding:14px; color:#047857; font-size:0.8rem; font-weight:900; text-align:center; margin-top:10px;">Is filter me koi bakaya consumer nahi mila.</div>`;
+                return;
+            }
+            let html = `<div class="summary-wrapper"><div class="summary-table-header" style="grid-template-columns: 0.4fr 1.3fr 0.85fr 1fr;"><div>#</div><div>CONSUMER</div><div>MOBILE</div><div>PENDING</div></div>`;
+            rows.forEach((row, index) => {
+                html += `<div class="summary-table-row" style="grid-template-columns: 0.4fr 1.3fr 0.85fr 1fr;"><div class="font-black">${index + 1}</div><div>${escapeHtml(row.consumerName || "-")}<br><span style="font-size:0.58rem; color:#64748b;">${escapeHtml(row.hqName)} / ${escapeHtml(row.village)}</span></div><div style="font-size:0.68rem;">${escapeHtml(row.mobileNo || "-")}</div><div class="text-rose-700 font-black">${formatProgressReportAmount(row.pendingAmount)}</div></div>`;
+            });
+            html += `</div>`;
+            tableBox.innerHTML = html;
+        }
+
+        async function renderRevenueTopDefaulters() {
+            const tableBox = document.getElementById("revenue-defaulters-table");
+            const statusBox = document.getElementById("revenue-defaulters-status-box");
+            const downloadStatusBox = document.getElementById("revenue-defaulters-download-status");
+            if (!tableBox) return;
+            const renderToken = ++revenueDefaultersRenderToken;
+            if (downloadStatusBox) downloadStatusBox.style.display = "none";
+            revenueDefaultersRows = [];
+            if (activeDC) activeViewLevel = "DC";
+            else if (activeDiv) activeViewLevel = "DIVISION";
+            else activeViewLevel = "CIRCLE";
+            const isRenderValid = () => renderToken === revenueDefaultersRenderToken && document.getElementById("revenue-top-defaulters-view")?.classList.contains("active");
+            const progress = renderSyncingProgress(tableBox, isRenderValid, "SYNCING LATEST REPORT...");
+            try {
+                const targetDcs = getRevenueCategoryTargetDcs();
+                await Promise.all([
+                    ensureRevenueCategoryMasterDataLoaded(targetDcs),
+                    ensureRevenueCategoryRawPaymentRowsLoaded(),
+                    warmRevenueCategoryUploadedPaidCache()
+                ]);
+                if (!isRenderValid()) { progress.stop(); return; }
+                const dateValue = document.getElementById("revenue-defaulters-date")?.value || getTodayIsoDate();
+                const consumerRows = buildRevenueHqVillageConsumerRows("DAILY", dateValue);
+                revenueDefaultersRows = consumerRows
+                    .filter((row) => !row.paid)
+                    .map((row) => ({ ...row, pendingAmount: parseRevenuePaidAmount(row.netBill || 0) }))
+                    .filter((row) => row.pendingAmount > 0);
+                await progress.finish();
+                if (!isRenderValid()) return;
+                const hqSelect = document.getElementById("revenue-defaulters-hq");
+                const villageSelect = document.getElementById("revenue-defaulters-village");
+                populateRevenueSelect(hqSelect, getRevenueUniqueValues(revenueDefaultersRows, "hqName"), "All HQ");
+                populateRevenueSelect(villageSelect, getRevenueUniqueValues(revenueDefaultersRows, "village"), "All Villages");
+                if (hqSelect) hqSelect.value = "";
+                if (villageSelect) villageSelect.value = "";
+                renderRevenueDefaultersTable();
+            } catch (error) {
+                progress.stop();
+                if (statusBox) statusBox.innerText = "Report load nahi ho payi";
+            }
+        }
+
+        function getRevenueDefaultersReportTitle() {
+            const scope = activeViewLevel === "DC" ? `DC - ${activeDC}` : (activeViewLevel === "DIVISION" ? activeDiv : "SEONI CIRCLE");
+            return `Top ${revenueDefaultersLimit} Defaulters - ${scope}`;
+        }
+
+        function setRevenueDefaultersDownloadState(isLoading, message = "", ok = true) {
+            const pdfBtn = document.getElementById("revenue-defaulters-pdf-btn");
+            const excelBtn = document.getElementById("revenue-defaulters-excel-btn");
+            const statusBox = document.getElementById("revenue-defaulters-download-status");
+            const statusMessage = normalizeActionStatusMessage(message, isLoading, ok);
+            [pdfBtn, excelBtn].forEach((btn) => {
+                if (!btn) return;
+                btn.disabled = isLoading;
+                btn.style.opacity = isLoading ? "0.65" : "1";
+                btn.style.pointerEvents = isLoading ? "none" : "auto";
+            });
+            if (!statusBox) return;
+            statusBox.style.display = statusMessage ? "block" : "none";
+            statusBox.style.background = ok ? "#ecfdf5" : "#fff1f2";
+            statusBox.style.borderColor = ok ? "#86efac" : "#fda4af";
+            statusBox.style.color = ok ? "#166534" : "#991b1b";
+            statusBox.innerHTML = escapeHtml(statusMessage);
+        }
+
+        function downloadRevenueTopDefaulters(type) {
+            const rows = getRevenueDefaultersFilteredRows();
+            if (!rows.length) return showToast("Download ke liye data nahi hai", false);
+            setRevenueDefaultersDownloadState(true, `${type === "PDF" ? "PDF" : "Excel"} download ho raha hai... kripya wait kijiye`, true);
+            try {
+                const headers = ["RANK", "IVRS NO", "CONSUMER NAME", "HQ NAME", "VILLAGE", "MOBILE NO", "PENDING AMOUNT"];
+                const bodyRows = rows.map((row, index) => [index + 1, row.ivrsNo || "", row.consumerName || "", row.hqName || "", row.village || "", row.mobileNo || "", formatProgressReportAmount(row.pendingAmount)]);
+                const reportTitle = getRevenueDefaultersReportTitle();
+                const scopeLine = `Scope: ${activeViewLevel === "DC" ? `DC - ${activeDC}` : (activeViewLevel === "DIVISION" ? `Division - ${activeDiv}` : "Circle - SEONI CIRCLE")}`;
+                const periodLine = `Date: ${formatRevenueDateIndian(normalizeRevenueReportDate(document.getElementById("revenue-defaulters-date")?.value || getCurrentDateDDMMYYYY()))}`;
+                const suffix = normalizeRevenueReportDate(document.getElementById("revenue-defaulters-date")?.value || getCurrentDateDDMMYYYY());
+                const fileName = `${reportTitle}-${suffix}`.replace(/[\\/:*?"<>|]+/g, "_");
+                if (type === "PDF") {
+                    if (!window.jspdf?.jsPDF) { setRevenueDefaultersDownloadState(false, "PDF library load nahi hui", false); return; }
+                    const { jsPDF } = window.jspdf;
+                    const doc = new jsPDF({ orientation: "landscape" });
+                    doc.setFontSize(13); doc.text(reportTitle, 148, 12, { align: "center" });
+                    doc.setFontSize(9); doc.text(scopeLine, 148, 19, { align: "center" });
+                    doc.text(periodLine, 148, 25, { align: "center" });
+                    doc.autoTable({ startY: 31, head: [headers], body: bodyRows, theme: "grid", styles: { fontSize: 6, cellPadding: 1, overflow: "linebreak" }, headStyles: { fillColor: [159, 18, 57] } });
+                    savePdfDocumentForDevice(doc, `${fileName}.pdf`);
+                    setRevenueDefaultersDownloadState(false, "PDF download ho chuki hai", true);
+                    return;
+                }
+                const csvSafe = (value) => { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
+                const csv = [[reportTitle], [scopeLine], [periodLine], [], headers, ...bodyRows].map((row) => row.map(csvSafe).join(",")).join("\n");
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+                link.download = `${fileName}.csv`;
+                link.click();
+                setRevenueDefaultersDownloadState(false, "Excel download ho chuki hai", true);
+            } catch (error) {
+                setRevenueDefaultersDownloadState(false, "Download nahi ho paya", false);
+                showToast(error?.message || "Report download nahi ho payi", false);
+            }
+        }
+
+        // =====================================================================
         // PARTICULAR LIST (HQ -> Village -> Category -> Paid/Unpaid dropdown pull)
         // Same paid-detection data (buildRevenueCategoryUploadedPaidInfo) jo summary
         // banata hai usi se ek flat per-consumer list bhi bana lete hain, taaki dropdown
@@ -13366,6 +14408,9 @@
                 if (id === "mobile-update" && activeDC) {
                     ensureDcDataLoaded(activeDC);
                 }
+                if (id === "mobile-update-report") {
+                    initMobileUpdateReport();
+                }
                 if (id === "revenue-collection") {
                     initRevenueCollection();
                 }
@@ -13380,6 +14425,12 @@
                 }
                 if (id === "revenue-hq-village") {
                     initRevenueHqVillageReport();
+                }
+                if (id === "revenue-target-achievement") {
+                    initRevenueTargetAchievement();
+                }
+                if (id === "revenue-top-defaulters") {
+                    initRevenueTopDefaulters();
                 }
                 if (id === "revenue-pending-list") {
                     initRevenuePendingList();
@@ -13441,6 +14492,8 @@
                 if (id === "revenue-report-download") headerTitle = "REPORT DOWNLOAD";
                 if (id === "revenue-cash-reconcile") headerTitle = "PAID BY STAFF VS NGB CASH LIST";
                 if (id === "revenue-hq-village") headerTitle = "HQ / VILLAGE WISE PAID-UNPAID";
+                if (id === "revenue-target-achievement") headerTitle = "TARGET VS ACHIEVEMENT %";
+                if (id === "revenue-top-defaulters") headerTitle = "TOP 20/50 DEFAULTERS";
                 if (id === "revenue-pending-list") headerTitle = "PENDING DO LIST";
                 if (id === "revenue-paid-upload") headerTitle = "ADMIN UPLOAD CASH LIST";
                 if (id === "revenue-message-login") headerTitle = "SEND MESSAGE";
@@ -13451,13 +14504,16 @@
                 if (id === "low-stock") headerTitle = "LOW STOCK";
                 if (id === "stock-report") headerTitle = "STOCK REPORT";
                 if (id === "mobile-update") headerTitle = "UPDATE MOBILE NO";
+                if (id === "mobile-update-report") headerTitle = "MOBILE UPDATE REPORT";
                 if (id === "summary") headerTitle = "PROGRESS REPORT";
                 document.getElementById("main-header-title").innerText = headerTitle;
                 const header = document.getElementById("app-header");
                 const headerMenuWrap = document.getElementById("header-menu-wrap");
-                const revenueMenuVisible = (id === "revenue-collection" || id === "revenue-live-progress" || id === "revenue-report-download" || id === "revenue-hq-village" || id === "revenue-cash-reconcile" || id === "revenue-pending-list" || id === "revenue-paid-upload");
-                if (headerMenuWrap) headerMenuWrap.style.display = (revenueMenuVisible || id === "subdn-chhapara") ? "block" : "none";
+                const revenueMenuVisible = (id === "revenue-collection" || id === "revenue-live-progress" || id === "revenue-report-download" || id === "revenue-hq-village" || id === "revenue-target-achievement" || id === "revenue-top-defaulters" || id === "revenue-cash-reconcile" || id === "revenue-pending-list" || id === "revenue-paid-upload");
+                const mobileUpdateMenuVisible = (id === "mobile-update");
+                if (headerMenuWrap) headerMenuWrap.style.display = (revenueMenuVisible || mobileUpdateMenuVisible || id === "subdn-chhapara") ? "block" : "none";
                 document.querySelectorAll(".revenue-header-menu-item").forEach((item) => item.style.display = revenueMenuVisible ? "block" : "none");
+                document.querySelectorAll(".mobile-update-header-menu-item").forEach((item) => item.style.display = mobileUpdateMenuVisible ? "block" : "none");
                 const staffAdminMenuItem = document.getElementById("staff-admin-header-menu-item");
                 if (staffAdminMenuItem) staffAdminMenuItem.style.display = id === "subdn-chhapara" ? "block" : "none";
                 closeHeaderMenu();
@@ -13467,10 +14523,10 @@
                     document.documentElement.style.setProperty("--theme-grad", "linear-gradient(135deg, #0d9488 0%, #0f766e 100%)");
                     header.className = "app-header bg-teal-grad";
                     prewarmGpsCameraLocationIfAllowed();
-                } else if (id === "mobile-update") {
+                } else if (id === "mobile-update" || id === "mobile-update-report") {
                     header.className = "app-header bg-red-grad";
                     if (searchBtn) searchBtn.style.background = "linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)";
-                } else if (id === "revenue-collection" || id === "revenue-live-progress" || id === "revenue-report-download" || id === "revenue-hq-village" || id === "revenue-cash-reconcile" || id === "revenue-pending-list" || id === "revenue-paid-upload" || id === "revenue-message-login") {
+                } else if (id === "revenue-collection" || id === "revenue-live-progress" || id === "revenue-report-download" || id === "revenue-hq-village" || id === "revenue-target-achievement" || id === "revenue-top-defaulters" || id === "revenue-cash-reconcile" || id === "revenue-pending-list" || id === "revenue-paid-upload" || id === "revenue-message-login") {
                     header.className = "app-header bg-blue-grad";
                     if (searchBtn) searchBtn.style.background = "linear-gradient(135deg, #38bdf8 0%, #0369a1 100%)";
                 } else if (id === "staff-admin") {
@@ -13577,8 +14633,12 @@
                 switchView("revenue-collection");
             } else if (act === "revenue-hq-village-view" && revenueHqVillageDrillPath.length) {
                 popRevenueHqVillageDrill();
-            } else if (act === "revenue-live-progress-view" || act === "revenue-report-download-view" || act === "revenue-hq-village-view" || act === "revenue-cash-reconcile-view" || act === "revenue-pending-list-view" || act === "revenue-paid-upload-view") {
+            } else if (act === "revenue-target-achievement-view" && revenueTargetDrillPath.length) {
+                popRevenueTargetDrill();
+            } else if (act === "revenue-live-progress-view" || act === "revenue-report-download-view" || act === "revenue-hq-village-view" || act === "revenue-target-achievement-view" || act === "revenue-top-defaulters-view" || act === "revenue-cash-reconcile-view" || act === "revenue-pending-list-view" || act === "revenue-paid-upload-view") {
                 switchView("revenue-collection");
+            } else if (act === "mobile-update-report-view") {
+                switchView("mobile-update");
             } else if (act === "dc-dashboard-view" || act === "mobile-update-view" || act === "revenue-collection-view") {
                 if (act === "mobile-update-view") {
                     resetForm(true);
