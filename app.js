@@ -523,42 +523,42 @@
             if (tableBox) tableBox.innerHTML = renderMobileUpdateReportTableHtml();
         }
 
-        // mobileAlreadySubmittedMap ka "date" field backend se DD/MM/YYYY, DD-MM-YYYY, ya
-        // YYYY-MM-DD kisi bhi format me aa sakta hai (submitToSheet() khud toLocaleDateString
-        // "en-GB" se DD/MM/YYYY bhejta hai) - isliye yahan sabhi common format handle kiye hain.
-        function parseMobileUpdateDateParts(raw) {
-            const s = String(raw || "").trim();
-            let m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
-            if (m) return { day: m[1].padStart(2, "0"), month: m[2].padStart(2, "0"), year: m[3] };
-            m = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
-            if (m) return { day: m[3].padStart(2, "0"), month: m[2].padStart(2, "0"), year: m[1] };
-            return null;
-        }
-
-        function isMobileUpdateEntryInPeriod(entry, period) {
-            if (!entry) return false;
-            if (!period || period.mode === "ALL") return true;
-            const parts = parseMobileUpdateDateParts(entry.date);
-            if (!parts) return false;
-            if (period.mode === "MONTHLY") return parts.month === period.month && parts.year === period.year;
-            return parts.day === period.day && parts.month === period.month && parts.year === period.year;
-        }
-
+        // Pehle yahan mobileAlreadySubmittedMap (jo sirf per-consumer LATEST entry
+        // rakhta hai) aur apna khud ka date-parser use ho raha tha - usi wajah se
+        // month-wise 0 aa raha tha jabki "Progress Report > Updated Mobile No" tab me
+        // sahi count dikhta tha. Ab exact wahi proven logic reuse kar rahe hain jo us
+        // tab me use hoti hai: raw cloudData (action=getSummary) + matchesProgressDate().
         function getMobileUpdateReportPeriod() {
             if (mobileUpdateReportMode === "DAILY") {
                 const raw = document.getElementById("mobile-update-report-date")?.value || getTodayIsoDate();
-                const [day, month, year] = normalizeRevenueReportDate(raw).split("-");
-                return { mode: "DAILY", day, month, year };
+                const parsed = parseSummarySelection(raw, "DAILY");
+                return { mode: "DAILY", dStr: parsed.daily, mStr: parsed.monthly, label: parsed.label };
             }
             if (mobileUpdateReportMode === "MONTHLY") {
                 const raw = document.getElementById("mobile-update-report-month")?.value || getTodayIsoDate().slice(0, 7);
-                const [year, month] = raw.split("-");
-                return { mode: "MONTHLY", month, year };
+                const parsed = parseSummarySelection(raw, "MONTHLY");
+                return { mode: "MONTHLY", dStr: parsed.daily, mStr: parsed.monthly, label: parsed.label };
             }
             return { mode: "ALL" };
         }
 
-        function buildMobileUpdateReportData(rows, dcName, period) {
+        function buildMobileUpdateReportData(rows, dcName, cloudData, period) {
+            const normDc = normalizeDcName(dcName);
+            const updatedIvrsSet = new Set();
+            (cloudData || []).forEach((u) => {
+                const uDc = (u.dc || "").trim().toUpperCase();
+                if (uDc !== normDc) return;
+                const mobileVal = u.correct_mobile || "";
+                const hasMobile = mobileVal.toString().trim().length === 10;
+                if (!hasMobile) return;
+                if (period.mode !== "ALL") {
+                    const ts = (u.date || "").trim();
+                    if (!matchesProgressDate(ts, period.mode, period.dStr, period.mStr)) return;
+                }
+                const ivrs = normalizeLookupDigits(u.ivrs || "");
+                if (ivrs) updatedIvrsSet.add(ivrs);
+            });
+
             const hqMap = {};
             let totalConsumer = 0, totalUpdated = 0;
             rows.forEach((row) => {
@@ -568,7 +568,7 @@
                 const village = String(row.village || "UNKNOWN").trim().toUpperCase() || "UNKNOWN";
                 if (!hqMap[hqName]) hqMap[hqName] = { total: 0, updated: 0, villages: {} };
                 if (!hqMap[hqName].villages[village]) hqMap[hqName].villages[village] = { total: 0, updated: 0 };
-                const isUpdated = isMobileUpdateEntryInPeriod(getMobileAlreadySubmittedEntry(dcName, ivrs), period);
+                const isUpdated = updatedIvrsSet.has(ivrs);
                 hqMap[hqName].total++;
                 hqMap[hqName].villages[village].total++;
                 totalConsumer++;
@@ -641,11 +641,11 @@
             try {
                 if (!dcName) throw new Error("DC select nahi hai");
                 await ensureConsumerDataLoadedFor([dcName]);
-                await loadMobileAlreadySubmittedMap();
+                const cloudData = await loadRemoteJson(`${scriptURL}?action=getSummary`);
                 if (!isRenderValid()) { progress.stop(); return; }
                 const rows = getConsumerRows(dcName).map(mapRevenueConsumerRow).filter((row) => normalizeLookupDigits(row.ivrsNo));
                 const period = getMobileUpdateReportPeriod();
-                mobileUpdateReportTree = buildMobileUpdateReportData(rows, dcName, period);
+                mobileUpdateReportTree = buildMobileUpdateReportData(rows, dcName, cloudData, period);
                 await progress.finish();
                 if (!isRenderValid()) return;
                 if (summaryBox) summaryBox.innerHTML = renderMobileUpdateReportSummaryHtml(mobileUpdateReportTree);
@@ -690,7 +690,7 @@
                 const headers = [colLabel, "TOTAL", "UPDATED", "PENDING"];
                 const bodyRows = rows.map((row) => [row.name, row.total, row.updated, row.total - row.updated]);
                 const period = getMobileUpdateReportPeriod();
-                const periodLabel = period.mode === "DAILY" ? `${period.day}/${period.month}/${period.year}` : (period.mode === "MONTHLY" ? `${period.month}/${period.year}` : "All Time");
+                const periodLabel = period.mode === "ALL" ? "All Time" : (period.label || period.dStr || period.mStr || "All Time");
                 const reportTitle = `Mobile No Update Report - DC ${activeDC}`;
                 const scopeLine = `Scope: DC - ${activeDC}`;
                 const periodLine = `Period: ${periodLabel}`;
