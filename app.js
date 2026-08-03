@@ -9242,13 +9242,30 @@
         function renderRevenueMobileActionRow(mobileNo) {
             const validMobile = normalizeRevenueMessageMobile(mobileNo);
             const disabledStyle = validMobile ? "" : "opacity:0.45; pointer-events:none;";
+            // "UPDATE MOBILE NO" chautha button - Update Mobile No jaisa hi red rang, aur
+            // CALL button ka rang ab peela (yellow) kar diya hai (pehle CALL hi red tha).
+            // Yeh button IVRS search ke isi record ke sath seedha Update Mobile No screen
+            // par le jaata hai (dobara IVRS search karne ki zaroorat nahi) - sabhi 24 DC
+            // par same tarike se kaam karta hai kyunki yeh sirf activeDC + currentRevenueRecord
+            // use karta hai (DC-specific hardcoding nahi hai).
             return `
-                <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; margin-top:7px; ${disabledStyle}">
+                <div style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:6px; margin-top:7px; ${disabledStyle}">
                     <button type="button" onclick="openCurrentRevenueSms()" style="min-height:36px; border:none; border-radius:10px; background:#2563eb; color:#fff; font-size:0.6rem; font-weight:950;">SMS</button>
                     <button type="button" onclick="openCurrentRevenueWhatsApp()" style="min-height:36px; border:none; border-radius:10px; background:#16a34a; color:#fff; font-size:0.58rem; font-weight:950;">WHATSAPP</button>
-                    <button type="button" onclick="callCurrentRevenueConsumer()" style="min-height:36px; border:none; border-radius:10px; background:#dc2626; color:#fff; font-size:0.6rem; font-weight:950;">CALL</button>
+                    <button type="button" onclick="callCurrentRevenueConsumer()" style="min-height:36px; border:none; border-radius:10px; background:#f59e0b; color:#fff; font-size:0.6rem; font-weight:950;">CALL</button>
+                    <button type="button" onclick="jumpToUpdateMobileNoFromRevenue()" style="min-height:36px; border:none; border-radius:10px; background:#dc2626; color:#fff; font-size:0.52rem; font-weight:950; line-height:1.1;">UPDATE<br>MOBILE NO</button>
                 </div>
             `;
+        }
+
+        function jumpToUpdateMobileNoFromRevenue() {
+            const record = currentRevenueRecord;
+            const ivrsNo = normalizeRevenueIvrs(record?.ivrsNo);
+            if (!ivrsNo) return showToast("Pehle IVRS search kijiye", false);
+            switchView("mobile-update");
+            const searchInput = document.getElementById("search-ivrs");
+            if (searchInput) searchInput.value = ivrsNo;
+            performSearch();
         }
 
         function copyRevenueText(value) {
