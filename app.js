@@ -1470,9 +1470,16 @@
         }
 
         async function fetchUploadedPaidEntriesWithRetry_(dcName, attempts = 2) {
+            // NOTE: Kuch DC (jaise SEONI (T) - 33,000+ paid records) ka uploaded-paid
+            // data itna bada hai ki Apps Script se poora JSON (payment_rows sahit)
+            // padhne/bhejne me 45 second se zyada time lag sakta hai - pehle 45s
+            // timeout par yeh fetch fail ho jaata tha aur paid-set khaali reh jaata
+            // tha, jisse Pending DO List me saare paid consumer bhi galti se
+            // "pending" dikhte the. Ab bade DC ke liye bhi safely poora data aane
+            // deta hai (90s per attempt).
             for (let attempt = 1; attempt <= attempts; attempt++) {
                 const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
-                const timer = setTimeout(() => { try { if (controller) controller.abort(); } catch (_) {} }, 45000);
+                const timer = setTimeout(() => { try { if (controller) controller.abort(); } catch (_) {} }, 90000);
                 try {
                     const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getUploadedPaidEntries&dc_name=${encodeURIComponent(dcName)}&t=${Date.now()}`, controller ? { signal: controller.signal } : {});
                     const parsed = await response.json();
@@ -10231,7 +10238,7 @@
             try {
                 const dcKey = getRevenueCollectionDcKey(activeDC);
                 const fallbackRows = revenueCollectionRowsByDc[dcKey] || getConsumerRows(activeDC).map(mapRevenueConsumerRow);
-                const loadedRows = await withTimeout(loadRevenueCollectionData(activeDC, true), 30000, []);
+                const loadedRows = await withTimeout(loadRevenueCollectionData(activeDC, true), 45000, []);
                 const rows = loadedRows.length ? loadedRows : fallbackRows;
                 populateRevenueSelect(hqSelect, getRevenueUniqueValues(rows, "hqName"), "Select HQ Name");
                 setRevenueMessageAuthStatus("Apni details bharkar 6-digit PIN banaiye", true);
@@ -10649,7 +10656,7 @@
                 const dcKey = getRevenueCollectionDcKey(activeDC);
                 const fallbackRows = revenueCollectionRowsByDc[dcKey] || getConsumerRows(activeDC).map(mapRevenueConsumerRow).filter((row) => normalizeRevenueIvrs(row.ivrsNo));
                 const [freshRows, paidSet] = await Promise.all([
-                    withTimeout(loadRevenueCollectionData(activeDC, true), 30000, []),
+                    withTimeout(loadRevenueCollectionData(activeDC, true), 45000, []),
                     getRevenuePendingPaidIvrsSet()
                 ]);
                 if (refreshToken !== revenuePendingPaidRefreshToken) { if (pendingListProgress) pendingListProgress.stop(); return; }
@@ -11171,6 +11178,22 @@
             `;
         }
 
+        function convertUploadedDateToDDMMYYYY(value) {
+            // Backend ("getUploadedPaidEntries") ka "uploaded_date" field US locale
+            // (MM/DD/YYYY) me likha hua hota hai - confirmed via actual backend
+            // response check (aaj 03/08/2026 ko upload hua data "08/03/2026" (Aug/03)
+            // ban kar aaya, "03/08/2026" nahi). Isliye yahan month/day swap karke
+            // DD/MM/YYYY banate hain, taaki freshness-ticker aaj ki date se sahi match
+            // kar sake.
+            const raw = String(value || "").trim();
+            const match = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+            if (!match) return normalizeRevenueReportDate(raw);
+            const month = match[1].padStart(2, "0");
+            const day = match[2].padStart(2, "0");
+            const year = match[3];
+            return `${day}/${month}/${year}`;
+        }
+
         async function checkRevenueUploadFreshness() {
             const box = document.getElementById("revenue-upload-freshness-ticker");
             if (!box) return;
@@ -11195,7 +11218,7 @@
                 const uploadedToday = parsed?.status === "success" && entries.some((entry) => {
                     const rawDate = String(entry?.uploaded_date || entry?.uploadedDate || "").trim();
                     if (!rawDate) return false;
-                    return formatRevenueDateIndian(normalizeRevenueReportDate(rawDate)) === todayDDMMYYYY;
+                    return convertUploadedDateToDDMMYYYY(rawDate) === todayDDMMYYYY;
                 });
                 if (uploadedToday) {
                     box.style.display = "none";
