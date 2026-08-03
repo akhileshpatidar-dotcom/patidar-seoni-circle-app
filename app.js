@@ -1954,21 +1954,32 @@
                 doc.setFontSize(8.5);
                 doc.setTextColor(29, 78, 216);
                 doc.text("TABLE 1: DOMESTIC / NON DOMESTIC / PUBLIC WATER WORKS AND STREET LIGHTS", 14, startY);
+                // NOTE: Pehle fontSize 6.5/cellPadding 1.3 the aur HQ NAME column ki
+                // width fix nahi thi - lambe combined HQ names (jaise "KAMAL KUMAR
+                // DESHMUKH+RAKESH BAGHEL") 2-line me wrap ho jaate the, jisse row height
+                // badh jaati thi aur Table 2 ke aakhri 1-2 row + Grand Total agle page
+                // par chale jaate the. Ab font/padding thoda chhota kiya hai aur HQ NAME
+                // column ki width fix (42mm) kar di hai taaki wrap na ho - isse dono
+                // table ek hi landscape page me fit ho jaate hain.
+                const categoryLeadingColumnStyles = activeViewLevel === "CIRCLE"
+                    ? { 0: { halign: "left", cellWidth: 26 }, 1: { halign: "left", cellWidth: 42 } }
+                    : { 0: { halign: "left", cellWidth: 46 } };
                 doc.autoTable({
                     startY: startY + 3,
                     head: groupedHeadFor(groupACategories.map(getRevenueCategoryDisplayLabel)),
                     body: chunk.chunkRows.map(rowToArrayA),
                     foot: isLastChunk ? [grandRowA] : undefined,
                     theme: "grid",
-                    styles: { fontSize: 6.5, cellPadding: 1.3, overflow: "linebreak", halign: "center", lineWidth: 0.12 },
-                    headStyles: { fillColor: [37, 99, 235], halign: "center", fontSize: 6.5, lineColor: [15, 23, 42], lineWidth: 0.25 },
-                    columnStyles: { 0: { halign: "left" }, 1: { halign: activeViewLevel === "CIRCLE" ? "left" : "center" } },
+                    styles: { fontSize: 6, cellPadding: 0.9, overflow: "linebreak", halign: "center", lineWidth: 0.12 },
+                    headStyles: { fillColor: [37, 99, 235], halign: "center", fontSize: 6, lineColor: [15, 23, 42], lineWidth: 0.25 },
+                    columnStyles: categoryLeadingColumnStyles,
                     footStyles: { fillColor: [241, 245, 249], textColor: [190, 18, 60], fontStyle: "bold", halign: "center" },
+                    margin: { left: 8, right: 8, bottom: 8 },
                     didParseCell: highlightTotalRows
                 });
                 // TABLE 2: LT INDUSTRIAL / AGRICULTURE / TOTAL (TOTAL block ab % ke saath)
-                let table2StartY = (doc.lastAutoTable?.finalY || startY + 3) + 10;
-                if (table2StartY > 180) {
+                let table2StartY = (doc.lastAutoTable?.finalY || startY + 3) + 6;
+                if (table2StartY > 190) {
                     doc.addPage();
                     table2StartY = 20;
                 }
@@ -1981,10 +1992,11 @@
                     body: chunk.chunkRows.map(rowToArrayB),
                     foot: isLastChunk ? [grandRowB] : undefined,
                     theme: "grid",
-                    styles: { fontSize: 6.5, cellPadding: 1.3, overflow: "linebreak", halign: "center", lineWidth: 0.12 },
-                    headStyles: { fillColor: [37, 99, 235], halign: "center", fontSize: 6.5, lineColor: [15, 23, 42], lineWidth: 0.25 },
-                    columnStyles: { 0: { halign: "left" }, 1: { halign: activeViewLevel === "CIRCLE" ? "left" : "center" } },
+                    styles: { fontSize: 6, cellPadding: 0.9, overflow: "linebreak", halign: "center", lineWidth: 0.12 },
+                    headStyles: { fillColor: [37, 99, 235], halign: "center", fontSize: 6, lineColor: [15, 23, 42], lineWidth: 0.25 },
+                    columnStyles: categoryLeadingColumnStyles,
                     footStyles: { fillColor: [241, 245, 249], textColor: [190, 18, 60], fontStyle: "bold", halign: "center" },
+                    margin: { left: 8, right: 8, bottom: 8 },
                     didParseCell: highlightTotalRows
                 });
             });
