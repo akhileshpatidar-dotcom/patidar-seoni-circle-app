@@ -124,6 +124,7 @@
         let progressRevenueReportType = "STAFF";
         let progressRevenueDefaultersLimit = 20;
         let progressDefaultersGovtFilter = "";
+        let progressStaffTypeFilter = "";
         let lastRevenueProgressBoxData = null;
         let lastRevenueProgressStaffData = null;
         let suppressHistoryPush = false;
@@ -2319,6 +2320,7 @@
             progressRevenueReportType = validValues.includes(value) ? value : "STAFF";
             resetProgressNonPayeeFilterState();
             progressDefaultersGovtFilter = "";
+            progressStaffTypeFilter = "";
             const body = document.getElementById("progress-revenue-body");
             if (body) body.innerHTML = renderProgressRevenueBodyInner();
         }
@@ -2372,21 +2374,51 @@
         // "Paid by Staff" (jo pehle hamesha upar dikhta tha) ab bhi wahi table hai, sirf
         // ab dropdown se select hone par hi dikhta hai - baaki 3 report type isi jagah
         // (usi #progress-revenue-body me) unke apne render se replace ho jate hain.
+        function setProgressStaffTypeFilter(value) {
+            progressStaffTypeFilter = ["PAID", "TD"].includes(value) ? value : "";
+            const body = document.getElementById("progress-revenue-body");
+            if (body) body.innerHTML = renderProgressRevenueBodyInner();
+        }
+
+        // Paid by Staff aur TD by Staff dono ka data ek hi jagah (rows me paidCount/
+        // paidAmount/tdCount/tdAmount saath) already aata hai - isliye alag se koi naya
+        // fetch nahi chahiye, sirf yeh dropdown decide karta hai ki table/export me kaunsa
+        // column set dikhana hai (dono / sirf Paid / sirf TD).
         function renderRevenueProgressStaffBodyHtml(rows, label) {
             const colLabel = getRevenueProgressColumnLabel();
             const totals = getRevenueProgressTotals(rows);
-            let html = `<div class="summary-wrapper"><div class="summary-table-header" style="grid-template-columns: 1.15fr 0.75fr 0.95fr 0.75fr 0.95fr;"><div>${colLabel}</div><div>PAID</div><div>PAID AMT</div><div>LINE TD</div><div>TD AMT</div></div>`;
+            const showPaid = progressStaffTypeFilter !== "TD";
+            const showTd = progressStaffTypeFilter !== "PAID";
+            const gridCols = showPaid && showTd ? "1.15fr 0.75fr 0.95fr 0.75fr 0.95fr" : "1.4fr 0.9fr 1.1fr";
+            const headerCells = [`<div>${colLabel}</div>`];
+            if (showPaid) headerCells.push(`<div>PAID</div>`, `<div>PAID AMT</div>`);
+            if (showTd) headerCells.push(`<div>LINE TD</div>`, `<div>TD AMT</div>`);
+            let html = `
+                <select onchange="setProgressStaffTypeFilter(this.value)" style="width:100%; max-width:360px; height:40px; margin:0 auto 8px; display:block; border:1.5px solid #0f766e; border-radius:12px; padding:0 12px; font-size:0.74rem; font-weight:900; color:#0f766e; background:#ffffff;">
+                    <option value="" ${progressStaffTypeFilter === "" ? "selected" : ""}>Paid + TD Both</option>
+                    <option value="PAID" ${progressStaffTypeFilter === "PAID" ? "selected" : ""}>Paid by Staff</option>
+                    <option value="TD" ${progressStaffTypeFilter === "TD" ? "selected" : ""}>TD by Staff</option>
+                </select>
+                <div class="summary-wrapper"><div class="summary-table-header" style="grid-template-columns: ${gridCols};">${headerCells.join("")}</div>`;
 
             if (!rows.length) {
                 html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div class="text-rose-600">Selected ${summaryMode === "DAILY" ? "date" : "month"} me revenue entry nahi hai.</div></div>`;
             } else {
                 rows.forEach((row) => {
                     const rowClass = row.type === "SUB_TOTAL" ? " blue-bold" : (row.type === "SUBDN_TOTAL" ? " subdn-bold" : "");
-                    html += `<div class="summary-table-row${rowClass}" style="grid-template-columns: 1.15fr 0.75fr 0.95fr 0.75fr 0.95fr;"><div>${row.name}</div><div>${row.paidCount}</div><div class="text-emerald-700 font-black">${formatProgressReportAmount(row.paidAmount)}</div><div>${row.tdCount}</div><div class="text-rose-700 font-black">${formatProgressReportAmount(row.tdAmount)}</div></div>`;
+                    const cells = [`<div>${row.name}</div>`];
+                    if (showPaid) cells.push(`<div>${row.paidCount}</div>`, `<div class="text-emerald-700 font-black">${formatProgressReportAmount(row.paidAmount)}</div>`);
+                    if (showTd) cells.push(`<div>${row.tdCount}</div>`, `<div class="text-rose-700 font-black">${formatProgressReportAmount(row.tdAmount)}</div>`);
+                    html += `<div class="summary-table-row${rowClass}" style="grid-template-columns: ${gridCols};">${cells.join("")}</div>`;
                 });
             }
 
-            html += `</div><div class="summary-footer"><div class="font-black text-slate-800 text-center">GRAND TOTAL (${label})</div><div class="mt-2 grid grid-cols-2 gap-2 text-center text-[11px] font-black"><div class="rounded-xl bg-emerald-50 border border-emerald-200 p-2">Paid: ${totals.paidCount}<br>${formatProgressReportAmount(totals.paidAmount)}</div><div class="rounded-xl bg-rose-50 border border-rose-200 p-2">Line TD: ${totals.tdCount}<br>${formatProgressReportAmount(totals.tdAmount)}</div></div>
+            const footerCards = [];
+            if (showPaid) footerCards.push(`<div class="rounded-xl bg-emerald-50 border border-emerald-200 p-2">Paid: ${totals.paidCount}<br>${formatProgressReportAmount(totals.paidAmount)}</div>`);
+            if (showTd) footerCards.push(`<div class="rounded-xl bg-rose-50 border border-rose-200 p-2">Line TD: ${totals.tdCount}<br>${formatProgressReportAmount(totals.tdAmount)}</div>`);
+            const footerGridCols = showPaid && showTd ? "grid-cols-2" : "grid-cols-1";
+
+            html += `</div><div class="summary-footer"><div class="font-black text-slate-800 text-center">GRAND TOTAL (${label})</div><div class="mt-2 grid ${footerGridCols} gap-2 text-center text-[11px] font-black">${footerCards.join("")}</div>
                 <div class="btn-export-row">
                     <button class="btn-unique btn-excel-unique" onclick="doExport('XLS')">
                         <svg width="18" height="18" fill="white" viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16h-8v-2h8v2zm0-4h-8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
@@ -3231,11 +3263,29 @@
                 const revenueTotals = getRevenueProgressTotals(uiListSummary);
                 const revenueScopeLabel = activeViewLevel === "DC" ? `DC: ${activeDC}` : (activeViewLevel === "DIVISION" ? `Division: ${activeDiv}` : "Circle: SEONI CIRCLE");
                 const revenueFilterLabel = activeViewLevel === "DC" ? "HQ Filter: All HQ" : (activeViewLevel === "DIVISION" ? "DC Filter: All DC" : "Division/DC Filter: All");
+                const showPaid = progressStaffTypeFilter !== "TD";
+                const showTd = progressStaffTypeFilter !== "PAID";
+                const typeLabel = progressStaffTypeFilter === "PAID" ? "Paid by Staff" : (progressStaffTypeFilter === "TD" ? "TD by Staff" : "Paid + TD Both");
                 const revenueReportTitle = `${levelT} ${reportType} PROGRESS REPORT`;
                 const revenueGeneratedAt = `${getCurrentDateDDMMYYYY()} ${getCurrentTimeHHMM()}`;
                 const csvSafe = (value) => {
                     const text = String(value ?? "");
                     return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+                };
+                const revenueHeaders = [revenueColLabel];
+                if (showPaid) revenueHeaders.push("NO OF CONSUMER PAID", "TOTAL PAID AMOUNT");
+                if (showTd) revenueHeaders.push("NO OF LINE TD", "TD AMOUNT");
+                const revenueRowValues = (row) => {
+                    const values = [row.name];
+                    if (showPaid) values.push(row.paidCount, formatProgressReportAmount(row.paidAmount));
+                    if (showTd) values.push(row.tdCount, formatProgressReportAmount(row.tdAmount));
+                    return values;
+                };
+                const revenueGrandTotalValues = () => {
+                    const values = ["GRAND TOTAL"];
+                    if (showPaid) values.push(revenueTotals.paidCount, formatProgressReportAmount(revenueTotals.paidAmount));
+                    if (showTd) values.push(revenueTotals.tdCount, formatProgressReportAmount(revenueTotals.tdAmount));
+                    return values;
                 };
 
                 if (fmt === "XLS") {
@@ -3245,30 +3295,19 @@
                         ["PERIOD", dateLabel],
                         ["SCOPE", revenueScopeLabel],
                         ["FILTER", revenueFilterLabel],
+                        ["TYPE", typeLabel],
                         ["GENERATED AT", revenueGeneratedAt],
                         [],
                         ["REVENUE COLLECTION SUMMARY"]
                     ].map((row) => row.map(csvSafe).join(",")).join("\n") + "\n";
-                    csv += `${revenueColLabel},NO OF CONSUMER PAID,TOTAL PAID AMOUNT,NO OF LINE TD,TD AMOUNT\n`;
+                    csv += revenueHeaders.map(csvSafe).join(",") + "\n";
                     uiListSummary.forEach((row) => {
-                        csv += [
-                            row.name,
-                            row.paidCount,
-                            formatProgressReportAmount(row.paidAmount),
-                            row.tdCount,
-                            formatProgressReportAmount(row.tdAmount)
-                        ].map(csvSafe).join(",") + "\n";
+                        csv += revenueRowValues(row).map(csvSafe).join(",") + "\n";
                     });
-                    csv += [
-                        "GRAND TOTAL",
-                        revenueTotals.paidCount,
-                        formatProgressReportAmount(revenueTotals.paidAmount),
-                        revenueTotals.tdCount,
-                        formatProgressReportAmount(revenueTotals.tdAmount)
-                    ].map(csvSafe).join(",");
+                    csv += revenueGrandTotalValues().map(csvSafe).join(",");
                     const link = document.createElement("a");
                     link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-                    link.download = `Revenue_Report_${levelT}_${reportType}.csv`;
+                    link.download = `Revenue_Report_${levelT}_${reportType}${progressStaffTypeFilter ? "_" + progressStaffTypeFilter : ""}.csv`;
                     link.click();
                 } else {
                     const { jsPDF } = window.jspdf;
@@ -3282,7 +3321,7 @@
                     doc.setFontSize(9);
                     doc.setTextColor(30, 58, 138);
                     doc.text(dateLabel, 148, 25, { align: "center" });
-                    doc.text(`${revenueScopeLabel} | ${revenueFilterLabel}`, 148, 31, { align: "center" });
+                    doc.text(`${revenueScopeLabel} | ${revenueFilterLabel} | Type: ${typeLabel}`, 148, 31, { align: "center" });
                     doc.setFontSize(7);
                     doc.setTextColor(100);
                     doc.text(`Generated: ${revenueGeneratedAt}`, 283, 10, { align: "right" });
@@ -3291,21 +3330,9 @@
                     doc.text("REVENUE COLLECTION SUMMARY", 148, 38, { align: "center" });
                     doc.autoTable({
                         startY: 43,
-                        head: [[revenueColLabel, "NO OF CONSUMER PAID", "TOTAL PAID AMOUNT", "NO OF LINE TD", "TD AMOUNT"]],
-                        body: uiListSummary.map((row) => [
-                            row.name,
-                            row.paidCount,
-                            formatProgressReportAmount(row.paidAmount),
-                            row.tdCount,
-                            formatProgressReportAmount(row.tdAmount)
-                        ]),
-                        foot: [[
-                            "GRAND TOTAL",
-                            revenueTotals.paidCount,
-                            formatProgressReportAmount(revenueTotals.paidAmount),
-                            revenueTotals.tdCount,
-                            formatProgressReportAmount(revenueTotals.tdAmount)
-                        ]],
+                        head: [revenueHeaders],
+                        body: uiListSummary.map((row) => revenueRowValues(row)),
+                        foot: [revenueGrandTotalValues()],
                         theme: "grid",
                         styles: { fontSize: 8, cellPadding: 2, overflow: "linebreak", halign: "center" },
                         headStyles: { fillColor: [37, 99, 235], halign: "center" },
@@ -3322,7 +3349,7 @@
                             }
                         }
                     });
-                savePdfDocumentForDevice(doc, `Revenue_Report_${levelT}_${reportType}.pdf`);
+                savePdfDocumentForDevice(doc, `Revenue_Report_${levelT}_${reportType}${progressStaffTypeFilter ? "_" + progressStaffTypeFilter : ""}.pdf`);
                 }
                 downloadCompleted = true;
                 setTimeout(() => setProgressSummaryDownloadState(false, `${downloadTypeLabel} download ho chuki hai`), 500);
@@ -12487,6 +12514,12 @@
             renderRevenueReportDownload();
         }
 
+        function filterRevenueRowsBySelectedType(rows) {
+            const typeValue = document.getElementById("revenue-report-type")?.value || "";
+            if (!typeValue) return rows || [];
+            return (rows || []).filter((row) => (typeValue === "TD" ? row.reportType === "TD" : row.reportType !== "TD"));
+        }
+
         function getRevenueSelectedReportRows() {
             let rows = [];
             if (revenueReportMode === "MONTHLY") {
@@ -12496,18 +12529,27 @@
                 const dateValue = document.getElementById("revenue-report-date")?.value || getTodayIsoDate();
                 rows = getRevenueCombinedFilteredEntries("DAILY", dateValue);
             }
-            return filterRevenueRowsBySelectedHq(rows);
+            return filterRevenueRowsBySelectedType(filterRevenueRowsBySelectedHq(rows));
+        }
+
+        function getRevenueSelectedReportTypeLabel() {
+            const typeValue = document.getElementById("revenue-report-type")?.value || "";
+            if (typeValue === "PAID") return "Paid by Staff";
+            if (typeValue === "TD") return "TD by Staff";
+            return "Paid + TD Both";
         }
 
         function getRevenueSelectedReportTitle() {
             const hqValue = document.getElementById("revenue-report-hq")?.value || "";
             const hqSuffix = hqValue ? ` - ${hqValue}` : " - All HQ";
+            const typeValue = document.getElementById("revenue-report-type")?.value || "";
+            const typeSuffix = typeValue ? ` - ${getRevenueSelectedReportTypeLabel()}` : "";
             if (revenueReportMode === "MONTHLY") {
                 const monthValue = document.getElementById("revenue-report-month")?.value || getTodayIsoDate().slice(0, 7);
-                return `Revenue Collection Month Report - ${formatRevenueMonthYear(monthValue)}${hqSuffix}`;
+                return `Revenue Collection Month Report - ${formatRevenueMonthYear(monthValue)}${hqSuffix}${typeSuffix}`;
             }
             const dateValue = normalizeRevenueReportDate(document.getElementById("revenue-report-date")?.value || getCurrentDateDDMMYYYY());
-            return `Revenue Collection Date Report - ${dateValue}${hqSuffix}`;
+            return `Revenue Collection Date Report - ${dateValue}${hqSuffix}${typeSuffix}`;
         }
 
         async function renderRevenueReportDownload() {
@@ -12566,12 +12608,14 @@
                     ? (document.getElementById("revenue-report-month")?.value || getTodayIsoDate().slice(0, 7))
                     : normalizeRevenueReportDate(document.getElementById("revenue-report-date")?.value || getCurrentDateDDMMYYYY());
                 const hqSuffix = String(hqValue).replace(/[\\/:*?"<>|]+/g, "_");
+                const typeValue = document.getElementById("revenue-report-type")?.value || "";
+                const typeFileSuffix = typeValue ? `-${typeValue.toLowerCase()}` : "";
                 const periodLabel = revenueReportMode === "MONTHLY"
                     ? `Month: ${formatRevenueMonthYear(document.getElementById("revenue-report-month")?.value || getTodayIsoDate().slice(0, 7))}`
                     : `Date: ${normalizeRevenueReportDate(document.getElementById("revenue-report-date")?.value || getCurrentDateDDMMYYYY())}`;
-                const filterLabel = hqValue && hqValue !== "all-hq" ? `HQ Filter: ${hqValue}` : "HQ Filter: All HQ";
+                const filterLabel = `${hqValue && hqValue !== "all-hq" ? `HQ Filter: ${hqValue}` : "HQ Filter: All HQ"}  |  Type: ${getRevenueSelectedReportTypeLabel()}`;
                 const reportTitle = revenueReportMode === "MONTHLY" ? "Revenue Collection Month Report" : "Revenue Collection Date Report";
-                downloadRevenueRowsReport(type, rows, title, `revenue-${revenueReportMode.toLowerCase()}-${suffix}-${hqSuffix}.csv`, getRevenueReportMeta(
+                downloadRevenueRowsReport(type, rows, title, `revenue-${revenueReportMode.toLowerCase()}-${suffix}-${hqSuffix}${typeFileSuffix}.csv`, getRevenueReportMeta(
                     reportTitle,
                     periodLabel,
                     filterLabel

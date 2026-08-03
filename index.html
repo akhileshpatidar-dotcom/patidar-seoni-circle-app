@@ -1000,6 +1000,11 @@
                 <select id="revenue-report-hq" onchange="renderRevenueReportDownload()" style="width:100%; max-width:360px; height:38px; margin:8px auto 0; display:block; border:1.2px solid #93c5fd; border-radius:12px; padding:0 12px; font-size:0.7rem; font-weight:900; color:#0f172a; background:#ffffff;">
                     <option value="">All HQ</option>
                 </select>
+                <select id="revenue-report-type" onchange="renderRevenueReportDownload()" style="width:100%; max-width:360px; height:38px; margin:8px auto 0; display:block; border:1.2px solid #93c5fd; border-radius:12px; padding:0 12px; font-size:0.7rem; font-weight:900; color:#0f172a; background:#ffffff;">
+                    <option value="">Paid + TD Both</option>
+                    <option value="PAID">Paid by Staff</option>
+                    <option value="TD">TD by Staff</option>
+                </select>
                 <div style="display:flex; gap:10px; width:100%; max-width:360px; margin:9px auto 0;">
                     <button id="revenue-report-pdf-btn" onclick="downloadRevenueSelectedReport('PDF')" style="flex:1; height:34px; border:none; border-radius:11px; background:#ef4444; color:#ffffff; font-size:0.66rem; font-weight:950;">PDF</button>
                     <button id="revenue-report-excel-btn" onclick="downloadRevenueSelectedReport('EXCEL')" style="flex:1; height:34px; border:none; border-radius:11px; background:#16a34a; color:#ffffff; font-size:0.66rem; font-weight:950;">EXCEL</button>
