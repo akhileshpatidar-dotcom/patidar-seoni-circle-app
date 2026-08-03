@@ -11015,6 +11015,14 @@
         }
 
         async function getRevenueUploadedPaidMasterRows() {
+            // Upload ke turant baad local cache me entries turant save ho jaati hain
+            // (saveRevenueUploadedPaidEntriesLocalBulk), backend fetch se pehle hi -
+            // isliye yahan backend call se pehle current local rows capture kar lete
+            // hain, taaki agar backend response us waqt thoda incomplete/stale aaye
+            // (jaise abhi-abhi upload hui bade DC ki list, ya koi backend delay) to
+            // bhi turant-upload hui entries paid-set se chhoote na. Isse Pending DO
+            // List me abhi-abhi paid hue consumer galti se "pending" nahi dikhenge.
+            const localRowsBeforeSync = getRevenueUploadedPaidMasterRowsLocal();
             if (revenueCollectionSubmitScriptUrl) {
                 try {
                     // fetchUploadedPaidEntriesWithRetry_ (45s timeout + 2 retry) - same
@@ -11024,11 +11032,24 @@
                     const rows = Array.isArray(parsed?.entries) ? parsed.entries : (Array.isArray(parsed?.data) ? parsed.data : []);
                     if (parsed && parsed.status === "success" && rows.length) {
                         saveRevenueUploadedPaidEntriesLocalBulk(rows, activeDC || "", true);
-                        return rows.filter((row) => normalizeLookupValue(row.dc_name || activeDC || "") === normalizeLookupValue(activeDC || ""));
+                        const backendRows = rows.filter((row) => normalizeLookupValue(row.dc_name || activeDC || "") === normalizeLookupValue(activeDC || ""));
+                        // Backend rows + turant-upload hui local rows ko IVRS ke hisaab
+                        // se merge (union) karte hain - kisi bhi ek source par poori tarah
+                        // depend nahi karte, taaki koi bhi paid consumer chhoote nahi.
+                        const merged = new Map();
+                        localRowsBeforeSync.forEach((row) => {
+                            const key = normalizeRevenueIvrs(row.ivrs_no || row.ivrsNo || row.consumerNo);
+                            if (key) merged.set(key, row);
+                        });
+                        backendRows.forEach((row) => {
+                            const key = normalizeRevenueIvrs(row.ivrs_no || row.ivrsNo || row.consumerNo);
+                            if (key) merged.set(key, row);
+                        });
+                        return Array.from(merged.values());
                     }
                 } catch (_) {}
             }
-            return getRevenueUploadedPaidMasterRowsLocal();
+            return localRowsBeforeSync;
         }
 
         function initRevenuePaidUpload() {
@@ -11160,12 +11181,23 @@
             }
             const today = new Date();
             const todayDDMMYYYY = `${String(today.getDate()).padStart(2, "0")}/${String(today.getMonth() + 1).padStart(2, "0")}/${today.getFullYear()}`;
+            // NOTE: pehle yahan ek alag backend action "getPaidMasterLastUploadDate" call
+            // hoti thi, jo Cash List upload ho jaane ke baad bhi kabhi-kabhi purani/galat
+            // date laut rahi thi (isliye upload ho jaane par bhi warning ticker chhupta
+            // nahi tha). Ab usi proven, already-tested action ("getUploadedPaidEntries")
+            // se check karte hain jo Category Wise/HQ-Village reports me hamesha sahi
+            // latest uploaded data deta hai - agar aaj ki date ka koi bhi entry mil jaaye
+            // to ticker turant chhup jayega.
             try {
-                const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getPaidMasterLastUploadDate&dc_name=${encodeURIComponent(dcName)}&t=${Date.now()}`);
-                const parsed = await response.json();
+                const parsed = await fetchUploadedPaidEntriesWithRetry_(normalizeDcName(dcName), 1);
                 if (activeDC !== dcName) return;
-                const lastUploadDate = parsed?.status === "success" ? String(parsed.last_upload_date || "").trim() : "";
-                if (lastUploadDate === todayDDMMYYYY) {
+                const entries = Array.isArray(parsed?.entries) ? parsed.entries : (Array.isArray(parsed?.data) ? parsed.data : []);
+                const uploadedToday = parsed?.status === "success" && entries.some((entry) => {
+                    const rawDate = String(entry?.uploaded_date || entry?.uploadedDate || "").trim();
+                    if (!rawDate) return false;
+                    return formatRevenueDateIndian(normalizeRevenueReportDate(rawDate)) === todayDDMMYYYY;
+                });
+                if (uploadedToday) {
                     box.style.display = "none";
                     return;
                 }
