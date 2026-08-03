@@ -14719,8 +14719,8 @@
                 const p = new URLSearchParams();
                 p.append("division", division || "");
                 p.append("dc", activeDC || "");
-                p.append("date", getTodayIsoDate());
-                p.append("timestamp", new Date().toISOString());
+                p.append("date", getCurrentDateDDMMYYYY());
+                p.append("timestamp", `${getCurrentDateDDMMYYYY()} ${getCurrentTimeHHMM()}`);
                 fetch(vrDownloadLogScriptUrl, {
                     method: "POST",
                     headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
@@ -14775,19 +14775,27 @@
         function buildVrDownloadLogGroupedRows() {
             const divisionValue = document.getElementById("vr-download-log-division")?.value || "";
             const dateValue = document.getElementById("vr-download-log-date")?.value || "";
+            // Sheet me date "DD-MM-YYYY" (Indian) format me store hoti hai; purani/test
+            // entries agar "YYYY-MM-DD" format me hain to normalizeRevenueReportDate()
+            // dono ko wahi ek consistent "DD-MM-YYYY" me le aata hai.
+            const normalizedFilterDate = dateValue ? normalizeRevenueReportDate(dateValue) : "";
+            const sortKeyOf = (ddmmyyyy) => {
+                const match = String(ddmmyyyy || "").match(/^(\d{2})-(\d{2})-(\d{4})$/);
+                return match ? `${match[3]}${match[2]}${match[1]}` : "00000000";
+            };
             const groups = {};
             vrDownloadLogRawRows.forEach((row) => {
                 const division = String(row["Division"] || "").trim().toUpperCase() || "-";
                 const dc = String(row["DC"] || "").trim().toUpperCase() || "-";
-                const date = String(row["Date"] || "").trim() || "-";
+                const date = normalizeRevenueReportDate(String(row["Date"] || "").trim()) || "-";
                 if (divisionValue && division !== divisionValue) return;
-                if (vrDownloadLogMode === "DATE" && dateValue && date !== dateValue) return;
+                if (vrDownloadLogMode === "DATE" && normalizedFilterDate && date !== normalizedFilterDate) return;
                 const key = `${division}||${dc}||${date}`;
                 if (!groups[key]) groups[key] = { division, dc, date, count: 0 };
                 groups[key].count++;
             });
             return Object.values(groups).sort((a, b) => (
-                b.date.localeCompare(a.date) || a.division.localeCompare(b.division) || a.dc.localeCompare(b.dc)
+                sortKeyOf(b.date).localeCompare(sortKeyOf(a.date)) || a.division.localeCompare(b.division) || a.dc.localeCompare(b.dc)
             ));
         }
 
@@ -14857,7 +14865,7 @@
                 const totalDownloads = rows.reduce((sum, row) => sum + row.count, 0);
                 const reportTitle = "VR Calculation - Download Log Report";
                 const divisionValue = document.getElementById("vr-download-log-division")?.value || "All Divisions";
-                const dateValue = vrDownloadLogMode === "DATE" ? (document.getElementById("vr-download-log-date")?.value || "") : "All Time";
+                const dateValue = vrDownloadLogMode === "DATE" ? formatRevenueDateIndian(normalizeRevenueReportDate(document.getElementById("vr-download-log-date")?.value || getCurrentDateDDMMYYYY())) : "All Time";
                 const scopeLine = `Division: ${divisionValue}  |  Period: ${dateValue}  |  Total Download: ${totalDownloads}`;
                 const suffix = vrDownloadLogMode === "DATE" ? (document.getElementById("vr-download-log-date")?.value || getTodayIsoDate()) : "ALL-TIME";
                 const fileName = `VR-Download-Log-${suffix}`.replace(/[\\/:*?"<>|]+/g, "_");

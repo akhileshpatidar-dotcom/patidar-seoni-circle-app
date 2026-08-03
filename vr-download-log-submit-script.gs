@@ -33,7 +33,12 @@ function doPost(e) {
     var timestamp = (e.parameter.timestamp || "").toString().trim();
     if (!dc) return jsonOutput({ status: "error", message: "DC missing" });
     var sheet = getSheet();
-    sheet.appendRow([new Date(), division, dc, dateStr, timestamp]);
+    // "Logged At" ko yahin Indian (dd-MM-yyyy HH:mm:ss, IST) text me likh rahe hain -
+    // agar raw Date object daalte to Sheet apni locale (US/UK) me apne aap format kar
+    // deta, jo ambiguous ho jata (8/3 = 3 August ya 8 March?). Text isliye taaki Sheet
+    // ise date-object samajh kar dobara reformat na kare.
+    var loggedAt = Utilities.formatDate(new Date(), "Asia/Kolkata", "dd-MM-yyyy HH:mm:ss");
+    sheet.appendRow([loggedAt, division, dc, dateStr, timestamp]);
     return jsonOutput({ status: "ok" });
   } catch (err) {
     return jsonOutput({ status: "error", message: String(err) });
