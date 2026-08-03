@@ -56,13 +56,18 @@
         //                                        (revenue-submit-script-dc-wise.gs)
         //   feederSubmitScriptUrl            -> Feeder Reading (feeder-submit-script.gs)
         //   peakLoadSubmitScriptUrl          -> Daily Hourly Peak Load (daily-hourly-peak-load-submit-script.gs)
+        //   vrDownloadLogScriptUrl           -> VR Calculation PDF Download Log (vr-download-log-submit-script.gs)
         //
         // Function dhoondhne ke liye keyword-search karo (feature-wise physically grouped nahi hai):
         // Feeder->"Feeder" | PeakLoad->"peakLoad" | Vehicle->"vehicleReading" | STM->"stm"
         // SHMS->"shms" | Stock->"Stock"/"Material" | Revenue->"revenue"/"Revenue"
-        // Staff Admin->"staffAdmin" | Court Case->"courtCase"
+        // Staff Admin->"staffAdmin" | Court Case->"courtCase" | VR Download Log->"vrDownloadLog"
         // =====================================================================
         const scriptURL = "https://script.google.com/macros/s/AKfycbw-euczRMZFKMjHveuvWd-vkuNqLXmFLkrLUERWgdExC7obxVGcBkBKGBWuHNfimzEh3g/exec";
+        // TODO: vr-download-log-submit-script.gs deploy karke jo Web App URL milega, wahi
+        // yahan paste karo. Jab tak yeh khaali hai, tab tak logVrDownload() chup-chap kuch
+        // nahi karega (koi error nahi aayega) - is se koi existing feature disturb nahi hoga.
+        const vrDownloadLogScriptUrl = "https://script.google.com/macros/s/AKfycbzfA79ksJUQ9HGPTAZAqa56QkkrWCurWQ8HSPYdoLdOSRVA72O5UK5JPiqukese3yx6TQ/exec";
         const courtCaseCsvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQMSrQZGqkLsMpwNO6SrRVaRf0JW3r7T5Bsj0N03ZCTgm53WqrtbXiANxplkgxhyiBaCw2A2woCrV_k/pub?output=csv";
         const lokAdalatScriptUrl = "https://script.google.com/macros/s/AKfycbzS1xRgKs5HyUjnCGt7l9d3D33rscPaFhtucyH63KAfFabfIu67loo1Yd-uGSIffJieIg/exec";
         const lokAdalatDistributedCsvUrl = "https://docs.google.com/spreadsheets/d/1l-IJkL7aylyjxpdYtHlwJzUhFS8OPtg4RzhXfLlJWjQ/export?format=csv&gid=0";
@@ -14704,8 +14709,180 @@
             box.innerText = message;
         }
 
+        // Fire-and-forget log call - PDF download (window.print()) ko block/delay nahi
+        // karta, aur agar script URL abhi set nahi hai ya network fail ho jaye to bhi
+        // silently ignore ho jata hai, print flow par koi asar nahi padega.
+        function logVrDownload() {
+            if (!vrDownloadLogScriptUrl || !activeDC) return;
+            try {
+                const division = activeDiv || getRevenueDivisionNameForDc(activeDC);
+                const p = new URLSearchParams();
+                p.append("division", division || "");
+                p.append("dc", activeDC || "");
+                p.append("date", getTodayIsoDate());
+                p.append("timestamp", new Date().toISOString());
+                fetch(vrDownloadLogScriptUrl, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+                    body: p.toString()
+                }).catch(() => {});
+            } catch (_) {}
+        }
+
         function vrDownloadPDF() {
+            logVrDownload();
             window.print();
+        }
+
+        // =====================================================================
+        // VR Calculation - Download Log Report (Division/DC/Date wise count)
+        // vrDownloadLogScriptUrl se raw logged rows fetch karke yahan group/count
+        // karte hain - koi naya per-consumer data nahi, sirf ek chhota aggregation.
+        // =====================================================================
+        let vrDownloadLogMode = "ALL";
+        let vrDownloadLogRawRows = [];
+        let vrDownloadLogRenderToken = 0;
+
+        function openVrDownloadLog() {
+            const dd = document.getElementById("vr-menu-dropdown");
+            if (dd) dd.style.display = "none";
+            switchView("vr-download-log");
+        }
+
+        function initVrDownloadLog() {
+            const dateInput = document.getElementById("vr-download-log-date");
+            if (dateInput && !dateInput.value) dateInput.value = getTodayIsoDate();
+            setVrDownloadLogMode(vrDownloadLogMode || "ALL");
+        }
+
+        function setVrDownloadLogMode(mode) {
+            vrDownloadLogMode = mode === "DATE" ? "DATE" : "ALL";
+            const dateInput = document.getElementById("vr-download-log-date");
+            const allBtn = document.getElementById("vr-download-log-all-mode-btn");
+            const dateBtn = document.getElementById("vr-download-log-date-mode-btn");
+            if (dateInput) dateInput.style.display = vrDownloadLogMode === "DATE" ? "block" : "none";
+            if (allBtn) {
+                allBtn.style.background = vrDownloadLogMode === "ALL" ? "#1d4ed8" : "#dbeafe";
+                allBtn.style.color = vrDownloadLogMode === "ALL" ? "#ffffff" : "#1d4ed8";
+            }
+            if (dateBtn) {
+                dateBtn.style.background = vrDownloadLogMode === "DATE" ? "#1d4ed8" : "#dbeafe";
+                dateBtn.style.color = vrDownloadLogMode === "DATE" ? "#ffffff" : "#1d4ed8";
+            }
+            renderVrDownloadLog();
+        }
+
+        function buildVrDownloadLogGroupedRows() {
+            const divisionValue = document.getElementById("vr-download-log-division")?.value || "";
+            const dateValue = document.getElementById("vr-download-log-date")?.value || "";
+            const groups = {};
+            vrDownloadLogRawRows.forEach((row) => {
+                const division = String(row["Division"] || "").trim().toUpperCase() || "-";
+                const dc = String(row["DC"] || "").trim().toUpperCase() || "-";
+                const date = String(row["Date"] || "").trim() || "-";
+                if (divisionValue && division !== divisionValue) return;
+                if (vrDownloadLogMode === "DATE" && dateValue && date !== dateValue) return;
+                const key = `${division}||${dc}||${date}`;
+                if (!groups[key]) groups[key] = { division, dc, date, count: 0 };
+                groups[key].count++;
+            });
+            return Object.values(groups).sort((a, b) => (
+                b.date.localeCompare(a.date) || a.division.localeCompare(b.division) || a.dc.localeCompare(b.dc)
+            ));
+        }
+
+        async function renderVrDownloadLog() {
+            const statusBox = document.getElementById("vr-download-log-status");
+            const tableBox = document.getElementById("vr-download-log-table");
+            if (!statusBox || !tableBox) return;
+            if (!vrDownloadLogScriptUrl) {
+                statusBox.innerHTML = "Yeh report abhi live nahi hai - Google Sheet ke saath Apps Script deploy hone ke baad hi data aayega.";
+                tableBox.innerHTML = "";
+                return;
+            }
+            const renderToken = ++vrDownloadLogRenderToken;
+            const isRenderValid = () => renderToken === vrDownloadLogRenderToken && document.getElementById("vr-download-log-view")?.classList.contains("active");
+            const progress = renderSyncingProgress(tableBox, isRenderValid, "SYNCING DOWNLOAD LOG...");
+            try {
+                const data = await loadRemoteJson(`${vrDownloadLogScriptUrl}?action=getSummary&t=${Date.now()}`);
+                if (!isRenderValid()) { progress.stop(); return; }
+                vrDownloadLogRawRows = Array.isArray(data) ? data : [];
+                await progress.finish();
+                if (!isRenderValid()) return;
+                const rows = buildVrDownloadLogGroupedRows();
+                const totalDownloads = rows.reduce((sum, row) => sum + row.count, 0);
+                statusBox.innerHTML = `Total Download: <strong>${totalDownloads}</strong> | Groups: ${rows.length}`;
+                if (!rows.length) {
+                    tableBox.innerHTML = `<div style="background:#ecfdf5; border:1.5px solid #86efac; border-radius:14px; padding:14px; color:#047857; font-size:0.8rem; font-weight:900; text-align:center; margin-top:10px;">Is filter me koi download record nahi mila.</div>`;
+                    return;
+                }
+                let html = `<div class="summary-wrapper"><div class="summary-table-header" style="grid-template-columns: 1.3fr 1.1fr 0.9fr 0.7fr;"><div>DIVISION</div><div>DC</div><div>DATE</div><div>COUNT</div></div>`;
+                rows.forEach((row) => {
+                    html += `<div class="summary-table-row" style="grid-template-columns: 1.3fr 1.1fr 0.9fr 0.7fr;"><div>${escapeHtml(row.division)}</div><div>${escapeHtml(row.dc)}</div><div>${escapeHtml(row.date)}</div><div class="font-black">${row.count}</div></div>`;
+                });
+                html += `</div>`;
+                tableBox.innerHTML = html;
+            } catch (error) {
+                progress.stop();
+                statusBox.innerHTML = "Report load nahi ho payi";
+            }
+        }
+
+        function setVrDownloadLogDownloadState(isLoading, message = "", ok = true) {
+            const pdfBtn = document.getElementById("vr-download-log-pdf-btn");
+            const excelBtn = document.getElementById("vr-download-log-excel-btn");
+            const statusBox = document.getElementById("vr-download-log-download-status");
+            const statusMessage = normalizeActionStatusMessage(message, isLoading, ok);
+            [pdfBtn, excelBtn].forEach((btn) => {
+                if (!btn) return;
+                btn.disabled = isLoading;
+                btn.style.opacity = isLoading ? "0.65" : "1";
+                btn.style.pointerEvents = isLoading ? "none" : "auto";
+            });
+            if (!statusBox) return;
+            statusBox.style.display = statusMessage ? "block" : "none";
+            statusBox.style.background = ok ? "#ecfdf5" : "#fff1f2";
+            statusBox.style.borderColor = ok ? "#86efac" : "#fda4af";
+            statusBox.style.color = ok ? "#166534" : "#991b1b";
+            statusBox.innerHTML = escapeHtml(statusMessage);
+        }
+
+        function downloadVrDownloadLog(type) {
+            const rows = buildVrDownloadLogGroupedRows();
+            if (!rows.length) return showToast("Download ke liye data nahi hai", false);
+            setVrDownloadLogDownloadState(true, `${type === "PDF" ? "PDF" : "Excel"} download ho raha hai... kripya wait kijiye`, true);
+            try {
+                const headers = ["DIVISION", "DC", "DATE", "NO OF DOWNLOADED REPORT"];
+                const bodyRows = rows.map((row) => [row.division, row.dc, row.date, row.count]);
+                const totalDownloads = rows.reduce((sum, row) => sum + row.count, 0);
+                const reportTitle = "VR Calculation - Download Log Report";
+                const divisionValue = document.getElementById("vr-download-log-division")?.value || "All Divisions";
+                const dateValue = vrDownloadLogMode === "DATE" ? (document.getElementById("vr-download-log-date")?.value || "") : "All Time";
+                const scopeLine = `Division: ${divisionValue}  |  Period: ${dateValue}  |  Total Download: ${totalDownloads}`;
+                const suffix = vrDownloadLogMode === "DATE" ? (document.getElementById("vr-download-log-date")?.value || getTodayIsoDate()) : "ALL-TIME";
+                const fileName = `VR-Download-Log-${suffix}`.replace(/[\\/:*?"<>|]+/g, "_");
+                if (type === "PDF") {
+                    if (!window.jspdf?.jsPDF) { setVrDownloadLogDownloadState(false, "PDF library load nahi hui", false); return; }
+                    const { jsPDF } = window.jspdf;
+                    const doc = new jsPDF({ orientation: "landscape" });
+                    doc.setFontSize(13); doc.text(reportTitle, 148, 12, { align: "center" });
+                    doc.setFontSize(9); doc.text(scopeLine, 148, 19, { align: "center" });
+                    doc.autoTable({ startY: 25, head: [headers], body: bodyRows, theme: "grid", styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" }, headStyles: { fillColor: [29, 78, 216] } });
+                    savePdfDocumentForDevice(doc, `${fileName}.pdf`);
+                    setVrDownloadLogDownloadState(false, "PDF download ho chuki hai", true);
+                    return;
+                }
+                const csvSafe = (value) => { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
+                const csv = [[reportTitle], [scopeLine], [], headers, ...bodyRows].map((row) => row.map(csvSafe).join(",")).join("\n");
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+                link.download = `${fileName}.csv`;
+                link.click();
+                setVrDownloadLogDownloadState(false, "Excel download ho chuki hai", true);
+            } catch (error) {
+                setVrDownloadLogDownloadState(false, "Download nahi ho paya", false);
+                showToast(error?.message || "Report download nahi ho payi", false);
+            }
         }
 
         function vrDownloadExcel() {
@@ -14810,6 +14987,9 @@
                 if (id === "vr-calculation") {
                     initVrCalculation();
                 }
+                if (id === "vr-download-log") {
+                    initVrDownloadLog();
+                }
                 if (id === "shms-progress") {
                     initShmsProgressDashboard();
                 }
@@ -14830,6 +15010,7 @@
                 if (id === "vehicle-reading") headerTitle = "VEHICLE READING";
                 if (id === "stm-complaint") headerTitle = "STM COMPLAINT";
                 if (id === "vr-calculation") headerTitle = "VR CALCULATION";
+                if (id === "vr-download-log") headerTitle = "VR DOWNLOAD LOG";
                 if (id === "stock-material") headerTitle = "STOCK MATERIAL";
                 if (id === "shms-entry") headerTitle = "SHMS ENTRY";
                 if (id === "shms-progress") headerTitle = "DAILY PROGRESS";
@@ -14985,6 +15166,8 @@
                 popRevenueTargetDrill();
             } else if (act === "revenue-live-progress-view" || act === "revenue-report-download-view" || act === "revenue-hq-village-view" || act === "revenue-target-achievement-view" || act === "revenue-top-defaulters-view" || act === "revenue-cash-reconcile-view" || act === "revenue-pending-list-view" || act === "revenue-paid-upload-view") {
                 switchView("revenue-collection");
+            } else if (act === "vr-download-log-view") {
+                switchView("vr-calculation");
             } else if (act === "mobile-update-report-view") {
                 switchView("mobile-update");
             } else if (act === "dc-dashboard-view" || act === "mobile-update-view" || act === "revenue-collection-view") {
