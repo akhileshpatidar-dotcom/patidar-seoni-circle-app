@@ -1521,11 +1521,35 @@
             return fetchUploadedPaidEntriesWithRetry_(dcName, attempts);
         }
 
+        // Category Wise / Non-Payee / Target vs Achievement / Top Defaulters reports
+        // ko per-consumer amount/date/category chahiye (sirf IVRS list se kaam nahi
+        // chalega), lekin poori nested payment_rows duplication (jo purane endpoint
+        // me har row do baar bhejta tha) inhe bhi nahi chahiye - sirf ek flat set of
+        // fields kaafi hai. Yeh naya "getUploadedPaidCategoryList" action wahi flat
+        // data deta hai, jisse bade DC (SEONI (T) jaisे) ke liye bhi response chhota
+        // aur fast rehta hai. Backend abhi purana ho to purane bhaari endpoint par
+        // fallback ho jaata hai, koi feature todta nahi.
+        async function fetchUploadedPaidCategoryListWithRetry_(dcName, attempts = 2) {
+            for (let attempt = 1; attempt <= attempts; attempt++) {
+                const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+                const timer = setTimeout(() => { try { if (controller) controller.abort(); } catch (_) {} }, 60000);
+                try {
+                    const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getUploadedPaidCategoryList&dc_name=${encodeURIComponent(dcName)}&t=${Date.now()}`, controller ? { signal: controller.signal } : {});
+                    const parsed = await response.json();
+                    if (parsed && parsed.status === "success" && Array.isArray(parsed.entries)) return parsed;
+                } catch (_) {} finally {
+                    clearTimeout(timer);
+                }
+                if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, 800));
+            }
+            return fetchUploadedPaidEntriesWithRetry_(dcName, attempts);
+        }
+
         async function warmRevenueCategoryUploadedPaidCache() {
             if (!revenueCollectionSubmitScriptUrl) return;
             const dcNames = Array.from(new Set(getRevenueCategoryTargetDcs().map((dcName) => normalizeDcName(dcName)).filter(Boolean)));
             await Promise.all(dcNames.map(async (dcName) => {
-                const parsed = await fetchUploadedPaidEntriesWithRetry_(dcName);
+                const parsed = await fetchUploadedPaidCategoryListWithRetry_(dcName);
                 if (!parsed) return;
                 const rows = Array.isArray(parsed?.entries) ? parsed.entries : (Array.isArray(parsed?.data) ? parsed.data : []);
                 const localCache = getRevenueUploadedPaidCache();

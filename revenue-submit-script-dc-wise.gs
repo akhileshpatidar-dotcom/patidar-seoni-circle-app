@@ -150,6 +150,7 @@ function doGet(e) {
     if (action === "checkUploadedPaid") return checkUploadedPaid_(params);
     if (action === "getUploadedPaidEntries") return getUploadedPaidEntries_(params);
     if (action === "getUploadedPaidIvrsList") return getUploadedPaidIvrsList_(params);
+    if (action === "getUploadedPaidCategoryList") return getUploadedPaidCategoryList_(params);
     if (action === "getPaidMasterRowCount") return getPaidMasterRowCount_(params);
     if (action === "getPaidMasterLastUploadDate") return getPaidMasterLastUploadDate_(params);
     if (action === "checkTD") return checkLineTd_(params);
@@ -1027,6 +1028,41 @@ function getUploadedPaidIvrsList_(params) {
         dc_name: row[0],
         ivrs_no: ivrsNo,
         uploaded_date: formatDateValue_(row[8])
+      });
+    });
+  });
+
+  return jsonResponse_({ status: "success", entries: entries });
+}
+
+// Category Wise / Non-Payee / Target vs Achievement / Top Defaulters reports ke
+// liye - inhe per-consumer amount/date/category chahiye, lekin poori nested
+// "PAYMENT ROWS JSON" duplication nahi. Yeh flat (dc_name, ivrs_no, amount_paid,
+// payment_date, source_type, tariff_category) response deta hai - purane
+// getUploadedPaidEntries se kaafi chhota, isliye bade DC (SEONI (T) jaise) me
+// bhi fast/reliable rehta hai.
+function getUploadedPaidCategoryList_(params) {
+  const requestedDc = clean_(params.dc_name);
+  const ss = getSpreadsheet_();
+  const dcList = requestedDc ? [requireDcName_(requestedDc)] : DC_NAMES;
+  let entries = [];
+
+  dcList.forEach(function(dcName) {
+    const sheet = getPaidMasterSheet_(ss, dcName, false);
+    if (!sheet || sheet.getLastRow() < 2) return;
+    const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, PAID_MASTER_HEADERS.length).getValues();
+    values.forEach(function(row) {
+      const ivrsNo = normalizeIvrs_(row[1]);
+      if (!ivrsNo) return;
+      const paymentRows = parsePaymentRows_(row[10]);
+      const first = paymentRows.length ? paymentRows[0] : null;
+      entries.push({
+        dc_name: row[0],
+        ivrs_no: ivrsNo,
+        amount_paid: row[2],
+        payment_date: formatDateValue_(row[3]),
+        source_type: row[5],
+        tariff_category: first ? clean_(first.tariff_category || first.tariffCategory) : ""
       });
     });
   });
