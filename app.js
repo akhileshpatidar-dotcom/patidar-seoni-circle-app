@@ -1492,6 +1492,35 @@
             return null;
         }
 
+        // Pending DO List / Cash Reconcile / Freshness ticker - inteeno ko sirf itna
+        // hi chahiye "kaun paid hai" (dc_name + ivrs_no) aur "kab upload hua"
+        // (uploaded_date) - inhe poori payment_rows/amount/source detail nahi
+        // chahiye. Purana getUploadedPaidEntries action bahut bhaari response
+        // deta tha (har row ka poora payment_rows JSON dobara), jo bade DC
+        // (SEONI (T) - 33,000+ rows) ke liye slow network par timeout kar jaata
+        // tha. Yeh naya "getUploadedPaidIvrsList" action halka/chhota response
+        // deta hai (backend script me add karna hoga), isliye fast aur reliable
+        // hai. Agar backend abhi purana hi hai (naya action nahi mila), to
+        // fetchUploadedPaidEntriesWithRetry_ (purana, poora data) par fallback
+        // ho jaata hai - koi cheez toot nahi ti.
+        async function fetchUploadedPaidIvrsListWithRetry_(dcName, attempts = 2) {
+            for (let attempt = 1; attempt <= attempts; attempt++) {
+                const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+                const timer = setTimeout(() => { try { if (controller) controller.abort(); } catch (_) {} }, 60000);
+                try {
+                    const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getUploadedPaidIvrsList&dc_name=${encodeURIComponent(dcName)}&t=${Date.now()}`, controller ? { signal: controller.signal } : {});
+                    const parsed = await response.json();
+                    if (parsed && parsed.status === "success" && Array.isArray(parsed.entries)) return parsed;
+                } catch (_) {} finally {
+                    clearTimeout(timer);
+                }
+                if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, 800));
+            }
+            // Backend abhi purane version par hai (naya lightweight action available
+            // nahi) - purane bhaari endpoint par fallback taaki feature kaam karta rahe.
+            return fetchUploadedPaidEntriesWithRetry_(dcName, attempts);
+        }
+
         async function warmRevenueCategoryUploadedPaidCache() {
             if (!revenueCollectionSubmitScriptUrl) return;
             const dcNames = Array.from(new Set(getRevenueCategoryTargetDcs().map((dcName) => normalizeDcName(dcName)).filter(Boolean)));
@@ -11032,13 +11061,17 @@
             const localRowsBeforeSync = getRevenueUploadedPaidMasterRowsLocal();
             if (revenueCollectionSubmitScriptUrl) {
                 try {
-                    // fetchUploadedPaidEntriesWithRetry_ (45s timeout + 2 retry) - same
-                    // robust fetch Category Wise/HQ-Village report already use, taaki bade
-                    // DC (jaise KURAI - hazaaron rows) ke liye bhi fetch timeout na ho.
-                    const parsed = await fetchUploadedPaidEntriesWithRetry_(activeDC || "");
+                    // Sirf "kaun paid hai" pata karne ke liye halka (dc_name + ivrs_no +
+                    // uploaded_date) response fetch karte hain - bade DC me bhi fast aur
+                    // reliable. NOTE: is response ko purane full-detail local cache
+                    // (getRevenueUploadedPaidEntryLocal - jo search/amount display me
+                    // kaam aata hai) me save NAHI karte, kyunki yeh data lean hai; usse
+                    // save karne se poori detail (amount/payment_rows) overwrite ho
+                    // jaati - baaki features (Search screen paid-amount display) us
+                    // alag, already-working upload-flow cache par hi depend karte rahenge.
+                    const parsed = await fetchUploadedPaidIvrsListWithRetry_(activeDC || "");
                     const rows = Array.isArray(parsed?.entries) ? parsed.entries : (Array.isArray(parsed?.data) ? parsed.data : []);
                     if (parsed && parsed.status === "success" && rows.length) {
-                        saveRevenueUploadedPaidEntriesLocalBulk(rows, activeDC || "", true);
                         const backendRows = rows.filter((row) => normalizeLookupValue(row.dc_name || activeDC || "") === normalizeLookupValue(activeDC || ""));
                         // Backend rows + turant-upload hui local rows ko IVRS ke hisaab
                         // se merge (union) karte hain - kisi bhi ek source par poori tarah
@@ -11179,12 +11212,13 @@
         }
 
         function convertUploadedDateToDDMMYYYY(value) {
-            // Backend ("getUploadedPaidEntries") ka "uploaded_date" field US locale
-            // (MM/DD/YYYY) me likha hua hota hai - confirmed via actual backend
-            // response check (aaj 03/08/2026 ko upload hua data "08/03/2026" (Aug/03)
-            // ban kar aaya, "03/08/2026" nahi). Isliye yahan month/day swap karke
-            // DD/MM/YYYY banate hain, taaki freshness-ticker aaj ki date se sahi match
-            // kar sake.
+            // Backend ne "uploaded_date" DD/MM/YYYY text bhejne ki koshish karta hai,
+            // lekin Google Sheet ka locale kabhi-kabhi is string ko date samajh kar
+            // MM/DD ulta kar deta tha (jaise 03/08/2026 -> 08/03/2026 store ho jaata
+            // tha) - confirmed via actual backend response. Backend script me ab yeh
+            // column plain-text force kar diya hai (naye uploads se yeh bug nahi
+            // aayega), lekin pehle se corrupt ho chuki purani entries ke liye yahan
+            // month/day swap karke DD/MM/YYYY wapas banate hain.
             const raw = String(value || "").trim();
             const match = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
             if (!match) return normalizeRevenueReportDate(raw);
@@ -11212,13 +11246,18 @@
             // latest uploaded data deta hai - agar aaj ki date ka koi bhi entry mil jaaye
             // to ticker turant chhup jayega.
             try {
-                const parsed = await fetchUploadedPaidEntriesWithRetry_(normalizeDcName(dcName), 1);
+                const parsed = await fetchUploadedPaidIvrsListWithRetry_(normalizeDcName(dcName), 1);
                 if (activeDC !== dcName) return;
                 const entries = Array.isArray(parsed?.entries) ? parsed.entries : (Array.isArray(parsed?.data) ? parsed.data : []);
                 const uploadedToday = parsed?.status === "success" && entries.some((entry) => {
                     const rawDate = String(entry?.uploaded_date || entry?.uploadedDate || "").trim();
                     if (!rawDate) return false;
-                    return convertUploadedDateToDDMMYYYY(rawDate) === todayDDMMYYYY;
+                    // Dono tarah check karte hain (jaisa aaya waisa, aur month/day
+                    // swap karke) - taaki purani (Sheet-locale se corrupt hui) aur
+                    // nayi (backend fix ke baad sahi text-format) dono tarah ki
+                    // dates ke liye "aaj upload hua" sahi pehchana jaaye.
+                    return normalizeRevenueReportDate(rawDate) === todayDDMMYYYY
+                        || convertUploadedDateToDDMMYYYY(rawDate) === todayDDMMYYYY;
                 });
                 if (uploadedToday) {
                     box.style.display = "none";
