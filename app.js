@@ -11308,8 +11308,12 @@
                     // Dono tarah check karte hain (jaisa aaya waisa, aur month/day
                     // swap karke) - taaki purani (Sheet-locale se corrupt hui) aur
                     // nayi (backend fix ke baad sahi text-format) dono tarah ki
-                    // dates ke liye "aaj upload hua" sahi pehchana jaaye.
-                    return normalizeRevenueReportDate(rawDate) === todayDDMMYYYY
+                    // dates ke liye "aaj upload hua" sahi pehchana jaaye. NOTE:
+                    // normalizeRevenueReportDate DD-MM-YYYY (dash) format deta hai,
+                    // isliye formatRevenueDateIndian se slash format me convert karna
+                    // zaroori hai - yahi missing step tha jiski wajah se pichhli baar
+                    // sahi data hone ke bawajood bhi ticker match nahi ho pa raha tha.
+                    return formatRevenueDateIndian(normalizeRevenueReportDate(rawDate)) === todayDDMMYYYY
                         || convertUploadedDateToDDMMYYYY(rawDate) === todayDDMMYYYY;
                 });
                 if (uploadedToday) {
@@ -11985,6 +11989,13 @@
                 renderRevenuePaidUploadSummary(uploadMeta);
                 setActionButtonState(uploadBtn, "done", "Upload Paid Data");
                 showToast("Paid data upload ho gaya", true);
+                // Freshness ticker (DC dashboard wali red patti) pehle sirf tab check hoti
+                // thi jab dc-dashboard screen par navigate karte the - upload ke turant
+                // baad, jab tak user wapas dc-dashboard par na jaaye, ticker purani hi
+                // dikhti rehti thi chahe upload sahi ho chuka ho. Ab upload complete hote
+                // hi turant bhi check kar lete hain, taaki agli baar dc-dashboard par
+                // jaate hi (ya turant, agar wahi screen abhi active hai) sahi status mile.
+                checkRevenueUploadFreshness();
             } catch (error) {
                 const message = error?.name === "AbortError"
                     ? "Backend response time out ho gaya. Internet/Apps Script deployment check karke dobara try kijiye."
