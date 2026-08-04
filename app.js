@@ -1230,8 +1230,12 @@
 
         function formatProgressReportAmount(value) {
             const amount = Number(value || 0);
-            if (!Number.isFinite(amount)) return "0";
-            return Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
+            // Point/paise nahi dikhane - amount Rs me poori tarah round off hoke dikhega.
+            // Extra safety: agar kabhi koi garbage/asambhav bada number (>1 crore) yahan tak
+            // pahunch jaaye to bhi 0 dikhayenge, warna JS bade number ko khud "9.88e+22"
+            // jaisi scientific notation me convert kar deta hai.
+            if (!Number.isFinite(amount) || Math.abs(amount) > 1e7) return "0";
+            return String(Math.round(amount));
         }
 
         const revenueCategoryList = ["LV1", "LV2", "LV3", "LV4", "LV5"];
@@ -1545,9 +1549,24 @@
             return fetchUploadedPaidEntriesWithRetry_(dcName, attempts);
         }
 
-        async function warmRevenueCategoryUploadedPaidCache() {
+        // Pehle ye function har baar call hone par (panel khulte waqt + phir dropdown me
+        // report select karte waqt + phir Download dabate waqt) sabhi target DC ka data
+        // dobara network se fetch kar deta tha, chahe kuch second pehle hi wahi data aa
+        // chuka ho - isi wajah se Daily Progress Revenue reports (Category/Target/
+        // Defaulters/Non Payee, saat me se 6) slow feel hote the. Ab har DC ke liye last
+        // warm hone ka time yaad rakhte hain aur agar 60 second ke andar dobara call ho to
+        // us DC ko skip kar dete hain (forceRefresh=true dene par hamesha fresh fetch
+        // hoga). DC-agnostic - sabhi 24 DC par apne aap lagu.
+        const revenueCategoryCacheWarmedAt = {};
+        const REVENUE_CATEGORY_CACHE_TTL_MS = 60000;
+        async function warmRevenueCategoryUploadedPaidCache(forceRefresh = false) {
             if (!revenueCollectionSubmitScriptUrl) return;
-            const dcNames = Array.from(new Set(getRevenueCategoryTargetDcs().map((dcName) => normalizeDcName(dcName)).filter(Boolean)));
+            const allDcNames = Array.from(new Set(getRevenueCategoryTargetDcs().map((dcName) => normalizeDcName(dcName)).filter(Boolean)));
+            const now = Date.now();
+            const dcNames = forceRefresh
+                ? allDcNames
+                : allDcNames.filter((dcName) => now - (revenueCategoryCacheWarmedAt[dcName] || 0) > REVENUE_CATEGORY_CACHE_TTL_MS);
+            if (!dcNames.length) return;
             await Promise.all(dcNames.map(async (dcName) => {
                 const parsed = await fetchUploadedPaidCategoryListWithRetry_(dcName);
                 if (!parsed) return;
@@ -1577,6 +1596,7 @@
                     return row;
                 });
                 saveRevenueUploadedPaidEntriesLocalBulk(mergedRows, dcName, true);
+                revenueCategoryCacheWarmedAt[dcName] = Date.now();
             }));
         }
 
@@ -2087,7 +2107,7 @@
             return consumerRows
                 .filter((row) => !row.paid)
                 .filter((row) => !govtFilter || (govtFilter === "GOVT" ? !!row.govtFlag : !row.govtFlag))
-                .map((row) => ({ ...row, pendingAmount: parseRevenuePaidAmount(row.netBill || 0) }))
+                .map((row) => ({ ...row, pendingAmount: parseRevenuePendingAmount(row.netBill || 0) }))
                 .filter((row) => row.pendingAmount > 0)
                 .sort((a, b) => b.pendingAmount - a.pendingAmount)
                 .slice(0, progressRevenueDefaultersLimit);
@@ -2249,15 +2269,18 @@
         // flow, wahi lastRevenueProgressBoxData (mode/filterValue) reuse hota hai. Inke
         // saath HQ/Village/Category/Net Bill Slab/Govt-NonGovt - "Pending DO List" jaisa
         // filter set bhi rahega, taaki koi bhi combination nikal sake.
-        let progressNonPayeeFilterState = { hq: "", village: "", category: "", slab: "", govt: "" };
+        let progressNonPayeeFilterState = { dc: "", hq: "", village: "", category: "", slab: "", govt: "" };
 
         function resetProgressNonPayeeFilterState() {
-            progressNonPayeeFilterState = { hq: "", village: "", category: "", slab: "", govt: "" };
+            progressNonPayeeFilterState = { dc: "", hq: "", village: "", category: "", slab: "", govt: "" };
         }
 
         function setProgressNonPayeeFilter(key, value) {
             if (!(key in progressNonPayeeFilterState)) return;
             progressNonPayeeFilterState[key] = value || "";
+            // DC badalne par HQ/Village dono reset - warna purani DC ki HQ/Village select
+            // rah jaati hai jo nayi DC me exist hi nahi karti.
+            if (key === "dc") { progressNonPayeeFilterState.hq = ""; progressNonPayeeFilterState.village = ""; }
             if (key === "hq") progressNonPayeeFilterState.village = "";
             const body = document.getElementById("progress-revenue-body");
             if (body) body.innerHTML = renderProgressRevenueBodyInner();
@@ -2279,7 +2302,8 @@
             const allRows = buildRevenueNonPayeeRows(mode, filterValue, bucket);
             const f = progressNonPayeeFilterState;
             const rows = allRows.filter((row) => (
-                (!f.hq || normalizeLookupValue(row.hqName) === normalizeLookupValue(f.hq))
+                (!f.dc || normalizeDcName(row.dcName) === normalizeDcName(f.dc))
+                && (!f.hq || normalizeLookupValue(row.hqName) === normalizeLookupValue(f.hq))
                 && (!f.village || normalizeLookupValue(row.village) === normalizeLookupValue(f.village))
                 && (!f.category || normalizeLookupValue(row.tariffCategory) === normalizeLookupValue(f.category))
                 && isProgressNonPayeeNetBillInSlab(row, f.slab)
@@ -2300,13 +2324,21 @@
             const f = progressNonPayeeFilterState;
             const bucketLabel = getRevenueNonPayeeBucketLabel(bucket);
             const totalPending = rows.reduce((sum, r) => sum + Number(r.pendingAmount || 0), 0);
-            const villageScoped = allRows.filter((row) => !f.hq || normalizeLookupValue(row.hqName) === normalizeLookupValue(f.hq));
-            const hqOptionsHtml = buildProgressNonPayeeOptionsHtml(getRevenueUniqueValues(allRows, "hqName"), f.hq, "All HQ Names");
+            // Division/Circle level me ek hi HQ naam alag-alag DC me repeat ho sakta hai,
+            // isliye HQ/Village se pehle DC chunna zaroori hai - warna baaki dropdown sahi
+            // se kaam nahi karte. DC-level view me pehle se ek hi DC scope me hai, isliye
+            // wahan yeh extra dropdown dikhane ki zaroorat nahi.
+            const showDcDropdown = activeViewLevel !== "DC";
+            const dcScoped = allRows.filter((row) => !f.dc || normalizeDcName(row.dcName) === normalizeDcName(f.dc));
+            const villageScoped = dcScoped.filter((row) => !f.hq || normalizeLookupValue(row.hqName) === normalizeLookupValue(f.hq));
+            const dcOptionsHtml = buildProgressNonPayeeOptionsHtml(getRevenueUniqueValues(allRows, "dcName"), f.dc, "All DC");
+            const hqOptionsHtml = buildProgressNonPayeeOptionsHtml(getRevenueUniqueValues(dcScoped, "hqName"), f.hq, "All HQ Names");
             const villageOptionsHtml = buildProgressNonPayeeOptionsHtml(getRevenueUniqueValues(villageScoped, "village"), f.village, "All Villages");
             const categoryOptionsHtml = buildProgressNonPayeeOptionsHtml(getRevenueUniqueValues(allRows, "tariffCategory"), f.category, "All Categories");
             const selectStyle = "width:100%; height:46px; margin:8px auto 0; display:block; border:1.5px solid #fb923c; border-radius:14px; padding:0 12px; font-size:0.8rem; font-weight:900; color:#0f172a; background:#ffffff;";
             let html = `
                 <div style="font-size:0.75rem; font-weight:950; color:#9f1239; text-align:center;">${escapeHtml(bucketLabel)}</div>
+                ${showDcDropdown ? `<select onchange="setProgressNonPayeeFilter('dc', this.value)" style="${selectStyle}">${dcOptionsHtml}</select>` : ""}
                 <select onchange="setProgressNonPayeeFilter('hq', this.value)" style="${selectStyle}">${hqOptionsHtml}</select>
                 <select onchange="setProgressNonPayeeFilter('village', this.value)" style="${selectStyle}">${villageOptionsHtml}</select>
                 <select onchange="setProgressNonPayeeFilter('category', this.value)" style="${selectStyle}">${categoryOptionsHtml}</select>
@@ -2328,6 +2360,11 @@
                     <div style="background:#fff1f2; border-radius:12px; padding:8px 4px; text-align:center;"><div style="font-size:0.54rem; font-weight:850; color:#9f1239; text-transform:uppercase;">Consumers</div><div style="font-size:0.95rem; font-weight:950; color:#9f1239; margin-top:2px;">${rows.length}</div></div>
                     <div style="background:#fff1f2; border-radius:12px; padding:8px 4px; text-align:center;"><div style="font-size:0.54rem; font-weight:850; color:#9f1239; text-transform:uppercase;">Total Pending</div><div style="font-size:0.85rem; font-weight:950; color:#9f1239; margin-top:2px;">${formatProgressReportAmount(totalPending)}</div></div>
                 </div>
+                <div class="btn-export-row" style="margin-top:10px;">
+                    <button class="btn-unique btn-excel-unique" onclick="downloadProgressRevenueReportBox('XLS')">${escapeHtml(getProgressRevenueReportTypeLabel())} Excel</button>
+                    <button class="btn-unique btn-pdf-unique" onclick="downloadProgressRevenueReportBox('PDF')">${escapeHtml(getProgressRevenueReportTypeLabel())} PDF</button>
+                </div>
+                <div id="progress-category-download-status" style="display:none; text-align:center; font-weight:900; border-radius:14px; padding:8px 10px; width:100%; margin-top:8px;"></div>
                 <div class="summary-wrapper" style="margin-top:10px;"><div class="summary-table-header" style="grid-template-columns: 1.3fr 0.7fr 1fr;"><div>CONSUMER</div><div>${bucket === "SINCE_CONNECTION" ? "TYPE" : "MONTHS"}</div><div>PENDING</div></div>
             `;
             if (!rows.length) {
@@ -2353,8 +2390,14 @@
                 const { mode, filterValue } = lastRevenueProgressBoxData;
                 const { rows } = getProgressNonPayeeFilteredRows(mode || "DAILY", filterValue || "", bucket);
                 if (!rows.length) { setProgressCategoryDownloadState(false, "Download ke liye data nahi hai"); return; }
-                const headers = ["IVRS NO", "CONSUMER NAME", "HQ NAME", "VILLAGE", "TARRIF CATEGORY", "GOVT/NON GOVT", "MOBILE NO", bucket === "SINCE_CONNECTION" ? "STATUS" : "MONTHS SINCE PAYMENT", "LAST PAYMENT DATE", "PENDING AMOUNT"];
+                const showDcColumn = activeViewLevel !== "DC";
+                const headers = [
+                    ...(showDcColumn ? ["DC NAME"] : []),
+                    "IVRS NO", "CONSUMER NAME", "HQ NAME", "VILLAGE", "TARRIF CATEGORY", "GOVT/NON GOVT", "MOBILE NO",
+                    bucket === "SINCE_CONNECTION" ? "STATUS" : "MONTHS SINCE PAYMENT", "LAST PAYMENT DATE", "PENDING AMOUNT"
+                ];
                 const bodyRows = rows.map((row) => [
+                    ...(showDcColumn ? [row.dcName || ""] : []),
                     row.ivrsNo || "", row.consumerName || "", row.hqName || "", row.village || "", row.tariffCategory || "",
                     row.govtFlag ? "GOVT" : "NON GOVT", row.mobileNo || "",
                     bucket === "SINCE_CONNECTION" ? "Never Paid" : `${row.monthsSincePayment}`,
@@ -2363,7 +2406,7 @@
                 ]);
                 const scope = activeViewLevel === "DC" ? `DC - ${activeDC}` : (activeViewLevel === "DIVISION" ? activeDiv : "SEONI CIRCLE");
                 const f = progressNonPayeeFilterState;
-                const filterLine = `HQ: ${f.hq || "All"}  |  Village: ${f.village || "All"}  |  Category: ${f.category || "All"}  |  Net Bill Slab: ${f.slab || "All"}  |  Type: ${f.govt === "GOVT" ? "Govt" : (f.govt === "NONGOVT" ? "Non Govt" : "All")}`;
+                const filterLine = `${showDcColumn ? `DC: ${f.dc || "All"}  |  ` : ""}HQ: ${f.hq || "All"}  |  Village: ${f.village || "All"}  |  Category: ${f.category || "All"}  |  Net Bill Slab: ${f.slab || "All"}  |  Type: ${f.govt === "GOVT" ? "Govt" : (f.govt === "NONGOVT" ? "Non Govt" : "All")}`;
                 const reportTitle = `${getRevenueNonPayeeBucketLabel(bucket)} - ${scope}`;
                 const asOfLine = `As of: ${formatRevenueDateIndian(normalizeRevenueReportDate(getCurrentDateDDMMYYYY()))}`;
                 const fileName = `${reportTitle}-${getTodayIsoDate()}`.replace(/[\\/:*?"<>|]+/g, "_");
@@ -2516,6 +2559,14 @@
         function renderRevenueProgressNonStaffBoxHtml() {
             const data = lastRevenueProgressBoxData || {};
             let bodyHtml;
+            // Non Payee (3M/6M/Since Connection) me consumer list bahut lambi ho sakti hai
+            // (hazaaron rows) - isliye in teeno ke liye Excel/PDF buttons aur download-status
+            // ab renderRevenueProgressNonPayeeSummaryHtml() ke andar hi, summary cards (Consumers/
+            // Total Pending) ke turant baad, list se PEHLE render ho jaate hain - taki user ko
+            // download karne ke liye poori list scroll na karni pade. Isliye yahan (list ke baad)
+            // dobara buttons nahi jodte, warna do baar dikhte. Baaki Category/Target/Defaulters
+            // pehle jaisे hi (bodyHtml ke NEECHE) buttons rakhte hain - wahan list chhoti hoti hai.
+            const isNonPayeeType = ["NONPAYEE_3M", "NONPAYEE_6M", "NONPAYEE_SINCE_CONNECTION"].includes(progressRevenueReportType);
             if (progressRevenueReportType === "TARGET") {
                 bodyHtml = data.hqVillageSummaryData ? renderRevenueProgressTargetSummaryHtml(data.hqVillageSummaryData) : `<div style="font-size:0.75rem; font-weight:950; color:#1d4ed8; text-align:center;">Data nahi mila.</div>`;
             } else if (progressRevenueReportType === "DEFAULTERS") {
@@ -2530,14 +2581,15 @@
                 bodyHtml = data.hqVillageSummaryData ? renderRevenueProgressHqVillageSummaryHtml(data.hqVillageSummaryData) : `<div style="font-size:0.75rem; font-weight:950; color:#1d4ed8; text-align:center;">Category Wise Paid/Unpaid Summary</div>`;
             }
             const typeLabel = getProgressRevenueReportTypeLabel();
-            return `
-                <div style="border:1.5px dashed #93c5fd; background:#eff6ff; border-radius:16px; padding:10px;">
-                    ${bodyHtml}
+            const bottomButtonsHtml = isNonPayeeType ? "" : `
                     <div class="btn-export-row" style="margin-top:8px;">
                         <button class="btn-unique btn-excel-unique" onclick="downloadProgressRevenueReportBox('XLS')">${escapeHtml(typeLabel)} Excel</button>
                         <button class="btn-unique btn-pdf-unique" onclick="downloadProgressRevenueReportBox('PDF')">${escapeHtml(typeLabel)} PDF</button>
                     </div>
-                    <div id="progress-category-download-status" style="display:none; text-align:center; font-weight:900; border-radius:14px; padding:8px 10px; width:100%; margin-top:8px;"></div>
+                    <div id="progress-category-download-status" style="display:none; text-align:center; font-weight:900; border-radius:14px; padding:8px 10px; width:100%; margin-top:8px;"></div>`;
+            return `
+                <div style="border:1.5px dashed #93c5fd; background:#eff6ff; border-radius:16px; padding:10px;">
+                    ${bodyHtml}${bottomButtonsHtml}
                 </div>
             `;
         }
@@ -12212,6 +12264,21 @@
             return Number(String(value || "").replace(/[^\d.]/g, "")) || 0;
         }
 
+        // NET BILL / arrears source data kabhi-kabhi CSV column-misalignment ki wajah se
+        // 2-3 columns ke digits aapas me jud ke ek hi field me aa jaate hain (jaise IVRS+
+        // mobile+bill milke ek 20+ digit ka number ban jaana) - jo ek asli consumer bill se
+        // kayi guna bada hota hai aur JS me bade number "9.88e+22" jaisi scientific notation
+        // me dikhne lagte hain, plus Top Defaulters list me sabse upar aa jaate hain (sirf
+        // isliye ki wo number galti se sabse "bada" hai). Koi bhi genuine bill/arrears kabhi
+        // ~1 crore se upar nahi hota, isliye usse zyada ko garbage maan kar 0 (yani list se
+        // bahar) kar dete hain - sabhi 24 DC ke Defaulters/Non-Payee reports isi ek function
+        // se pending amount nikalte hain, isliye fix sab jagah ek saath lagu hoga.
+        function parseRevenuePendingAmount(value) {
+            const amount = parseRevenuePaidAmount(value);
+            if (!Number.isFinite(amount) || Math.abs(amount) > 1e7) return 0;
+            return amount;
+        }
+
         function getRevenueTdAmount(row) {
             return parseRevenuePaidAmount(row.tdAmount || row.netBill || row.arrears);
         }
@@ -13871,7 +13938,7 @@
                 const consumerRows = buildRevenueHqVillageConsumerRows("DAILY", dateValue);
                 revenueDefaultersRows = consumerRows
                     .filter((row) => !row.paid)
-                    .map((row) => ({ ...row, pendingAmount: parseRevenuePaidAmount(row.netBill || 0) }))
+                    .map((row) => ({ ...row, pendingAmount: parseRevenuePendingAmount(row.netBill || 0) }))
                     .filter((row) => row.pendingAmount > 0);
                 await progress.finish();
                 if (!isRenderValid()) return;
@@ -14027,7 +14094,7 @@
 
         function buildRevenueNonPayeeRows(mode, filterValue, bucket) {
             const consumerRows = buildRevenueHqVillageConsumerRows(mode, filterValue);
-            const withPendingAmount = (row) => ({ ...row, pendingAmount: parseRevenuePaidAmount(row.netBill || 0) });
+            const withPendingAmount = (row) => ({ ...row, pendingAmount: parseRevenuePendingAmount(row.netBill || 0) });
             if (bucket === "SINCE_CONNECTION") {
                 return consumerRows
                     .filter((row) => row.hasPaymentDateData && row.neverPaid)
