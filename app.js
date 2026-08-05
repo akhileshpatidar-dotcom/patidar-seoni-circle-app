@@ -15232,6 +15232,9 @@
                 if (id === "dc-dashboard") {
                     checkRevenueUploadFreshness();
                 }
+                if (id === "bill-calculator") {
+                    resetBillCalculator();
+                }
                 document.getElementById("back-btn").style.display = id === "home" ? "none" : "flex";
                 let headerTitle = "SEONI CIRCLE";
                 if (id === "dc-selection") headerTitle = activeDiv;
@@ -15268,6 +15271,7 @@
                 if (id === "mobile-update") headerTitle = "UPDATE MOBILE NO";
                 if (id === "mobile-update-report") headerTitle = "MOBILE UPDATE REPORT";
                 if (id === "summary") headerTitle = "PROGRESS REPORT";
+                if (id === "bill-calculator") headerTitle = "BIJLEE BILL CALCULATOR";
                 document.getElementById("main-header-title").innerText = headerTitle;
                 const header = document.getElementById("app-header");
                 const headerMenuWrap = document.getElementById("header-menu-wrap");
@@ -15338,6 +15342,11 @@
                     if (searchBtn) searchBtn.style.background = "linear-gradient(135deg, #7c3aed 0%, #4c1d95 100%)";
                     const courtBtn = document.getElementById("court-search-btn");
                     if (courtBtn) courtBtn.style.background = "linear-gradient(135deg, #7c3aed 0%, #4c1d95 100%)";
+                } else if (id === "bill-calculator") {
+                    document.documentElement.style.setProperty("--theme-color", "#ec4899");
+                    document.documentElement.style.setProperty("--theme-grad", "linear-gradient(135deg, #fbcfe8 0%, #f9a8d4 100%)");
+                    header.className = "app-header btn-feeder-light-pink";
+                    if (searchBtn) searchBtn.style.background = "linear-gradient(135deg, #fbcfe8 0%, #f9a8d4 100%)";
                 } else {
                     header.className = "app-header " + activeGrad;
                     if (searchBtn) searchBtn.style.background = "var(--theme-grad)";
@@ -15382,6 +15391,8 @@
                 switchView("subdn-chhapara");
             } else if (act === "court-case-view") {
                 resetCourtCaseForm();
+                switchView("dc-dashboard");
+            } else if (act === "bill-calculator-view") {
                 switchView("dc-dashboard");
             } else if (act === "material-list-view" || act === "material-receive-view" || act === "material-issue-view" || act === "live-stock-view" || act === "low-stock-view" || act === "stock-report-view") {
                 switchView("stock-material");
@@ -15442,4 +15453,672 @@
                 input.value = getTodayIsoDate();
             }
             refreshSummary();
+        }
+
+
+        // =====================================================================
+        // BIJLEE BILL CALCULATOR (DC Dashboard, "Revenue Collection" ke turant
+        // niche) - MPERC Retail Supply Tariff Order FY 2026-27 (Annexure-2,
+        // Tariff Schedule LV-1 se LV-6, source PDF "TERRIFF ORDER.pdf" pages
+        // 200-214) ke tariff-code-wise slabs par based APPROXIMATE monthly
+        // bill estimator. Category chunne ke baad "Tariff Code" (jaise LV1.2
+        // Urban, LV2.1 Institution, LV4.1 <=20HP wagera) alag se chunna hota
+        // hai - taaki sahi rate lage.
+        //
+        // NGB_CONSUMER_LEDGER_CHHAPARA-2_JUNE-2026.xlsx (10,100 rows) se
+        // reverse-engineer/verify kiya gaya hai:
+        //   - Net Bill = Month Bill + Arrear + SurchargeDemanded (100% exact).
+        //   - Month Bill = Energy Charge + F.C.A. + Fixed Charge + Electricity
+        //     Duty + PF Charge + CCB Adjustment + Other & TOD Adjustment +
+        //     Employee Rebate + Prompt Payment Incentive + Meter Rent
+        //     - Subsidy - Load Factor Incentive - S.D. Interest - Lock Credit
+        //     - Online Payment Rebate - Advance Payment Incentive, round-off
+        //     nearest रुपया (>=50 paisa upar).
+        //   - Energy Charge TELESCOPIC hai (LV1.2/LV5.1) - har slab apni rate
+        //     par charge hoke judता hai, na ki poori consumption top-slab
+        //     rate par (jaise pehle galti se implement hua tha).
+        //   - Fixed Charge har tariff-code me alag tarike se: LV1.2 me 0-50/
+        //     51-150 slab ek FLAT per-connection amount hai, 151+ slab me
+        //     "har 15 unit (ya uska hissa) = 0.1kW" wale virtual-load-block se
+        //     (Tariff Order ka apna illustration) - ye ledger ke 3 alag
+        //     consumers (0/184/310/142 units) par bilkul EXACT match hui.
+        //     LV2/LV3/LV4/LV5 me Fixed Charge load(kW)/HP x per-kW/HP rate hai.
+        //   - Electricity Duty (ED) category ke hisaab se ALAG hai - ledger
+        //     check karne par pata chala:
+        //       LV1 (Domestic): duty lagti hai, EC ka % units badhne ke saath
+        //         8.5% se 11.6% tak dheere-dheere badhta hai (progressive).
+        //       LV2.2 (Commercial): duty lagti hai, ~9.35% flat.
+        //       LV4 (Industry): duty lagti hai, ~9.3% flat.
+        //       LV2.1 (Institution/School/Hospital), LV3 (Water Works/Street
+        //         Light), LV5 (Agriculture): ledger me 1350+ rows check karne
+        //         par ED हमेशा 0 mila - poori tarah EXEMPT.
+        //   - F.C.A. (Fuel Cost Adjustment) tariff order me nahi hoti (DISCOM
+        //     har mahine alag notify karta hai) - ledger se hi khud-ba-khud
+        //     nikala: Energy Charge ka ~2.81% (sabse recent bill-date, 9-Jul,
+        //     jiske sabse zyada rows the, us din ka ratio). Bill-date badalte
+        //     hi ye ratio ledger me 3.9% se 2.7% ke beech ghatta-badhta paya
+        //     gaya - matlab DISCOM ye dar bar-bar update karta hai, isliye
+        //     ye ek approximation hai, aage DISCOM rate badalne par is
+        //     constant ko bhi ledger se dobara nikalna padega.
+        //   - LV3.1 (Municipal) aur kuch LV4 rows me billing-cycle ki exact
+        //     lambai (30 din se kam/zyada) ki wajah se chhoti si proration
+        //     गैप bhi mili - ye calculator poore-mahine ka maan kar chalta
+        //     hai, isliye 1-3% tak ka farq aa sakta hai.
+        //
+        // LIMITATIONS (v1 me jaan-boojh kar chhoda gaya hai):
+        //   - Power Factor surcharge/incentive shamil nahi hai.
+        //   - Demand-based tariff me "Maximum Demand vs Contract Demand,
+        //     jo bhi zyada ho" wali exact billing-demand logic simplify karke
+        //     seedhe Contract/Sanctioned load use kiya hai.
+        //   - LV-4 Seasonal (4.2), DTR-metered LV5.1(c) jaise special cases
+        //     shamil nahi hain.
+        //   - Griha Jyoti Subsidy (LV1) ki asli eligibility average
+        //     consumption/BPL status par bhi depend karti hai - isliye ye ek
+        //     MANUAL "Subsidy Applicable?" toggle hai (sirf LV1 me dikhta
+        //     hai). Amount ledger ki 8,700+ subsidy>0 wali LV1.2 rows se
+        //     nikala gaya empirical interpolation-table hai.
+        // =====================================================================
+
+        function billRoundOff(value) {
+            return Math.floor(Number(value || 0) + 0.5);
+        }
+
+        function billCalcRoundLoad(load) {
+            return Math.max(1, Math.round(Number(load || 0)));
+        }
+
+        function billCalcFloorLoad(load) {
+            return Math.max(1, Math.floor(Number(load || 0)));
+        }
+
+        function billTelescopicSum(units, slabs) {
+            let remaining = Math.max(0, Number(units || 0));
+            let prevLimit = 0;
+            let totalRupees = 0;
+            for (const [upto, paise] of slabs) {
+                if (remaining <= 0) break;
+                const slabSize = upto - prevLimit;
+                const unitsInSlab = Math.min(remaining, slabSize);
+                totalRupees += unitsInSlab * paise / 100;
+                remaining -= unitsInSlab;
+                prevLimit = upto;
+            }
+            return totalRupees;
+        }
+
+        const BILL_FCA_RATIO_OF_ENERGY_CHARGE = 0.0281;
+        function billCalcFcaAuto(energyCharge) {
+            return Number(energyCharge || 0) * BILL_FCA_RATIO_OF_ENERGY_CHARGE;
+        }
+
+        const BILL_ED_RATIO_TABLE_LV1 = [
+            [0, 0.085], [10, 0.085], [20, 0.0955], [30, 0.092], [40, 0.0902],
+            [50, 0.0934], [70, 0.093], [100, 0.0928], [110, 0.096], [120, 0.0985],
+            [130, 0.1004], [140, 0.1024], [150, 0.1038], [160, 0.1053], [170, 0.1068],
+            [180, 0.1082], [200, 0.1105], [220, 0.111], [250, 0.1134], [280, 0.1143],
+            [300, 0.1153], [320, 0.1159], [400, 0.1175]
+        ];
+        function lookupBillEdRatioLv1(units) {
+            const u = Math.max(0, Number(units || 0));
+            const table = BILL_ED_RATIO_TABLE_LV1;
+            if (u <= table[0][0]) return table[0][1];
+            for (let i = 0; i < table.length - 1; i++) {
+                const u1 = table[i][0], r1 = table[i][1], u2 = table[i + 1][0], r2 = table[i + 1][1];
+                if (u >= u1 && u <= u2) return u2 === u1 ? r1 : r1 + (r2 - r1) * (u - u1) / (u2 - u1);
+            }
+            return table[table.length - 1][1];
+        }
+        function billCalcEdAuto(energyCharge, units, edMode) {
+            const ec = Number(energyCharge || 0);
+            if (edMode === "EXEMPT") return 0;
+            if (edMode === "FLAT") return ec * 0.0935;
+            return ec * lookupBillEdRatioLv1(units);
+        }
+
+        const BILL_LV1_SUBSIDY_TABLE = [
+            [0, 0], [10, 20], [20, 73], [30, 126], [40, 178], [50, 232],
+            [60, 340], [70, 402], [80, 465], [90, 531], [100, 594],
+            [110, 592], [120, 592], [130, 596], [140, 593], [150, 593]
+        ];
+        function lookupBillLv1Subsidy(units) {
+            const u = Math.max(0, Number(units || 0));
+            if (u > 150) return 0;
+            const table = BILL_LV1_SUBSIDY_TABLE;
+            for (let i = 0; i < table.length - 1; i++) {
+                const u1 = table[i][0], s1 = table[i][1], u2 = table[i + 1][0], s2 = table[i + 1][1];
+                if (u >= u1 && u <= u2) return u2 === u1 ? s1 : s1 + (s2 - s1) * (u - u1) / (u2 - u1);
+            }
+            return table[table.length - 1][1];
+        }
+
+        const BILL_TARIFF_CODES = {
+            LV1: [
+                { code: "LV1.2U", label: "LV1.2 - घरेलू शहरी (Urban, Metered)" },
+                { code: "LV1.2R", label: "LV1.2 - घरेलू ग्रामीण (Rural, Metered)" },
+                { code: "LV1.1", label: "LV1.1 - बी.पी.एल / अति-निम्न खपत (0-30 U)" },
+                { code: "LV1.UM", label: "LV1 - अमीटर्ड ग्रामीण (Unmetered, 500W तक)" }
+            ],
+            LV2: [
+                { code: "LV2.1", label: "LV2.1 - संस्थान / स्कूल / अस्पताल (<=10kW)" },
+                { code: "LV2.1D", label: "LV2.1 - संस्थान मांग आधारित (>10kW Demand)" },
+                { code: "LV2.2", label: "LV2.2 - गैर-घरेलू दुकान/ऑफिस (<=10kW)" },
+                { code: "LV2.2D", label: "LV2.2 - गैर-घरेलू मांग आधारित (>10kW Demand)" }
+            ],
+            LV3: [
+                { code: "LV3.1", label: "LV3.1 - नगर निगम / नगर पालिका / छावनी" },
+                { code: "LV3.2", label: "LV3.2 - ग्राम पंचायत जल प्रदाय / स्ट्रीट लाइट" }
+            ],
+            LV4: [
+                { code: "LV4.1A", label: "LV4.1 - LT सूक्ष्म उद्योग (<=20HP/15kW, 30% छूट)" },
+                { code: "LV4.1B", label: "LV4.1 - LT उद्योग सामान्य (>20HP)" }
+            ],
+            LV5: [
+                { code: "LV5.1", label: "LV5.1 - कृषि कार्य - मीटर्ड (पंप/सिंचाई)" },
+                { code: "LV5.3", label: "LV5.3 - कृषि संबंधित (डेयरी/पोल्ट्री/मत्स्य)" },
+                { code: "LV5.4", label: "LV5.4 - फ्लैट रेट (अमीटर्ड कृषि पंप)" }
+            ],
+            LV6: [
+                { code: "LV6.0", label: "LV6.0 - ई-वाहन / ई-रिक्शा चार्जिंग स्टेशन" }
+            ]
+        };
+
+        function resetBillCalculator() {
+            const catSelect = document.getElementById("bc-category");
+            if (catSelect) catSelect.value = "";
+            const codeWrap = document.getElementById("bc-tariffcode-wrap");
+            if (codeWrap) codeWrap.style.display = "none";
+            const codeSelect = document.getElementById("bc-tariffcode");
+            if (codeSelect) codeSelect.innerHTML = "";
+            const fieldsBox = document.getElementById("bc-fields");
+            if (fieldsBox) fieldsBox.innerHTML = "";
+            const resultBox = document.getElementById("bc-result");
+            if (resultBox) resultBox.innerHTML = "";
+            lastBillCalcResult = null;
+            lastBillCalcMeta = null;
+            const introDesc = document.getElementById("bc-intro-desc");
+            if (introDesc) introDesc.style.display = "block";
+        }
+
+        function onBillCalculatorCategoryChange() {
+            const category = document.getElementById("bc-category")?.value || "";
+            const codeWrap = document.getElementById("bc-tariffcode-wrap");
+            const codeSelect = document.getElementById("bc-tariffcode");
+            const fieldsBox = document.getElementById("bc-fields");
+            const resultBox = document.getElementById("bc-result");
+            const introDesc = document.getElementById("bc-intro-desc");
+            if (resultBox) resultBox.innerHTML = "";
+            if (fieldsBox) fieldsBox.innerHTML = "";
+            if (introDesc) introDesc.style.display = category ? "none" : "block";
+            if (!category || !BILL_TARIFF_CODES[category]) {
+                if (codeWrap) codeWrap.style.display = "none";
+                if (codeSelect) codeSelect.innerHTML = "";
+                return;
+            }
+            if (codeSelect) {
+                codeSelect.innerHTML = `<option value="">-- Tariff Code Chunein --</option>` +
+                    BILL_TARIFF_CODES[category].map((c) => `<option value="${c.code}">${escapeHtml(c.label)}</option>`).join("");
+            }
+            if (codeWrap) codeWrap.style.display = "block";
+            renderBillCalculatorFields();
+        }
+
+        const billCalcSelectStyle = "width:100%; height:48px; margin-top:10px; display:block; border:1.5px solid #f9a8d4; border-radius:14px; padding:0 12px; font-size:0.78rem; font-weight:900; color:#0f172a; background:#ffffff;";
+        const billCalcInputStyle = "width:100%; height:48px; margin-top:10px; display:block; border:1.5px solid #f9a8d4; border-radius:14px; padding:0 12px; font-size:0.85rem; font-weight:900; color:#0f172a; background:#ffffff; text-align:center;";
+        const billCalcLabelStyle = "display:block; font-size:0.62rem; font-weight:900; color:#1d4ed8; margin-top:10px;";
+
+        function billCalcUnitsField(placeholder) {
+            return `<label style="${billCalcLabelStyle}">Total Unit (Consumption)</label>
+                <input id="bc-units" type="number" inputmode="decimal" class="ivrs-input" style="${billCalcInputStyle}" placeholder="${placeholder}">`;
+        }
+        function billCalcLoadField(labelText, placeholder) {
+            return `<label style="${billCalcLabelStyle}">${labelText}</label>
+                <input id="bc-load" type="number" inputmode="decimal" class="ivrs-input" style="${billCalcInputStyle}" placeholder="${placeholder}">`;
+        }
+        function billCalcAreaField() {
+            return `<label style="${billCalcLabelStyle}">Area Type</label>
+                <select id="bc-area" class="ivrs-input" style="${billCalcSelectStyle}">
+                    <option value="URBAN">Urban</option>
+                    <option value="RURAL">Rural</option>
+                </select>`;
+        }
+        function billCalcBillingDaysField() {
+            return `<label style="${billCalcLabelStyle}">Billing Period (Din) - is mahine ka reading cycle kitne din ka tha</label>
+                <input id="bc-billing-days" type="number" inputmode="numeric" class="ivrs-input" style="${billCalcInputStyle}" placeholder="e.g. 30" value="30">`;
+        }
+        function billCalcSubsidyField() {
+            return `<label style="${billCalcLabelStyle}">Griha Jyoti Subsidy Applicable?</label>
+                <select id="bc-subsidy-toggle" class="ivrs-input" style="${billCalcSelectStyle}">
+                    <option value="YES">YES (Eligible)</option>
+                    <option value="NO">NO (Not Eligible)</option>
+                </select>`;
+        }
+
+        function renderBillCalculatorFields() {
+            const tariffCode = document.getElementById("bc-tariffcode")?.value || "";
+            const fieldsBox = document.getElementById("bc-fields");
+            const resultBox = document.getElementById("bc-result");
+            if (resultBox) resultBox.innerHTML = "";
+            if (!fieldsBox) return;
+            if (!tariffCode) { fieldsBox.innerHTML = ""; return; }
+
+            if (tariffCode === "LV1.2U" || tariffCode === "LV1.2R") {
+                fieldsBox.innerHTML = billCalcUnitsField("e.g. 120") + billCalcBillingDaysField() + billCalcSubsidyField();
+            } else if (tariffCode === "LV1.1") {
+                fieldsBox.innerHTML = billCalcUnitsField("0 se 30 ke beech") + billCalcSubsidyField();
+            } else if (tariffCode === "LV1.UM") {
+                fieldsBox.innerHTML = `<div style="${billCalcLabelStyle} margin-top:4px;">Ye connection flat 75 units/month par billed hota hai (khud calculate ho jayega).</div>` + billCalcSubsidyField();
+            } else if (tariffCode === "LV2.1" || tariffCode === "LV2.2") {
+                fieldsBox.innerHTML = billCalcAreaField() + billCalcLoadField("Sanctioned Load (kW, 10kW tak)", "e.g. 2") + billCalcUnitsField("e.g. 80");
+            } else if (tariffCode === "LV2.1D" || tariffCode === "LV2.2D") {
+                fieldsBox.innerHTML = billCalcAreaField() + billCalcLoadField("Billing Demand (kW)", "e.g. 15") + billCalcUnitsField("e.g. 2000");
+            } else if (tariffCode === "LV3.1" || tariffCode === "LV3.2") {
+                fieldsBox.innerHTML = billCalcLoadField("Sanctioned Load (kW)", "e.g. 5") + billCalcUnitsField("e.g. 300");
+            } else if (tariffCode === "LV4.1A" || tariffCode === "LV4.1B") {
+                fieldsBox.innerHTML = billCalcAreaField() + billCalcLoadField("Contract Demand (kW)", "e.g. 10") + billCalcUnitsField("e.g. 558");
+            } else if (tariffCode === "LV5.1") {
+                fieldsBox.innerHTML = billCalcLoadField("Sanctioned Load (HP)", "e.g. 5") + billCalcUnitsField("e.g. 350");
+            } else if (tariffCode === "LV5.3") {
+                fieldsBox.innerHTML = billCalcAreaField() + billCalcLoadField("Connected Load (HP, 25HP tak)", "e.g. 10") + billCalcUnitsField("e.g. 400");
+            } else if (tariffCode === "LV5.4") {
+                fieldsBox.innerHTML = `
+                    <label style="${billCalcLabelStyle}">Sanctioned Load (HP)</label>
+                    <input id="bc-load" type="number" inputmode="decimal" class="ivrs-input" style="${billCalcInputStyle}" placeholder="e.g. 5">
+                    <label style="${billCalcLabelStyle}">Phase</label>
+                    <select id="bc-phase" class="ivrs-input" style="${billCalcSelectStyle}">
+                        <option value="3P">Three Phase</option>
+                        <option value="1P">Single Phase</option>
+                    </select>
+                    <label style="${billCalcLabelStyle}">Season</label>
+                    <select id="bc-season" class="ivrs-input" style="${billCalcSelectStyle}">
+                        <option value="APR_SEP">April - September</option>
+                        <option value="OCT_MAR">October - March</option>
+                    </select>
+                `;
+            } else if (tariffCode === "LV6.0") {
+                fieldsBox.innerHTML = billCalcUnitsField("e.g. 500") + `
+                    <label style="${billCalcLabelStyle}">Zyada-tar Solar Hours (9AM-5PM) me charging hoti hai?</label>
+                    <select id="bc-ev-timing" class="ivrs-input" style="${billCalcSelectStyle}">
+                        <option value="NONSOLAR">Non-Solar Hours (20% surcharge)</option>
+                        <option value="SOLAR">Solar Hours 9AM-5PM (20% rebate)</option>
+                        <option value="MIX">Mix (normal rate, average)</option>
+                    </select>
+                `;
+            } else {
+                fieldsBox.innerHTML = "";
+            }
+        }
+
+        function computeBillLv1Metered(units, area, subsidyApplicable, billingDays) {
+            // Tariff Order ke anusar agar billing cycle 30 din ka na ho to
+            // energy/fixed charge ki slab-boundaries (50/150/300) proportionally
+            // prorate hoti hain (jaise 36-din cycle me 50->60, 150->180, 300->360).
+            const days = Number(billingDays || 30) || 30;
+            const ratio = days / 30;
+            const b1 = 50 * ratio, b2 = 150 * ratio, b3 = 300 * ratio;
+            const energyCharge = billTelescopicSum(units, [[b1, 471], [b2, 567], [b3, 705], [Infinity, 724]]);
+            let fixedCharge;
+            if (units <= b1) fixedCharge = area === "URBAN" ? 81 : 67;
+            else if (units <= b2) fixedCharge = area === "URBAN" ? 134 : 111;
+            else {
+                const blocksOf0p1kW = Math.ceil(units / 15);
+                fixedCharge = blocksOf0p1kW * (area === "URBAN" ? 30 : 28);
+            }
+            const fca = billCalcFcaAuto(energyCharge);
+            const electricityDuty = billCalcEdAuto(energyCharge, units, "PROGRESSIVE");
+            const subsidy = subsidyApplicable ? lookupBillLv1Subsidy(units) : 0;
+            const components = [
+                ["Energy Charge", energyCharge],
+                ["F.C.A. (auto)", fca],
+                ["Fixed Charge", fixedCharge],
+                ["Electricity Duty", electricityDuty],
+                ["Subsidy (Griha Jyoti)", -subsidy]
+            ];
+            const total = energyCharge + fca + fixedCharge + electricityDuty - subsidy;
+            return { components, total: billRoundOff(total) };
+        }
+
+        function computeBillLv1Bpl(units, subsidyApplicable) {
+            const cappedUnits = Math.min(30, Math.max(0, units));
+            const energyCharge = cappedUnits * 372 / 100;
+            const fixedCharge = 0;
+            const fca = billCalcFcaAuto(energyCharge);
+            const electricityDuty = billCalcEdAuto(energyCharge, cappedUnits, "PROGRESSIVE");
+            const subsidy = subsidyApplicable ? lookupBillLv1Subsidy(cappedUnits) : 0;
+            const components = [
+                ["Energy Charge", energyCharge],
+                ["F.C.A. (auto)", fca],
+                ["Fixed Charge", fixedCharge],
+                ["Electricity Duty", electricityDuty],
+                ["Subsidy (Griha Jyoti)", -subsidy]
+            ];
+            const total = energyCharge + fca + fixedCharge + electricityDuty - subsidy;
+            return { components, total: billRoundOff(total) };
+        }
+
+        function computeBillLv1Unmetered(subsidyApplicable) {
+            const units = 75;
+            const energyCharge = units * 574 / 100;
+            const fixedCharge = 122;
+            const fca = billCalcFcaAuto(energyCharge);
+            const electricityDuty = billCalcEdAuto(energyCharge, units, "PROGRESSIVE");
+            const subsidy = subsidyApplicable ? lookupBillLv1Subsidy(units) : 0;
+            const components = [
+                ["Assessed Units", units],
+                ["Energy Charge", energyCharge],
+                ["F.C.A. (auto)", fca],
+                ["Fixed Charge", fixedCharge],
+                ["Electricity Duty", electricityDuty],
+                ["Subsidy (Griha Jyoti)", -subsidy]
+            ];
+            const total = energyCharge + fca + fixedCharge + electricityDuty - subsidy;
+            return { components, total: billRoundOff(total) };
+        }
+
+        function computeBillLv21(units, area, load) {
+            const energyCharge = units * 700 / 100;
+            const fixedCharge = billCalcRoundLoad(load) * (area === "URBAN" ? 172 : 141);
+            const fca = billCalcFcaAuto(energyCharge);
+            const electricityDuty = billCalcEdAuto(energyCharge, units, "EXEMPT");
+            const components = [
+                ["Energy Charge", energyCharge],
+                ["F.C.A. (auto)", fca],
+                ["Fixed Charge", fixedCharge],
+                ["Electricity Duty (Exempt)", electricityDuty]
+            ];
+            const total = energyCharge + fca + fixedCharge + electricityDuty;
+            return { components, total: billRoundOff(total) };
+        }
+
+        function computeBillLv21Demand(units, area, demand) {
+            const energyCharge = units * 720 / 100;
+            const fixedCharge = billCalcRoundLoad(demand) * (area === "URBAN" ? 291 : 251);
+            const fca = billCalcFcaAuto(energyCharge);
+            const electricityDuty = billCalcEdAuto(energyCharge, units, "EXEMPT");
+            const components = [
+                ["Energy Charge", energyCharge],
+                ["F.C.A. (auto)", fca],
+                ["Fixed Charge (Demand)", fixedCharge],
+                ["Electricity Duty (Exempt)", electricityDuty]
+            ];
+            const total = energyCharge + fca + fixedCharge + electricityDuty;
+            return { components, total: billRoundOff(total) };
+        }
+
+        function computeBillLv22(units, area, load) {
+            const energyRatePaise = units <= 50 ? 680 : 830;
+            const fixedRatePerKw = units <= 50 ? (area === "URBAN" ? 98 : 83) : (area === "URBAN" ? 154 : 133);
+            const energyCharge = units * energyRatePaise / 100;
+            const fixedCharge = billCalcRoundLoad(load) * fixedRatePerKw;
+            const fca = billCalcFcaAuto(energyCharge);
+            const electricityDuty = billCalcEdAuto(energyCharge, units, "FLAT");
+            const components = [
+                ["Energy Charge", energyCharge],
+                ["F.C.A. (auto)", fca],
+                ["Fixed Charge", fixedCharge],
+                ["Electricity Duty", electricityDuty]
+            ];
+            const total = energyCharge + fca + fixedCharge + electricityDuty;
+            return { components, total: billRoundOff(total) };
+        }
+
+        function computeBillLv22Demand(units, area, demand) {
+            const energyCharge = units * 740 / 100;
+            const fixedCharge = billCalcRoundLoad(demand) * (area === "URBAN" ? 312 : 230);
+            const fca = billCalcFcaAuto(energyCharge);
+            const electricityDuty = billCalcEdAuto(energyCharge, units, "FLAT");
+            const components = [
+                ["Energy Charge", energyCharge],
+                ["F.C.A. (auto)", fca],
+                ["Fixed Charge (Demand)", fixedCharge],
+                ["Electricity Duty", electricityDuty]
+            ];
+            const total = energyCharge + fca + fixedCharge + electricityDuty;
+            return { components, total: billRoundOff(total) };
+        }
+
+        function computeBillLv3(units, load, isMunicipal) {
+            const energyRatePaise = isMunicipal ? 638 : 610;
+            const fixedRatePerKw = isMunicipal ? 389 : 208;
+            const energyCharge = units * energyRatePaise / 100;
+            const fixedCharge = load * fixedRatePerKw;
+            const fca = billCalcFcaAuto(energyCharge);
+            const electricityDuty = billCalcEdAuto(energyCharge, units, "EXEMPT");
+            const components = [
+                ["Energy Charge", energyCharge],
+                ["F.C.A. (auto)", fca],
+                ["Fixed Charge", fixedCharge],
+                ["Electricity Duty (Exempt)", electricityDuty]
+            ];
+            const total = energyCharge + fca + fixedCharge + electricityDuty;
+            return { components, total: billRoundOff(total) };
+        }
+
+        function computeBillLv4(units, area, demand, discounted) {
+            let energyRatePaise = 705;
+            let fixedRatePerKw = area === "URBAN" ? 336 : 221;
+            if (discounted) { energyRatePaise *= 0.7; fixedRatePerKw *= 0.7; }
+            const energyCharge = units * energyRatePaise / 100;
+            // LV4 (Contract Demand based) me ledger analysis me pata chala ki
+            // billed demand = floor(Contract Demand, min 1) - normal (no MD
+            // exceedance) case me ye 93% match deta hai. Agar actual Maximum
+            // Demand contract se zyada nikle to alag 120%/130% surcharge lagta
+            // hai jo is calculator me shamil nahi hai (kyoki future MD pehle
+            // se pata nahi hota).
+            const fixedCharge = billCalcFloorLoad(demand) * fixedRatePerKw;
+            const fca = billCalcFcaAuto(energyCharge);
+            const electricityDuty = billCalcEdAuto(energyCharge, units, "FLAT");
+            const components = [
+                ["Energy Charge", energyCharge],
+                ["F.C.A. (auto)", fca],
+                ["Fixed Charge (Demand)", fixedCharge],
+                ["Electricity Duty", electricityDuty]
+            ];
+            const total = energyCharge + fca + fixedCharge + electricityDuty;
+            return { components, total: billRoundOff(total) };
+        }
+
+        function computeBillLv51(units, load) {
+            const fixedRatePerHp = units <= 300 ? 77 : (units <= 750 ? 93 : 101);
+            const energyCharge = billTelescopicSum(units, [[300, 533], [750, 636], [Infinity, 664]]);
+            const fixedCharge = load * fixedRatePerHp;
+            const fca = billCalcFcaAuto(energyCharge);
+            const electricityDuty = billCalcEdAuto(energyCharge, units, "EXEMPT");
+            const components = [
+                ["Energy Charge", energyCharge],
+                ["F.C.A. (auto)", fca],
+                ["Fixed Charge", fixedCharge],
+                ["Electricity Duty (Exempt)", electricityDuty]
+            ];
+            const total = energyCharge + fca + fixedCharge + electricityDuty;
+            return { components, total: billRoundOff(total) };
+        }
+
+        function computeBillLv53(units, area, load) {
+            const energyRatePaise = area === "URBAN" ? 589 : 572;
+            const fixedRatePerHp = area === "URBAN" ? 139 : 108;
+            const energyCharge = units * energyRatePaise / 100;
+            const fixedCharge = load * fixedRatePerHp;
+            const fca = billCalcFcaAuto(energyCharge);
+            const electricityDuty = billCalcEdAuto(energyCharge, units, "EXEMPT");
+            const components = [
+                ["Energy Charge", energyCharge],
+                ["F.C.A. (auto)", fca],
+                ["Fixed Charge", fixedCharge],
+                ["Electricity Duty (Exempt)", electricityDuty]
+            ];
+            const total = energyCharge + fca + fixedCharge + electricityDuty;
+            return { components, total: billRoundOff(total) };
+        }
+
+        function computeBillLv54(load, phase, season) {
+            const perHp = season === "OCT_MAR" ? (phase === "1P" ? 180 : 170) : 95;
+            const units = load * perHp;
+            const result = computeBillLv51(units, load);
+            result.components.unshift(["Assessed Units", units]);
+            return result;
+        }
+
+        function computeBillLv6(units, timing) {
+            let energyRatePaise = 744;
+            if (timing === "SOLAR") energyRatePaise *= 0.8;
+            else if (timing === "NONSOLAR") energyRatePaise *= 1.2;
+            const energyCharge = units * energyRatePaise / 100;
+            const fixedCharge = 0;
+            const fca = billCalcFcaAuto(energyCharge);
+            const electricityDuty = billCalcEdAuto(energyCharge, units, "EXEMPT");
+            const components = [
+                ["Energy Charge", energyCharge],
+                ["F.C.A. (auto)", fca],
+                ["Fixed Charge", fixedCharge],
+                ["Electricity Duty (Exempt, unconfirmed)", electricityDuty]
+            ];
+            const total = energyCharge + fca + fixedCharge + electricityDuty;
+            return { components, total: billRoundOff(total) };
+        }
+
+        function calculateBillEstimate() {
+            const tariffCode = document.getElementById("bc-tariffcode")?.value || "";
+            const resultBox = document.getElementById("bc-result");
+            if (!resultBox) return;
+            if (!tariffCode) { showToast("Pehle Category aur Tariff Code chunein", false); return; }
+            const units = Number(document.getElementById("bc-units")?.value || 0);
+            const load = Number(document.getElementById("bc-load")?.value || 0);
+            const area = document.getElementById("bc-area")?.value === "RURAL" ? "RURAL" : "URBAN";
+            const subsidyApplicable = document.getElementById("bc-subsidy-toggle")?.value === "YES";
+            const billingDays = Number(document.getElementById("bc-billing-days")?.value || 30) || 30;
+            let result;
+            if (tariffCode === "LV1.2U") result = computeBillLv1Metered(units, "URBAN", subsidyApplicable, billingDays);
+            else if (tariffCode === "LV1.2R") result = computeBillLv1Metered(units, "RURAL", subsidyApplicable, billingDays);
+            else if (tariffCode === "LV1.1") result = computeBillLv1Bpl(units, subsidyApplicable);
+            else if (tariffCode === "LV1.UM") result = computeBillLv1Unmetered(subsidyApplicable);
+            else if (tariffCode === "LV2.1") result = computeBillLv21(units, area, load);
+            else if (tariffCode === "LV2.1D") result = computeBillLv21Demand(units, area, load);
+            else if (tariffCode === "LV2.2") result = computeBillLv22(units, area, load);
+            else if (tariffCode === "LV2.2D") result = computeBillLv22Demand(units, area, load);
+            else if (tariffCode === "LV3.1") result = computeBillLv3(units, load, true);
+            else if (tariffCode === "LV3.2") result = computeBillLv3(units, load, false);
+            else if (tariffCode === "LV4.1A") result = computeBillLv4(units, area, load, true);
+            else if (tariffCode === "LV4.1B") result = computeBillLv4(units, area, load, false);
+            else if (tariffCode === "LV5.1") result = computeBillLv51(units, load);
+            else if (tariffCode === "LV5.3") result = computeBillLv53(units, area, load);
+            else if (tariffCode === "LV5.4") {
+                const phase = document.getElementById("bc-phase")?.value || "3P";
+                const season = document.getElementById("bc-season")?.value || "APR_SEP";
+                result = computeBillLv54(load, phase, season);
+            } else if (tariffCode === "LV6.0") {
+                const timing = document.getElementById("bc-ev-timing")?.value || "MIX";
+                result = computeBillLv6(units, timing);
+            } else {
+                return;
+            }
+            // PDF me Devanagari font support nahi hai (jsPDF default font), isliye
+            // input-summary sirf ASCII/romanized text me capture karte hain -
+            // category/tariff-code dropdown ke Hindi/Devanagari options se text
+            // nikal ke stripDevanagariForPdf() se saaf kar dete hain.
+            const categorySelect = document.getElementById("bc-category");
+            const tariffSelect = document.getElementById("bc-tariffcode");
+            const fieldsBox = document.getElementById("bc-fields");
+            const inputRows = [
+                ["Category", stripDevanagariForPdf(categorySelect?.options[categorySelect.selectedIndex]?.text || tariffCode)],
+                ["Tariff Code", stripDevanagariForPdf(tariffSelect?.options[tariffSelect.selectedIndex]?.text || tariffCode)]
+            ];
+            (fieldsBox ? Array.from(fieldsBox.querySelectorAll("label")) : []).forEach((lbl) => {
+                const field = lbl.nextElementSibling;
+                if (!field) return;
+                let val = "";
+                if (field.tagName === "SELECT") val = field.options[field.selectedIndex]?.text || field.value;
+                else if (field.tagName === "INPUT") val = field.value;
+                else return;
+                inputRows.push([stripDevanagariForPdf(lbl.textContent), stripDevanagariForPdf(val)]);
+            });
+            lastBillCalcResult = result;
+            lastBillCalcMeta = { inputRows };
+            resultBox.innerHTML = renderBillCalculatorResultHtml(result);
+        }
+
+        let lastBillCalcResult = null;
+        let lastBillCalcMeta = null;
+
+        function stripDevanagariForPdf(text) {
+            return String(text || "")
+                .replace(/[ऀ-ॿ]+/g, "")
+                .replace(/\(\s*\)/g, "")
+                .replace(/\s{2,}/g, " ")
+                .replace(/\s+([,)])/g, "$1")
+                .replace(/-\s*-/g, "-")
+                .replace(/^[\s\-]+|[\s\-]+$/g, "")
+                .trim();
+        }
+
+        function downloadBillCalculatorPdf() {
+            if (!lastBillCalcResult) { showToast("Pehle bill calculate karein", false); return; }
+            if (!window.jspdf?.jsPDF) { showToast("PDF library load nahi hui", false); return; }
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            const consumerName = document.getElementById("bc-consumer-name")?.value?.trim() || "";
+            doc.setFontSize(7);
+            doc.setTextColor(100);
+            doc.text("SEONI CIRCLE APP - BIJLEE BILL CALCULATOR", 14, 10);
+            doc.setFontSize(15);
+            doc.setTextColor(0);
+            doc.text("MONTHLY BIJLEE BILL ESTIMATE", 105, 20, { align: "center" });
+            doc.setFontSize(9);
+            doc.setTextColor(120);
+            doc.text(`Generated: ${new Date().toLocaleDateString("en-IN")}`, 105, 27, { align: "center" });
+            let nextY = 33;
+            if (consumerName) {
+                doc.setFontSize(11);
+                doc.setTextColor(0);
+                doc.text(`Consumer Name: ${consumerName}`, 105, nextY, { align: "center" });
+                nextY += 8;
+            }
+            doc.autoTable({
+                startY: nextY,
+                head: [["INPUT PARAMETER", "VALUE"]],
+                body: (lastBillCalcMeta?.inputRows || []).filter(([, v]) => v),
+                theme: "grid",
+                headStyles: { fillColor: [236, 72, 153], halign: "center" },
+                columnStyles: { 0: { halign: "left" }, 1: { halign: "right" } }
+            });
+            doc.autoTable({
+                startY: doc.lastAutoTable.finalY + 6,
+                head: [["COMPONENT", "AMOUNT (Rs.)"]],
+                body: lastBillCalcResult.components.map(([label, value]) => [label, billRoundOff(value).toLocaleString("en-IN")]),
+                foot: [["ESTIMATED MONTH BILL", lastBillCalcResult.total.toLocaleString("en-IN")]],
+                theme: "grid",
+                headStyles: { fillColor: [236, 72, 153], halign: "center" },
+                columnStyles: { 0: { halign: "left" }, 1: { halign: "right" } },
+                footStyles: { fillColor: [253, 242, 248], textColor: [157, 23, 77], fontStyle: "bold", halign: "right" }
+            });
+            doc.setFontSize(7);
+            doc.setTextColor(140);
+            doc.text("Ye ek approximate estimate hai (PF surcharge/seasonal/DTR-metered shamil nahi). Arrear/Surcharge is total me shamil nahi hai.", 14, doc.lastAutoTable.finalY + 10);
+            savePdfDocumentForDevice(doc, `Bijlee_Bill_Estimate_${consumerName ? consumerName.replace(/[^a-zA-Z0-9]/g, "_") + "_" : ""}${Date.now()}.pdf`);
+        }
+
+        function renderBillCalculatorResultHtml(result) {
+            const unitRowLabels = ["Assessed/Billed Units", "Assessed Units"];
+            const rows = result.components.map(([label, value]) => {
+                const isUnitRow = unitRowLabels.includes(label);
+                const isNegative = value < 0;
+                const color = isNegative ? "#166534" : "#0f172a";
+                const displayValue = isUnitRow
+                    ? `${billRoundOff(value).toLocaleString("en-IN")} units`
+                    : (isNegative ? "-₹" : "₹") + Math.abs(billRoundOff(value)).toLocaleString("en-IN");
+                return `<div class="summary-table-row" style="grid-template-columns: 1.4fr 1fr;"><div>${escapeHtml(label)}</div><div class="font-black" style="color:${color};">${displayValue}</div></div>`;
+            }).join("");
+            return `
+                <div class="summary-wrapper">
+                    <div class="summary-table-header" style="grid-template-columns: 1.4fr 1fr;"><div>COMPONENT</div><div>AMOUNT</div></div>
+                    ${rows}
+                </div>
+                <div class="summary-footer" style="margin-top:10px;">
+                    <div class="font-black text-slate-800 text-center">ESTIMATED MONTH BILL</div>
+                    <div style="text-align:center; font-size:1.4rem; font-weight:950; color:#9d174d; margin-top:6px;">₹${result.total.toLocaleString("en-IN")}</div>
+                </div>
+                <label style="${billCalcLabelStyle}">Consumer Name (Optional) - Report pehchanne ke liye</label>
+                <input id="bc-consumer-name" type="text" class="ivrs-input" style="${billCalcInputStyle}" placeholder="e.g. Ramesh Kumar">
+                <button class="dashboard-btn" style="width:100%; margin-top:12px; background:linear-gradient(135deg,#ef4444 0%,#b91c1c 100%); color:#ffffff !important; font-size:0.8rem; padding:14px;" onclick="downloadBillCalculatorPdf()">DOWNLOAD PDF</button>
+                <div style="font-size:0.58rem; font-weight:800; color:#94a3b8; text-align:center; margin-top:10px; line-height:1.5;">Ye ek approximate estimate hai (PF surcharge/seasonal/DTR-metered shamil nahi). Arrear/Surcharge is total me shamil nahi hai.</div>
+            `;
         }
