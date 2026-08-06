@@ -5824,23 +5824,30 @@
                     photoMimeType = file.type || "image/jpeg";
                 }
 
-                 const payload = new URLSearchParams();
-                 payload.append("substation", selectedStmComplaintSubstation);
-                 payload.append("operator_name", activeStmComplaintOperator.fullName || "");
-                 payload.append("mobile_no", activeStmComplaintOperator.mobileNo || "");
-                 payload.append("information_shared_at", sharedMode);
-                 payload.append("date", dateValue);
-                 payload.append("time", timeValue);
-                 payload.append("calling_info", callingInfo);
-                payload.append("complaint_details", complaintDetails);
-                payload.append("photo_base64", photoBase64);
-                payload.append("photo_name", photoName);
-                payload.append("photo_mime_type", photoMimeType);
+                // Hindi/Devanagari complaint text ko reliably UTF-8 me bhejne ke liye
+                // ab JSON body use kar rahe hain (form-urlencoded me kabhi-kabhi
+                // Unicode galat decode ho raha tha, jisse mail me "?" boxes aa rahe
+                // the). Content-Type "text/plain" rakha hai taki browser CORS
+                // preflight na bheje (Apps Script Web App OPTIONS handle nahi karta),
+                // server side body ko JSON hi maan ke parse karta hai.
+                const payload = {
+                    substation: selectedStmComplaintSubstation,
+                    operator_name: activeStmComplaintOperator.fullName || "",
+                    mobile_no: activeStmComplaintOperator.mobileNo || "",
+                    information_shared_at: sharedMode,
+                    date: dateValue,
+                    time: timeValue,
+                    calling_info: callingInfo,
+                    complaint_details: complaintDetails,
+                    photo_base64: photoBase64,
+                    photo_name: photoName,
+                    photo_mime_type: photoMimeType
+                };
 
                 const response = await fetch(stmComplaintScriptUrl, {
                     method: "POST",
-                    headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
-                    body: payload.toString()
+                    headers: { "Content-Type": "text/plain;charset=utf-8" },
+                    body: JSON.stringify(payload)
                 });
 
                 const responseText = await response.text();

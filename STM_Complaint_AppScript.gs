@@ -97,8 +97,22 @@ function getRequestData_(e) {
 
   if (e.postData && e.postData.contents) {
     const type = String(e.postData.type || "").toLowerCase();
-    if (type.indexOf("application/json") > -1) {
-      return JSON.parse(e.postData.contents);
+    const raw = e.postData.contents || "";
+    // Operator jab Hindi/Devanagari me complaint details type karta hai, to
+    // "application/x-www-form-urlencoded" ke through (e.parameter se) Google
+    // Apps Script kabhi-kabhi Unicode ko galat decode kar deta hai - isse mail
+    // me Devanagari text ki jagah "?" ya replacement-character boxes aa jate
+    // the. Isliye ab client JSON body bhejta hai (chahe declared Content-Type
+    // text/plain ho, CORS preflight se bachne ke liye) - JSON.parse UTF-8 ko
+    // hamesha sahi decode karta hai. Agar body JSON jaisa dikhe to use JSON hi
+    // maan ke parse karo, declared header type par bharosa mat karo.
+    const looksLikeJson = raw.trim().charAt(0) === "{";
+    if (type.indexOf("application/json") > -1 || looksLikeJson) {
+      try {
+        return JSON.parse(raw);
+      } catch (err) {
+        // JSON parse fail ho to neeche form-parameter fallback try karo
+      }
     }
   }
 
@@ -201,6 +215,11 @@ function savePhotoIfProvided_(data) {
 function sendComplaintMail_(payload) {
   const subject = "Complaint Regarding Malfunction of Equipment at " + payload.substation + " SUBSTATION";
   const sharedAtLabel = escapeHtml_(payload.sharedAt === "CALLING" ? "Call (" + (payload.callingInfo || "-") + ")" : payload.sharedAt);
+  // Operator jab "WhatsApp" se submit karta hai, tabhi mail card me "Reported via"
+  // ke neeche ek extra "WhatsApp Group" row dikhani hai, jisme fix group naam
+  // "STM Division Seoni" rahega. Calling wali entries me ye row bilkul nahi aani.
+  const isWhatsappSource = String(payload.sharedAt || "").trim().toUpperCase() === "WHATSAPP";
+  const whatsappGroupName = "STM Division Seoni";
   const reportedAt = escapeHtml_(payload.complaintDate) + ", " + escapeHtml_(payload.complaintTime);
   const submittedAt = escapeHtml_(payload.submitDate) + ", " + escapeHtml_(payload.submitTime);
   const hasPhoto = !!payload.photoBlob;
@@ -223,6 +242,9 @@ function sendComplaintMail_(payload) {
     "Submit Date: " + payload.submitDate,
     "Submit Time: " + payload.submitTime
   ];
+  if (isWhatsappSource) {
+    bodyLines.splice(bodyLines.indexOf("Information Shared At: " + payload.sharedAt) + 1, 0, "WhatsApp Group: " + whatsappGroupName);
+  }
 
   const htmlBody = `
     <div style="font-family: Arial, Helvetica, sans-serif; max-width: 560px; margin: 0 auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden;">
@@ -253,6 +275,11 @@ function sendComplaintMail_(payload) {
             <td style="padding: 6px 0; color: #64748b;">Reported via</td>
             <td style="padding: 6px 0; text-align: right; font-weight: bold;">${sharedAtLabel}</td>
           </tr>
+          ${isWhatsappSource ? `
+          <tr>
+            <td style="padding: 6px 0; color: #64748b;">WhatsApp Group</td>
+            <td style="padding: 6px 0; text-align: right; font-weight: bold;">${escapeHtml_(whatsappGroupName)}</td>
+          </tr>` : ""}
           <tr>
             <td style="padding: 6px 0; color: #64748b;">Reported at</td>
             <td style="padding: 6px 0; text-align: right; font-weight: bold;">${reportedAt}</td>
