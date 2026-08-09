@@ -14791,6 +14791,247 @@
             }).join("");
 
             container.innerHTML = html;
+            vrRenderInsertProposedForm();
+        }
+
+        // =====================================================================
+        // SAVED FEEDER MAPS (Existing SLD reuse) - ek baar existing feeder ka
+        // poora point-chain bana kar save kar lena hai, taaki future me naya
+        // connection aane par sirf woh map load karke, do existing points ke
+        // beech proposed load jodkar seedhe VR nikal saken - sabhi points
+        // dobara manually na daalne padein. Abhi sirf is device/browser tak
+        // (localStorage) limited hai, DC-wise alag rehta hai.
+        // =====================================================================
+        const vrSavedMapsStorageKey = "vr_saved_feeder_maps_v1";
+
+        function vrGetAllSavedMaps() {
+            try {
+                return JSON.parse(localStorage.getItem(vrSavedMapsStorageKey) || "[]") || [];
+            } catch (_) {
+                return [];
+            }
+        }
+
+        function vrSaveAllSavedMaps(maps) {
+            try {
+                localStorage.setItem(vrSavedMapsStorageKey, JSON.stringify(maps));
+            } catch (_) {}
+        }
+
+        function vrGetSavedMapsForDc() {
+            const dcKey = normalizeLookupValue(activeDC || "");
+            return vrGetAllSavedMaps().filter((m) => normalizeLookupValue(m.dcName || "") === dcKey);
+        }
+
+        function vrSaveCurrentAsMap() {
+            const nameEl = document.getElementById("vr-map-save-name");
+            const name = (nameEl?.value || "").trim();
+            if (!name) { showToast("Map ka naam dijiye", false); return; }
+            if (!vrCalcState.nodes.length) { showToast("Pehle points add karein", false); return; }
+            const maps = vrGetAllSavedMaps();
+            const newMap = {
+                id: `vrmap_${Date.now()}`,
+                dcName: activeDC || "",
+                name,
+                lineType: vrCalcState.lineType,
+                conductorType: vrCalcState.conductorType,
+                dfType: vrCalcState.dfType,
+                headerDescription: vrCalcState.headerDescription,
+                // Saved map hamesha "clean existing" state me rakhte hain - koi bhi
+                // is session me flag kiya hua proposed point save nahi hota, taaki
+                // agli baar load karne par sirf asli existing chain mile.
+                nodes: JSON.parse(JSON.stringify(vrCalcState.nodes.map((n) => ({ ...n, isProposed: false, proposedNote: "" })))),
+                savedAt: Date.now()
+            };
+            maps.push(newMap);
+            vrSaveAllSavedMaps(maps);
+            if (nameEl) nameEl.value = "";
+            vrRenderSavedMapsList();
+            showToast(`"${name}" map save ho gaya`, true);
+        }
+
+        function vrLoadSavedMap(id) {
+            const map = vrGetAllSavedMaps().find((m) => m.id === id);
+            if (!map) { showToast("Map nahi mila", false); return; }
+            vrEditingMapId = null;
+            vrCalcState.lineType = map.lineType || vrCalcState.lineType;
+            vrCalcState.conductorType = map.conductorType || vrCalcState.conductorType;
+            vrCalcState.dfType = map.dfType || vrCalcState.dfType;
+            vrCalcState.headerDescription = map.headerDescription || vrCalcState.headerDescription;
+            vrCalcState.nodes = JSON.parse(JSON.stringify(map.nodes || []));
+            vrCalcState.lineStatus = "PROPOSED";
+            const statusSel = document.getElementById("vr-line-status");
+            if (statusSel) statusSel.value = "PROPOSED";
+            const typeSel = document.getElementById("vr-line-type");
+            if (typeSel) typeSel.value = vrCalcState.lineType;
+            const headerEl = document.getElementById("vr-header-desc");
+            if (headerEl) headerEl.value = vrCalcState.headerDescription;
+            vrRenderNodeList();
+            vrRenderCalc();
+            vrRenderSavedMapsList();
+            showToast(`"${map.name}" map load ho gaya - ab proposed point jodein`, true);
+        }
+
+        // Ek baar map ban jaane ke baad usko delete karne ka option jaan-boojh
+        // kar nahi diya gaya hai (map hamesha list me dikhega, taaki koi galti
+        // se apna poora existing feeder SLD kho na de). Agar us map me sudhaar
+        // karna ho (points ghatana/badhana/naam-load-distance badalna) to "Edit"
+        // button se use edit-mode me kholiye - neeche wahi node-list (jo Insert
+        // Proposed wale form ke upar hai) editable ban jaati hai, jahan har point
+        // ke saamne wale ✕ se use hataya ja sakta hai (jaise 50 points me se 45
+        // hatakar sirf 5 rakhne hain), naye point jode ja sakte hain, ya kisi bhi
+        // point ka naam/load/distance seedhe badla ja sakta hai. Changes karne ke
+        // baad "Update Map" dabane par wahi saved map (same id/naam) overwrite ho
+        // jaata hai - koi naya duplicate map nahi banta.
+        let vrEditingMapId = null;
+
+        function vrEditSavedMap(id) {
+            const map = vrGetAllSavedMaps().find((m) => m.id === id);
+            if (!map) { showToast("Map nahi mila", false); return; }
+            vrEditingMapId = id;
+            vrCalcState.lineType = map.lineType || vrCalcState.lineType;
+            vrCalcState.conductorType = map.conductorType || vrCalcState.conductorType;
+            vrCalcState.dfType = map.dfType || vrCalcState.dfType;
+            vrCalcState.headerDescription = map.headerDescription || vrCalcState.headerDescription;
+            vrCalcState.nodes = JSON.parse(JSON.stringify(map.nodes || []));
+            vrCalcState.lineStatus = "EXISTING";
+            const statusSel = document.getElementById("vr-line-status");
+            if (statusSel) statusSel.value = "EXISTING";
+            const typeSel = document.getElementById("vr-line-type");
+            if (typeSel) typeSel.value = vrCalcState.lineType;
+            const headerEl = document.getElementById("vr-header-desc");
+            if (headerEl) headerEl.value = vrCalcState.headerDescription;
+            vrRenderNodeList();
+            vrRenderCalc();
+            vrRenderSavedMapsList();
+            showToast(`"${map.name}" edit mode me khul gaya - points add/remove/edit karke "Update Map" dabayein`, true);
+        }
+
+        function vrUpdateEditingMap() {
+            if (!vrEditingMapId) return;
+            if (!vrCalcState.nodes.length) { showToast("Kam se kam ek point to rehna chahiye", false); return; }
+            const maps = vrGetAllSavedMaps();
+            const idx = maps.findIndex((m) => m.id === vrEditingMapId);
+            if (idx === -1) { showToast("Map nahi mila", false); vrEditingMapId = null; vrRenderSavedMapsList(); return; }
+            const mapName = maps[idx].name;
+            maps[idx] = {
+                ...maps[idx],
+                lineType: vrCalcState.lineType,
+                conductorType: vrCalcState.conductorType,
+                dfType: vrCalcState.dfType,
+                headerDescription: vrCalcState.headerDescription,
+                nodes: JSON.parse(JSON.stringify(vrCalcState.nodes.map((n) => ({ ...n, isProposed: false, proposedNote: "" })))),
+                updatedAt: Date.now()
+            };
+            vrSaveAllSavedMaps(maps);
+            vrEditingMapId = null;
+            vrRenderSavedMapsList();
+            showToast(`"${mapName}" map update ho gaya`, true);
+        }
+
+        function vrCancelEditingMap() {
+            vrEditingMapId = null;
+            vrRenderSavedMapsList();
+        }
+
+        function vrRenderSavedMapsList() {
+            const container = document.getElementById("vr-saved-maps-list");
+            const banner = document.getElementById("vr-map-edit-banner");
+            const bannerNameEl = document.getElementById("vr-map-edit-name");
+            if (banner) banner.style.display = vrEditingMapId ? "flex" : "none";
+            if (bannerNameEl && vrEditingMapId) {
+                const editingMap = vrGetAllSavedMaps().find((m) => m.id === vrEditingMapId);
+                bannerNameEl.innerText = editingMap ? editingMap.name : "";
+            }
+            if (!container) return;
+            const maps = vrGetSavedMapsForDc();
+            if (!maps.length) {
+                container.innerHTML = '<div style="text-align:center; padding:14px; color:#888; font-size:12px;">Is DC ke liye abhi koi saved map nahi hai.</div>';
+                return;
+            }
+            container.innerHTML = maps.map((m) => {
+                const isEditing = m.id === vrEditingMapId;
+                return `
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px 12px; border:1.5px solid ${isEditing ? "#2563eb" : "#e2e8f0"}; border-radius:12px; margin-bottom:8px; background:${isEditing ? "#eff6ff" : "#fff"};">
+                    <div style="text-align:left;">
+                        <div style="font-weight:900; font-size:0.8rem; color:#0f172a;">${escapeHtml(m.name)}${isEditing ? ' <span style="color:#2563eb; font-size:0.65rem;">(EDITING)</span>' : ""}</div>
+                        <div style="font-size:0.65rem; color:#64748b; margin-top:2px;">${m.nodes.length} points · ${escapeHtml(vrLineTypeLabels[m.lineType] || m.lineType)} · ${escapeHtml(new Date(m.savedAt).toLocaleDateString("en-IN"))}</div>
+                    </div>
+                    <div style="display:flex; gap:6px;">
+                        <button class="btn vr-btn-primary" style="padding:6px 12px; font-size:0.7rem;" onclick="vrLoadSavedMap('${m.id}')">Load</button>
+                        <button class="btn" style="padding:6px 12px; font-size:0.7rem; background:#f1f5f9; color:#334155;" onclick="vrEditSavedMap('${m.id}')">Edit</button>
+                    </div>
+                </div>`;
+            }).join("");
+        }
+
+        // =====================================================================
+        // INSERT PROPOSED POINT BETWEEN TWO EXISTING POINTS - user do existing
+        // points chunta hai (jaise Point 45 -> Point 46), naya proposed point ka
+        // naam/load/pehle-point-se-distance deta hai. App automatic us segment
+        // ki asli distance ko split kar deta hai: pehle point se jo distance di
+        // gayi, aur baaki bacha hua doosre (far) point tak reh jaata hai - baaki
+        // sabhi points/distances bilkul same rehte hain.
+        // =====================================================================
+        function vrRenderInsertProposedForm() {
+            const wrap = document.getElementById("vr-insert-proposed-wrap");
+            const pairSelect = document.getElementById("vr-insert-pair-select");
+            if (!wrap || !pairSelect) return;
+            const nodes = vrCalcState.nodes;
+            if (nodes.length < 2) {
+                wrap.style.display = "none";
+                return;
+            }
+            wrap.style.display = "block";
+            const currentValue = pairSelect.value;
+            const options = nodes.slice(0, -1).map((n, i) => {
+                const far = nodes[i + 1];
+                return `<option value="${i}">${escapeHtml(n.name)} → ${escapeHtml(far.name)} (${far.distance} KM)</option>`;
+            }).join("");
+            pairSelect.innerHTML = `<option value="">-- Points select karein --</option>` + options;
+            if (currentValue && Number(currentValue) < nodes.length - 1) pairSelect.value = currentValue;
+        }
+
+        function vrInsertProposedNode() {
+            const pairSelect = document.getElementById("vr-insert-pair-select");
+            const nameEl = document.getElementById("vr-insert-name");
+            const kvaEl = document.getElementById("vr-insert-kva");
+            const distEl = document.getElementById("vr-insert-dist");
+            if (!pairSelect || pairSelect.value === "") { showToast("Pehle points ka pair select karein", false); return; }
+            const pairIndex = parseInt(pairSelect.value, 10);
+            const nodes = vrCalcState.nodes;
+            const nearNode = nodes[pairIndex];
+            const farNode = nodes[pairIndex + 1];
+            if (!nearNode || !farNode) { showToast("Selection valid nahi hai", false); return; }
+            const name = (nameEl?.value || "").trim() || "Proposed Point";
+            const kva = parseFloat(kvaEl?.value) || 0;
+            const distFromNear = parseFloat(distEl?.value) || 0;
+            const originalSegmentDistance = farNode.distance;
+            if (distFromNear <= 0 || distFromNear >= originalSegmentDistance) {
+                showToast(`Distance ${nearNode.name} aur ${farNode.name} ke beech ki ${originalSegmentDistance} KM se kam honi chahiye`, false);
+                return;
+            }
+            const newNode = {
+                label: "",
+                name,
+                kva,
+                distance: distFromNear,
+                isProposed: true,
+                proposedNote: name
+            };
+            farNode.distance = Number((originalSegmentDistance - distFromNear).toFixed(3));
+            nodes.splice(pairIndex + 1, 0, newNode);
+            nodes.forEach((n, i) => { n.label = vrNextLabel(i); });
+            vrCalcState.lineStatus = "PROPOSED";
+            const statusSel = document.getElementById("vr-line-status");
+            if (statusSel) statusSel.value = "PROPOSED";
+            if (nameEl) nameEl.value = "";
+            if (kvaEl) kvaEl.value = "";
+            if (distEl) distEl.value = "";
+            if (pairSelect) pairSelect.value = "";
+            vrRenderNodeList();
+            vrRenderCalc();
+            showToast(`"${name}" jud gaya - ${nearNode.name} se ${distFromNear} KM, ${farNode.name} tak ab ${farNode.distance} KM`, true);
         }
 
         function vrRenderSeals() {
@@ -15024,6 +15265,7 @@
             vrRenderNodeList();
             vrRenderSeals();
             vrRenderCalc();
+            vrRenderSavedMapsList();
         }
 
         function vrSetDownloadStatus(message, ok) {
