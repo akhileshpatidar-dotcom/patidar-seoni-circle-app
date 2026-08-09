@@ -15094,13 +15094,8 @@
 
             const title1 = document.getElementById("vr-report-title-1");
             const title2 = document.getElementById("vr-report-title-2");
-            if (title1) title1.innerText = "VOLTAGE REGULATION CALCULATION";
+            if (title1) title1.innerText = "VOLTAGE REGULATION CALCULATION – " + calc.reportTitleLine1;
             if (title2) title2.innerText = headerDescription || "";
-            const statusBadge = document.getElementById("vr-status-badge");
-            if (statusBadge) {
-                const statusLabel = lineStatus.charAt(0) + lineStatus.slice(1).toLowerCase();
-                statusBadge.innerText = `${statusLabel} · ${vrLineTypeLabels[lineType] || lineType}`;
-            }
 
             const printTitle1a = document.getElementById("vr-print-title-1a");
             const printTitle1b = document.getElementById("vr-print-title-1b");

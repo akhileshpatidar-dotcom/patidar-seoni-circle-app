@@ -281,12 +281,9 @@
             <div class="search-panel" style="padding-top:12px;">
                 <div class="vr-calc-wrap">
 
-                    <div class="vr-calc-card vr-no-print" style="border-left:3px solid #185FA5; border-radius:0 12px 12px 0;">
-                        <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
-                            <h2 id="vr-report-title-1" style="font-size:15px; font-weight:700; color:#0f172a; margin:0;">VOLTAGE REGULATION CALCULATION</h2>
-                            <span id="vr-status-badge" style="background:#E6F1FB; color:#0C447C; font-size:11px; font-weight:700; padding:3px 11px; border-radius:999px; white-space:nowrap; flex-shrink:0;">Existing · 33 kV</span>
-                        </div>
-                        <h3 id="vr-report-title-2" style="font-size:12px; color:#64748b; margin:4px 0 0; font-weight:500;"></h3>
+                    <div class="vr-calc-card vr-no-print" style="border:1.5px solid #dc2626;">
+                        <h2 id="vr-report-title-1" style="font-size:13px; font-weight:800; color:#166534; margin:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">VOLTAGE REGULATION CALCULATION</h2>
+                        <h3 id="vr-report-title-2" style="font-size:12px; color:#dc2626; margin:4px 0 0; font-weight:700;"></h3>
                         <div style="border-top:0.5px solid #e2e8f0; margin-top:12px; padding-top:12px;">
                             <label class="vr-calc-label">Header Description</label>
                             <input id="vr-header-desc" type="text" class="ivrs-input vr-calc-input" placeholder="e.g. 220 kV EHV Substation Seoni to 33/11 kV Substation Chhapara" oninput="vrSetHeaderDescription(this.value)">
