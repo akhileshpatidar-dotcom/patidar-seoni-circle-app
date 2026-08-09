@@ -14771,9 +14771,14 @@
             container.style.display = showManualFlow ? "" : "none";
             // Points daalte hi (fresh map banate waqt) yahin niche "Save Current as
             // Map" ka option dikhta hai - ab three-dots menu tak jaane ki zaroorat
-            // nahi. Load karke proposed-insert mode me ye hide rehta hai.
+            // nahi. Agar koi saved map "Edit" mode me khula hai, to iski jagah
+            // "Update Map / Cancel" banner dikhta hai. Load karke proposed-insert
+            // mode me dono hide rehte hain.
             const inlineSaveWrap = document.getElementById("vr-inline-save-wrap");
-            if (inlineSaveWrap) inlineSaveWrap.style.display = (showManualFlow && nodes.length > 0) ? "block" : "none";
+            const editBanner = document.getElementById("vr-map-edit-banner");
+            const isEditingMap = !!vrEditingMapId;
+            if (inlineSaveWrap) inlineSaveWrap.style.display = (showManualFlow && nodes.length > 0 && !isEditingMap) ? "block" : "none";
+            if (editBanner) editBanner.style.display = (showManualFlow && isEditingMap) ? "flex" : "none";
             if (!showManualFlow) {
                 vrRenderInsertProposedForm();
                 return;
@@ -14896,10 +14901,11 @@
             if (typeSel) typeSel.value = vrCalcState.lineType;
             const headerEl = document.getElementById("vr-header-desc");
             if (headerEl) headerEl.value = vrCalcState.headerDescription;
+            vrToggleSavedMapsModal(false);
             vrRenderNodeList();
             vrRenderCalc();
             vrRenderSavedMapsList();
-            showToast(`"${map.name}" map load ho gaya - ab proposed point jodein`, true);
+            showToast(`"${map.name}" map open ho gaya - ab proposed point jodein`, true);
         }
 
         // Ek baar map ban jaane ke baad usko delete karne ka option jaan-boojh
@@ -14932,10 +14938,11 @@
             if (typeSel) typeSel.value = vrCalcState.lineType;
             const headerEl = document.getElementById("vr-header-desc");
             if (headerEl) headerEl.value = vrCalcState.headerDescription;
+            vrToggleSavedMapsModal(false);
             vrRenderNodeList();
             vrRenderCalc();
             vrRenderSavedMapsList();
-            showToast(`"${map.name}" edit mode me khul gaya - points add/remove/edit karke "Update Map" dabayein`, true);
+            showToast(`"${map.name}" edit mode me khul gaya - upar points add/remove/edit karke "Update Map" dabayein`, true);
         }
 
         function vrUpdateEditingMap() {
@@ -14956,12 +14963,14 @@
             };
             vrSaveAllSavedMaps(maps);
             vrEditingMapId = null;
+            vrRenderNodeList();
             vrRenderSavedMapsList();
             showToast(`"${mapName}" map update ho gaya`, true);
         }
 
         function vrCancelEditingMap() {
             vrEditingMapId = null;
+            vrRenderNodeList();
             vrRenderSavedMapsList();
         }
 
@@ -14989,7 +14998,7 @@
                         <div style="font-size:0.65rem; color:#64748b; margin-top:2px;">${m.nodes.length} points · ${escapeHtml(vrLineTypeLabels[m.lineType] || m.lineType)} · ${escapeHtml(new Date(m.savedAt).toLocaleDateString("en-IN"))}</div>
                     </div>
                     <div style="display:flex; gap:6px;">
-                        <button class="btn vr-btn-primary" style="padding:6px 12px; font-size:0.7rem;" onclick="vrLoadSavedMap('${m.id}')">Load</button>
+                        <button class="btn vr-btn-primary" style="padding:6px 12px; font-size:0.7rem;" onclick="vrLoadSavedMap('${m.id}')">Open Map</button>
                         <button class="btn" style="padding:6px 12px; font-size:0.7rem; background:#f1f5f9; color:#334155;" onclick="vrEditSavedMap('${m.id}')">Edit</button>
                     </div>
                 </div>`;

@@ -320,17 +320,6 @@
                             </div>
                             <div style="font-size:0.68rem; color:#64748b; margin-bottom:10px; line-height:1.5;">Apna existing 11kV/33kV feeder ka poora point-chain ek baar bana kar yahan save kar lein - future me sirf load karke proposed point jodna hoga, dobara sabhi points nahi dalne padenge.</div>
                             <div id="vr-saved-maps-list"></div>
-                            <div id="vr-map-edit-banner" style="display:none; margin-top:8px; padding:10px 12px; border:1.5px solid #2563eb; border-radius:12px; background:#eff6ff; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
-                                <div style="font-size:0.72rem; font-weight:900; color:#1e3a8a;">Editing: <span id="vr-map-edit-name"></span> — neeche points add/remove/edit karke "Update Map" dabayein</div>
-                                <div style="display:flex; gap:6px;">
-                                    <button class="btn vr-btn-primary" style="padding:6px 12px; font-size:0.7rem;" onclick="vrUpdateEditingMap()">Update Map</button>
-                                    <button class="vr-calc-remove-btn" style="width:auto; padding:6px 10px;" onclick="vrCancelEditingMap()">Cancel</button>
-                                </div>
-                            </div>
-                            <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
-                                <input id="vr-map-save-name" type="text" class="ivrs-input vr-calc-input" placeholder="Map ka naam (e.g. 11KV Ganeshganj Feeder)" style="flex:1 1 200px;">
-                                <button class="btn vr-btn-primary" onclick="vrSaveCurrentAsMap()">Save Current as Map</button>
-                            </div>
                         </div>
                     </div>
 
@@ -362,6 +351,14 @@
                             <div style="display:flex; gap:8px; flex-wrap:wrap;">
                                 <input id="vr-inline-map-save-name" type="text" class="ivrs-input vr-calc-input" placeholder="Map ka naam (e.g. 11KV Ganeshganj Feeder)" style="flex:1 1 200px;">
                                 <button class="btn vr-btn-primary" onclick="vrSaveCurrentAsMap('vr-inline-map-save-name')">Save Current as Map</button>
+                            </div>
+                        </div>
+
+                        <div id="vr-map-edit-banner" class="vr-no-print" style="display:none; margin-top:14px; padding:12px; border:1.5px solid #2563eb; border-radius:14px; background:#eff6ff; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+                            <div style="font-size:0.72rem; font-weight:900; color:#1e3a8a;">Editing: <span id="vr-map-edit-name"></span> — upar points add/remove/edit karke "Update Map" dabayein</div>
+                            <div style="display:flex; gap:6px;">
+                                <button class="btn vr-btn-primary" style="padding:6px 12px; font-size:0.7rem;" onclick="vrUpdateEditingMap()">Update Map</button>
+                                <button class="vr-calc-remove-btn" style="width:auto; padding:6px 10px;" onclick="vrCancelEditingMap()">Cancel</button>
                             </div>
                         </div>
 
