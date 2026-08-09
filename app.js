@@ -14418,7 +14418,15 @@
             draftSealDesignation: "Assistant Engineer (O&M)",
             draftSealLocation: "",
             showReferenceInfo: false,
-            menuOpen: false
+            menuOpen: false,
+            // Jab user "Saved Feeder Maps" se koi map Load karta hai, tab flow
+            // badal jaata hai - manual "+ Add to List" / node-list wala point-by-
+            // point banane wala form hide ho jaata hai, aur sirf "Proposed Point
+            // Do Existing Points Ke Beech Jodein" wala form dikhta hai (kyoki map
+            // pehle se bana hua hai, sirf usme proposed load jodna hai). Naya map
+            // fresh banate waqt ya "Edit" se kholne par yeh false rehta hai, taaki
+            // pehle jaisa poora manual flow (point add + SLD + calc + seal) dikhe.
+            proposedInsertOnly: false
         };
 
         function vrNextLabel(n) {
@@ -14740,7 +14748,7 @@
             const totalRowLabel = nodes.length > 0 ? ("TOTAL (" + nodes[0].label + "-" + nodes[nodes.length - 1].label + ")") : "TOTAL";
             const sectionCombosCaption = sectionRows.map((r) => "(" + r.label + ")").join("") +
                 (nodes.length > 2 ? "(" + nodes[0].label + "-" + nodes[nodes.length - 1].label + ")" : "");
-            const reportTitleLine1 = lineStatus + " " + (vrLineTypeLabels[lineType] || "33 kV") + " LINE";
+            const reportTitleLine1 = lineStatus + " " + (vrLineTypeLabels[lineType] || "33 kV") + " FEEDER";
 
             return { conductorOptions, conductorObj, cc, isHT, df, dfNote, sectionRows, totalKvaKm, totalVr, limit, exceedsLimit, totalRowLabel, sectionCombosCaption, reportTitleLine1 };
         }
@@ -14750,6 +14758,27 @@
             if (!container) return;
             const nodes = vrCalcState.nodes;
             const isProposedStatus = vrCalcState.lineStatus === "PROPOSED";
+
+            // Saved map "Load" karne ke baad manual point-add flow (heading +
+            // "+ Add to List" form + node-list) chhupa dete hain - sirf neeche
+            // wala "Insert Proposed Point" form dikhta hai. Fresh map banate
+            // waqt ya "Edit" se khole gaye map me yeh sab pehle jaisa dikhta hai.
+            const manualHeading = document.getElementById("vr-manual-points-heading");
+            const draftForm = document.getElementById("vr-draft-form");
+            const showManualFlow = !vrCalcState.proposedInsertOnly;
+            if (manualHeading) manualHeading.style.display = showManualFlow ? "" : "none";
+            if (draftForm) draftForm.style.display = showManualFlow ? "" : "none";
+            container.style.display = showManualFlow ? "" : "none";
+            // Points daalte hi (fresh map banate waqt) yahin niche "Save Current as
+            // Map" ka option dikhta hai - ab three-dots menu tak jaane ki zaroorat
+            // nahi. Load karke proposed-insert mode me ye hide rehta hai.
+            const inlineSaveWrap = document.getElementById("vr-inline-save-wrap");
+            if (inlineSaveWrap) inlineSaveWrap.style.display = (showManualFlow && nodes.length > 0) ? "block" : "none";
+            if (!showManualFlow) {
+                vrRenderInsertProposedForm();
+                return;
+            }
+
             const nameLabelEl = document.getElementById("vr-draft-name-label");
             const kvaWrap = document.getElementById("vr-draft-kva-wrap");
             const distWrap = document.getElementById("vr-draft-dist-wrap");
@@ -14823,8 +14852,8 @@
             return vrGetAllSavedMaps().filter((m) => normalizeLookupValue(m.dcName || "") === dcKey);
         }
 
-        function vrSaveCurrentAsMap() {
-            const nameEl = document.getElementById("vr-map-save-name");
+        function vrSaveCurrentAsMap(nameInputId) {
+            const nameEl = document.getElementById(nameInputId || "vr-map-save-name");
             const name = (nameEl?.value || "").trim();
             if (!name) { showToast("Map ka naam dijiye", false); return; }
             if (!vrCalcState.nodes.length) { showToast("Pehle points add karein", false); return; }
@@ -14854,6 +14883,7 @@
             const map = vrGetAllSavedMaps().find((m) => m.id === id);
             if (!map) { showToast("Map nahi mila", false); return; }
             vrEditingMapId = null;
+            vrCalcState.proposedInsertOnly = true;
             vrCalcState.lineType = map.lineType || vrCalcState.lineType;
             vrCalcState.conductorType = map.conductorType || vrCalcState.conductorType;
             vrCalcState.dfType = map.dfType || vrCalcState.dfType;
@@ -14889,6 +14919,7 @@
             const map = vrGetAllSavedMaps().find((m) => m.id === id);
             if (!map) { showToast("Map nahi mila", false); return; }
             vrEditingMapId = id;
+            vrCalcState.proposedInsertOnly = false;
             vrCalcState.lineType = map.lineType || vrCalcState.lineType;
             vrCalcState.conductorType = map.conductorType || vrCalcState.conductorType;
             vrCalcState.dfType = map.dfType || vrCalcState.dfType;
@@ -14978,7 +15009,7 @@
             const pairSelect = document.getElementById("vr-insert-pair-select");
             if (!wrap || !pairSelect) return;
             const nodes = vrCalcState.nodes;
-            if (nodes.length < 2) {
+            if (!vrCalcState.proposedInsertOnly || nodes.length < 2) {
                 wrap.style.display = "none";
                 return;
             }
@@ -15094,7 +15125,7 @@
 
             const title1 = document.getElementById("vr-report-title-1");
             const title2 = document.getElementById("vr-report-title-2");
-            if (title1) title1.innerText = "VOLTAGE REGULATION CALCULATION – " + calc.reportTitleLine1;
+            if (title1) title1.innerText = "VOLTAGE REGULATION CALCULATION OF " + calc.reportTitleLine1;
             if (title2) title2.innerText = headerDescription || "";
 
             const printTitle1a = document.getElementById("vr-print-title-1a");
@@ -15103,7 +15134,7 @@
             const printTitle2b = document.getElementById("vr-print-title-2b");
             if (printTitle1a) printTitle1a.innerText = "SINGLE LINE DIAGRAM – " + calc.reportTitleLine1;
             if (printTitle1b) printTitle1b.innerText = headerDescription || "";
-            if (printTitle2a) printTitle2a.innerText = "VOLTAGE REGULATION CALCULATION – " + calc.reportTitleLine1;
+            if (printTitle2a) printTitle2a.innerText = "VOLTAGE REGULATION CALCULATION OF " + calc.reportTitleLine1;
             if (printTitle2b) printTitle2b.innerText = headerDescription || "";
 
             const rowsBody = document.getElementById("vr-section-rows");

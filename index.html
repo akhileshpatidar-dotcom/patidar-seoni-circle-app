@@ -339,8 +339,8 @@
                             <h2 id="vr-print-title-1a">SINGLE LINE DIAGRAM</h2>
                             <h3 id="vr-print-title-1b"></h3>
                         </div>
-                        <h2 class="vr-calc-heading vr-no-print">Network Points (Single Line Diagram Input)</h2>
-                        <div class="vr-calc-add-form vr-no-print">
+                        <h2 id="vr-manual-points-heading" class="vr-calc-heading vr-no-print">Network Points (Single Line Diagram Input)</h2>
+                        <div id="vr-draft-form" class="vr-calc-add-form vr-no-print">
                             <div class="vr-calc-field name">
                                 <label id="vr-draft-name-label">First Point Name</label>
                                 <input id="vr-draft-name" type="text" class="ivrs-input vr-calc-input" placeholder="e.g. 33/11 KV S/S Barra">
@@ -356,6 +356,14 @@
                             <button class="btn vr-btn-primary" onclick="vrAddNodeFromDraft()">+ Add to List</button>
                         </div>
                         <div id="vr-node-list" class="vr-calc-node-inputs vr-no-print"></div>
+
+                        <div id="vr-inline-save-wrap" class="vr-no-print" style="display:none; margin-top:14px; padding:12px; border:1.5px solid #86efac; border-radius:14px; background:#f0fdf4;">
+                            <div style="font-size:0.68rem; font-weight:800; color:#166534; margin-bottom:8px;">Points daalna poora ho gaya ho to is map ko future ke liye save kar lein:</div>
+                            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                                <input id="vr-inline-map-save-name" type="text" class="ivrs-input vr-calc-input" placeholder="Map ka naam (e.g. 11KV Ganeshganj Feeder)" style="flex:1 1 200px;">
+                                <button class="btn vr-btn-primary" onclick="vrSaveCurrentAsMap('vr-inline-map-save-name')">Save Current as Map</button>
+                            </div>
+                        </div>
 
                         <div id="vr-insert-proposed-wrap" class="vr-no-print" style="display:none; margin-top:16px; padding:12px; border:1.5px dashed #f59e0b; border-radius:14px; background:#fffbeb;">
                             <h3 style="font-size:0.78rem; font-weight:900; color:#92400e; margin:0 0 8px;">+ Proposed Point Do Existing Points Ke Beech Jodein</h3>
