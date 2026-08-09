@@ -9763,7 +9763,15 @@
             };
         }
 
-        async function syncRevenueTdEntriesFromSheet(attempts = 3) {
+        // syncRevenueLiveEntriesFromSheet jaisa hi shared 60-second TTL cache -
+        // ek report me TD entries sync ho jaane ke baad dusri report (jo bhi isi
+        // function ko call kare) usi cache ko reuse karegi.
+        let revenueTdEntriesSyncedAt = 0;
+        const REVENUE_TD_ENTRIES_SYNC_TTL_MS = 60000;
+        async function syncRevenueTdEntriesFromSheet(attempts = 3, forceRefresh = false) {
+            if (!forceRefresh && revenueTdEntriesSyncedAt && Date.now() - revenueTdEntriesSyncedAt < REVENUE_TD_ENTRIES_SYNC_TTL_MS) {
+                return getRevenueTdEntriesLocal();
+            }
             if (!revenueCollectionSubmitScriptUrl) return getRevenueTdEntriesLocal();
             for (let attempt = 1; attempt <= attempts; attempt++) {
                 try {
@@ -9775,6 +9783,7 @@
                     if (parsed && parsed.status === "success" && Array.isArray(sourceRows)) {
                         const rows = sourceRows.map(mapRevenueTdSheetEntry).filter((row) => normalizeRevenueIvrs(row.ivrsNo));
                         setRevenueTdEntriesLocal(rows);
+                        revenueTdEntriesSyncedAt = Date.now();
                         return rows;
                     }
                 } catch (_) {}
@@ -11162,7 +11171,21 @@
             });
         }
 
-        async function getRevenueUploadedPaidMasterRows() {
+        // Cash Reconcile aur Pending DO List dono isi function se "uploaded cash
+        // list" (kaun-kaun paid hai NGB me) laate hain. Pehle har call par poora
+        // backend fetch hota tha, isliye ek report me sync hone ke baad dusri
+        // report par jaane par bhi dobara fetch hota tha. Ab DC-scoped 60-second
+        // shared TTL cache hai - same DC ke liye 60 second ke andar dusri report
+        // usi cache ko turant reuse karegi.
+        let revenueUploadedPaidMasterRowsCache = null; // { dcKey, rows, syncedAt }
+        const REVENUE_UPLOADED_PAID_MASTER_SYNC_TTL_MS = 60000;
+        async function getRevenueUploadedPaidMasterRows(forceRefresh = false) {
+            const dcKey = normalizeLookupValue(activeDC || "");
+            if (!forceRefresh && revenueUploadedPaidMasterRowsCache
+                && revenueUploadedPaidMasterRowsCache.dcKey === dcKey
+                && Date.now() - revenueUploadedPaidMasterRowsCache.syncedAt < REVENUE_UPLOADED_PAID_MASTER_SYNC_TTL_MS) {
+                return revenueUploadedPaidMasterRowsCache.rows;
+            }
             // Upload ke turant baad local cache me entries turant save ho jaati hain
             // (saveRevenueUploadedPaidEntriesLocalBulk), backend fetch se pehle hi -
             // isliye yahan backend call se pehle current local rows capture kar lete
@@ -11197,10 +11220,13 @@
                             const key = normalizeRevenueIvrs(row.ivrs_no || row.ivrsNo || row.consumerNo);
                             if (key) merged.set(key, row);
                         });
-                        return Array.from(merged.values());
+                        const finalRows = Array.from(merged.values());
+                        revenueUploadedPaidMasterRowsCache = { dcKey, rows: finalRows, syncedAt: Date.now() };
+                        return finalRows;
                     }
                 } catch (_) {}
             }
+            revenueUploadedPaidMasterRowsCache = { dcKey, rows: localRowsBeforeSync, syncedAt: Date.now() };
             return localRowsBeforeSync;
         }
 
@@ -12161,7 +12187,19 @@
             };
         }
 
-        async function syncRevenueLiveEntriesFromSheet(attempts = 3) {
+        // Live Progress, Cash Reconcile aur Pending DO List - teeno reports isi ek
+        // function se "paid entries" laate hain. Pehle har report apna alag timer
+        // rakhta tha, isliye ek report me sync ho jaane ke baad bhi dusri report
+        // par jaane par dobara poora network sync ho jaata tha. Ab yahan hi ek
+        // SHARED 60-second TTL cache hai - jis bhi report ne pehle sync kiya ho,
+        // baaki sabhi report usi cache ko turant reuse karenge jab tak app se
+        // bahar nahi jaate / 60 second se zyada time nahi beetta.
+        let revenueLiveEntriesSyncedAt = 0;
+        const REVENUE_LIVE_ENTRIES_SYNC_TTL_MS = 60000;
+        async function syncRevenueLiveEntriesFromSheet(attempts = 3, forceRefresh = false) {
+            if (!forceRefresh && revenueLiveEntriesSyncedAt && Date.now() - revenueLiveEntriesSyncedAt < REVENUE_LIVE_ENTRIES_SYNC_TTL_MS) {
+                return getRevenueLiveEntries();
+            }
             if (!revenueCollectionSubmitScriptUrl) return getRevenueLiveEntries();
             for (let attempt = 1; attempt <= attempts; attempt++) {
                 try {
@@ -12173,6 +12211,7 @@
                     if (parsed && parsed.status === "success" && Array.isArray(sourceRows)) {
                         const rows = sourceRows.map(mapRevenueSheetEntry).filter((row) => normalizeRevenueIvrs(row.ivrsNo));
                         setRevenueLiveEntries(rows);
+                        revenueLiveEntriesSyncedAt = Date.now();
                         return rows;
                     }
                 } catch (_) {}
@@ -12478,6 +12517,15 @@
         }
 
         let revenueLiveProgressToken = 0;
+        // syncRevenueLiveEntriesFromSheet aur syncRevenueTdEntriesFromSheet dono
+        // ab apna-apna shared 60-second TTL rakhte hain (dekhein unki definition).
+        // Ye helper dono ke fresh-hone ka combined check deta hai, taaki Live
+        // Progress aur baaki reports ek hi cache-state par bharosa kar saken.
+        function isRevenueLiveAndTdDataFresh() {
+            const now = Date.now();
+            return !!revenueLiveEntriesSyncedAt && (now - revenueLiveEntriesSyncedAt < REVENUE_LIVE_ENTRIES_SYNC_TTL_MS)
+                && !!revenueTdEntriesSyncedAt && (now - revenueTdEntriesSyncedAt < REVENUE_TD_ENTRIES_SYNC_TTL_MS);
+        }
         async function renderRevenueLiveProgress() {
             const tableBox = document.getElementById("revenue-live-table");
             if (!tableBox) return;
@@ -12489,6 +12537,18 @@
             else activeViewLevel = "CIRCLE";
             const dcLabelBox = document.getElementById("revenue-live-dc-label");
             if (dcLabelBox) dcLabelBox.innerText = activeDC ? `DC: ${activeDC}` : getRevenueReportScopeLabel();
+            // syncRevenueLiveEntriesFromSheet/syncRevenueTdEntriesFromSheet ab khud
+            // ek shared 60-second cache rakhte hain (Cash Reconcile/Pending DO List
+            // jaisi kisi bhi report ne pehle hi sync kiya ho to bhi). Yahan check kar
+            // lete hain ki dono fresh hain kya - agar haan to progress-bar UI bhi
+            // dikhaye bina turant re-render kar dete hain.
+            const needsSync = !isRevenueLiveAndTdDataFresh();
+            if (!needsSync) {
+                const rows = getRevenueCombinedFilteredEntries("DAILY", getCurrentDateDDMMYYYY());
+                const groupedRows = buildProgressRevenueSummaryRows(rows);
+                tableBox.innerHTML = renderRevenueLiveSummaryTable(groupedRows);
+                return;
+            }
             const progress = renderSyncingProgress(tableBox, () => myToken === revenueLiveProgressToken, "SYNCING LATEST REPORT...");
             await Promise.all([syncRevenueLiveEntriesFromSheet(), syncRevenueTdEntriesFromSheet()]);
             if (myToken !== revenueLiveProgressToken) { progress.stop(); return; }
@@ -12723,6 +12783,21 @@
         let revenueCashReconcileMode = "DAILY";
         let revenueCashReconcileRows = [];
         let revenueCashReconcileRenderToken = 0;
+        // Pehle date/month/HQ/status dropdown me kuch bhi change karte hi poori
+        // report dobara poore network se sync ho jaati thi, chahe kuch second
+        // pehle hi wahi data aa chuka ho (ya Live Progress/Pending DO List me
+        // pehle hi sync ho chuka ho) - isse anaawashyak time lagta tha. Ab
+        // syncRevenueLiveEntriesFromSheet/getRevenueUploadedPaidMasterRows dono
+        // apna shared 60-second cache khud rakhte hain (dekhein unki definition),
+        // isliye yahan sirf check karte hain ki dono is DC ke liye fresh hain ya
+        // nahi - agar haan to network call/progress-bar UI dikhaye bina turant
+        // re-render karte hain.
+        function isRevenueCashReconcileDataFresh() {
+            const dcKey = normalizeLookupValue(activeDC || "");
+            return !!revenueLiveEntriesSyncedAt && (Date.now() - revenueLiveEntriesSyncedAt < REVENUE_LIVE_ENTRIES_SYNC_TTL_MS)
+                && !!revenueUploadedPaidMasterRowsCache && revenueUploadedPaidMasterRowsCache.dcKey === dcKey
+                && (Date.now() - revenueUploadedPaidMasterRowsCache.syncedAt < REVENUE_UPLOADED_PAID_MASTER_SYNC_TTL_MS);
+        }
 
         function initRevenueReportDownload() {
             const dateInput = document.getElementById("revenue-report-date");
@@ -12985,6 +13060,25 @@
             const renderToken = ++revenueCashReconcileRenderToken;
             if (statusBox) statusBox.style.display = "none";
             const isRenderValid = () => renderToken === revenueCashReconcileRenderToken && document.getElementById("revenue-cash-reconcile-view")?.classList.contains("active");
+            const dataFresh = isRevenueCashReconcileDataFresh();
+            if (dataFresh && revenueCashReconcileRows.length) {
+                // Data pehle se fresh hai (isi report me ya Live Progress/Pending DO
+                // List me pehle hi sync ho chuka hai) - date/month/HQ/status dropdown
+                // change sirf local filter hai, network re-fetch skip karke turant
+                // re-render ho jaata hai.
+                tableBox.innerHTML = renderRevenueCashSummary(getRevenueCashFilteredRows());
+                if (statusBox) statusBox.style.display = "none";
+                return;
+            }
+            if (dataFresh) {
+                // Dusri report ne pehle hi network sync kar diya hai, is view ke
+                // liye sirf pehli baar rows build karne hain - network call nahi.
+                revenueCashReconcileRows = buildRevenueCashReconcileRows();
+                populateRevenueCashHqOptions(revenueCashReconcileRows);
+                tableBox.innerHTML = renderRevenueCashSummary(getRevenueCashFilteredRows());
+                if (statusBox) statusBox.style.display = "none";
+                return;
+            }
             // Ab baaki sabhi reports jaisa hi shared renderSyncingProgress use karte hain
             // (pehle iski apni alag copy-paste ki hui orange-themed progress bar thi -
             // renderRevenueCashSyncingProgress - jo hata di gayi hai).
