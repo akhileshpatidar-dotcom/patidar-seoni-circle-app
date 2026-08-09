@@ -278,33 +278,74 @@
             <div class="search-panel" style="padding-top:12px;">
                 <div class="vr-calc-wrap">
 
-                    <div class="vr-calc-card vr-no-print">
-                        <div class="vr-calc-report-title">
-                            <h2 id="vr-report-title-1">VOLTAGE REGULATION CALCULATION</h2>
-                            <h3 id="vr-report-title-2"></h3>
+                    <div class="vr-calc-card vr-no-print" style="padding:0; overflow:hidden;">
+                        <div style="background:linear-gradient(135deg, #0c447c 0%, #093761 100%); padding:16px 18px;">
+                            <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+                                <div style="display:flex; align-items:center; gap:8px; min-width:0;">
+                                    <i class="ti ti-bolt" style="font-size:18px; color:#fff; flex-shrink:0;" aria-hidden="true"></i>
+                                    <h2 id="vr-report-title-1" style="font-size:15px; font-weight:700; color:#fff; margin:0; text-transform:uppercase; letter-spacing:0.02em;">VOLTAGE REGULATION CALCULATION</h2>
+                                </div>
+                                <div class="vr-no-print" style="position:relative; flex-shrink:0;">
+                                    <button id="vr-menu-btn" class="vr-calc-menu-btn" onclick="vrToggleMenu()" style="background:rgba(255,255,255,0.14); color:#fff; border:1px solid rgba(255,255,255,0.35);">⋮</button>
+                                    <div id="vr-menu-dropdown" style="display:none; position:absolute; right:0; top:40px; background:#fff; border:1px solid #ddd; border-radius:6px; box-shadow:0 4px 12px rgba(0,0,0,0.12); z-index:10; width:220px;">
+                                        <button onclick="vrToggleSavedMapsModal(true)" style="width:100%; text-align:left; padding:10px 14px; background:none; border:none; cursor:pointer; font-size:13px; color:#333;">🗺️ Saved Feeder Maps</button>
+                                        <button id="vr-menu-toggle-ref-btn" onclick="vrToggleReferenceInfo()" style="width:100%; text-align:left; padding:10px 14px; background:none; border:none; border-top:1px solid #eee; cursor:pointer; font-size:13px; color:#333;">Show Limits &amp; CC Reference Table</button>
+                                        <button onclick="openVrDownloadLog()" style="width:100%; text-align:left; padding:10px 14px; background:none; border:none; border-top:1px solid #eee; cursor:pointer; font-size:13px; color:#333;">📊 Download Log Report</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <h3 id="vr-report-title-2" style="font-size:12px; color:#B5D4F4; margin:4px 0 0; font-weight:500;"></h3>
+                            <div style="display:flex; align-items:center; gap:8px; margin-top:10px;">
+                                <span id="vr-status-badge" style="background:rgba(255,255,255,0.16); color:#fff; font-size:11px; font-weight:700; padding:3px 11px; border-radius:999px; text-transform:uppercase;">Existing</span>
+                                <span id="vr-linetype-badge" style="font-size:12px; color:#B5D4F4; font-weight:600;">33 kV line</span>
+                            </div>
                         </div>
-                        <label class="vr-calc-label">Header Description</label>
-                        <input id="vr-header-desc" type="text" class="ivrs-input vr-calc-input" placeholder="e.g. 220 kV EHV Substation Seoni to 33/11 kV Substation Chhapara" oninput="vrSetHeaderDescription(this.value)">
-                        <div class="vr-calc-config-row">
-                            <div>
-                                <label class="vr-calc-label">Status</label>
-                                <select id="vr-line-status" class="ivrs-input vr-calc-input" onchange="vrSetLineStatus(this.value)">
-                                    <option value="EXISTING">Existing</option>
-                                    <option value="NEW">New</option>
-                                    <option value="PROPOSED">Proposed</option>
-                                </select>
+                        <div style="padding:16px 18px;">
+                            <label class="vr-calc-label">Header Description</label>
+                            <input id="vr-header-desc" type="text" class="ivrs-input vr-calc-input" placeholder="e.g. 220 kV EHV Substation Seoni to 33/11 kV Substation Chhapara" oninput="vrSetHeaderDescription(this.value)">
+                            <div class="vr-calc-config-row" style="margin-top:14px; padding-top:14px; border-top:0.5px solid #e2e8f0;">
+                                <div>
+                                    <label class="vr-calc-label">Status</label>
+                                    <select id="vr-line-status" class="ivrs-input vr-calc-input" onchange="vrSetLineStatus(this.value)">
+                                        <option value="EXISTING">Existing</option>
+                                        <option value="NEW">New</option>
+                                        <option value="PROPOSED">Proposed</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="vr-calc-label">Line Type</label>
+                                    <select id="vr-line-type" class="ivrs-input vr-calc-input" onchange="vrSetLineType(this.value)">
+                                        <option value="lt">LT</option>
+                                        <option value="11kv">11 kV</option>
+                                        <option value="33kv" selected>33 kV</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="vr-calc-label">Conductor</label>
+                                    <select id="vr-conductor-type" class="ivrs-input vr-calc-input" onchange="vrSetConductorType(this.value)"></select>
+                                </div>
                             </div>
-                            <div>
-                                <label class="vr-calc-label">Line Type</label>
-                                <select id="vr-line-type" class="ivrs-input vr-calc-input" onchange="vrSetLineType(this.value)">
-                                    <option value="lt">LT</option>
-                                    <option value="11kv">11 kV</option>
-                                    <option value="33kv" selected>33 kV</option>
-                                </select>
+                        </div>
+                    </div>
+
+                    <div id="vr-saved-maps-modal" class="vr-no-print" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.55); z-index:200; align-items:flex-end; justify-content:center;">
+                        <div style="background:#fff; width:100%; max-width:420px; max-height:82vh; overflow-y:auto; border-radius:20px 20px 0 0; padding:18px;">
+                            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+                                <h2 class="vr-calc-heading" style="margin:0;">Saved Feeder Maps (Existing SLD)</h2>
+                                <button class="vr-calc-menu-btn" onclick="vrToggleSavedMapsModal(false)" aria-label="Close">✕</button>
                             </div>
-                            <div>
-                                <label class="vr-calc-label">Conductor</label>
-                                <select id="vr-conductor-type" class="ivrs-input vr-calc-input" onchange="vrSetConductorType(this.value)"></select>
+                            <div style="font-size:0.68rem; color:#64748b; margin-bottom:10px; line-height:1.5;">Apna existing 11kV/33kV feeder ka poora point-chain ek baar bana kar yahan save kar lein - future me sirf load karke proposed point jodna hoga, dobara sabhi points nahi dalne padenge.</div>
+                            <div id="vr-saved-maps-list"></div>
+                            <div id="vr-map-edit-banner" style="display:none; margin-top:8px; padding:10px 12px; border:1.5px solid #2563eb; border-radius:12px; background:#eff6ff; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+                                <div style="font-size:0.72rem; font-weight:900; color:#1e3a8a;">Editing: <span id="vr-map-edit-name"></span> — neeche points add/remove/edit karke "Update Map" dabayein</div>
+                                <div style="display:flex; gap:6px;">
+                                    <button class="btn vr-btn-primary" style="padding:6px 12px; font-size:0.7rem;" onclick="vrUpdateEditingMap()">Update Map</button>
+                                    <button class="vr-calc-remove-btn" style="width:auto; padding:6px 10px;" onclick="vrCancelEditingMap()">Cancel</button>
+                                </div>
+                            </div>
+                            <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
+                                <input id="vr-map-save-name" type="text" class="ivrs-input vr-calc-input" placeholder="Map ka naam (e.g. 11KV Ganeshganj Feeder)" style="flex:1 1 200px;">
+                                <button class="btn vr-btn-primary" onclick="vrSaveCurrentAsMap()">Save Current as Map</button>
                             </div>
                         </div>
                     </div>
@@ -332,6 +373,27 @@
                         </div>
                         <div id="vr-node-list" class="vr-calc-node-inputs vr-no-print"></div>
 
+                        <div id="vr-insert-proposed-wrap" class="vr-no-print" style="display:none; margin-top:16px; padding:12px; border:1.5px dashed #f59e0b; border-radius:14px; background:#fffbeb;">
+                            <h3 style="font-size:0.78rem; font-weight:900; color:#92400e; margin:0 0 8px;">+ Proposed Point Do Existing Points Ke Beech Jodein</h3>
+                            <label class="vr-calc-label">Kin Points Ke Beech</label>
+                            <select id="vr-insert-pair-select" class="ivrs-input vr-calc-input"></select>
+                            <div class="vr-calc-add-form" style="margin-top:8px;">
+                                <div class="vr-calc-field name">
+                                    <label>Proposed Point Name</label>
+                                    <input id="vr-insert-name" type="text" class="ivrs-input vr-calc-input" placeholder="e.g. New Rice Mill">
+                                </div>
+                                <div class="vr-calc-field kva">
+                                    <label>Load (KVA)</label>
+                                    <input id="vr-insert-kva" type="number" class="ivrs-input vr-calc-input" placeholder="0">
+                                </div>
+                                <div class="vr-calc-field dist">
+                                    <label>Pehle Point Se Distance (Km)</label>
+                                    <input id="vr-insert-dist" type="number" step="0.1" class="ivrs-input vr-calc-input" placeholder="0">
+                                </div>
+                                <button class="btn vr-btn-primary" onclick="vrInsertProposedNode()">+ Insert Proposed Point</button>
+                            </div>
+                        </div>
+
                         <h2 class="vr-calc-heading" style="margin-top:24px;">Single Line Diagram — Overview</h2>
                         <div class="vr-calc-sld-container" style="overflow-x:auto;">
                             <canvas id="vrFlatSldCanvas" width="1300" height="130"></canvas>
@@ -348,16 +410,7 @@
                             <h2 id="vr-print-title-2a">VOLTAGE REGULATION CALCULATION</h2>
                             <h3 id="vr-print-title-2b"></h3>
                         </div>
-                        <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
-                            <h2 class="vr-calc-heading" style="margin:0;">Calculation of Voltage Regulation</h2>
-                            <div class="vr-no-print" style="position:relative;">
-                                <button class="vr-calc-menu-btn" onclick="vrToggleMenu()">⋮</button>
-                                <div id="vr-menu-dropdown" style="display:none; position:absolute; right:0; top:40px; background:#fff; border:1px solid #ddd; border-radius:6px; box-shadow:0 4px 12px rgba(0,0,0,0.12); z-index:10; width:220px;">
-                                    <button id="vr-menu-toggle-ref-btn" onclick="vrToggleReferenceInfo()" style="width:100%; text-align:left; padding:10px 14px; background:none; border:none; cursor:pointer; font-size:13px; color:#333;">Show Limits &amp; CC Reference Table</button>
-                                    <button onclick="openVrDownloadLog()" style="width:100%; text-align:left; padding:10px 14px; background:none; border:none; border-top:1px solid #eee; cursor:pointer; font-size:13px; color:#333;">📊 Download Log Report</button>
-                                </div>
-                            </div>
-                        </div>
+                        <h2 class="vr-calc-heading" style="margin:0;">Calculation of Voltage Regulation</h2>
                         <div style="overflow-x:auto;">
                             <table class="vr-table">
                                 <thead>
