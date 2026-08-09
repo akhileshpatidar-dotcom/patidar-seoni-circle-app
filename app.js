@@ -15094,8 +15094,12 @@
 
             const title1 = document.getElementById("vr-report-title-1");
             const title2 = document.getElementById("vr-report-title-2");
-            if (title1) title1.innerText = "VOLTAGE REGULATION CALCULATION – " + calc.reportTitleLine1;
+            if (title1) title1.innerText = "VOLTAGE REGULATION CALCULATION";
             if (title2) title2.innerText = headerDescription || "";
+            const statusBadge = document.getElementById("vr-status-badge");
+            const lineTypeBadge = document.getElementById("vr-linetype-badge");
+            if (statusBadge) statusBadge.innerText = lineStatus.charAt(0) + lineStatus.slice(1).toLowerCase();
+            if (lineTypeBadge) lineTypeBadge.innerText = (vrLineTypeLabels[lineType] || lineType) + " line";
 
             const printTitle1a = document.getElementById("vr-print-title-1a");
             const printTitle1b = document.getElementById("vr-print-title-1b");
@@ -15242,6 +15246,16 @@
             vrCalcState.menuOpen = !vrCalcState.menuOpen;
             const dd = document.getElementById("vr-menu-dropdown");
             if (dd) dd.style.display = vrCalcState.menuOpen ? "block" : "none";
+        }
+
+        function vrToggleSavedMapsModal(show) {
+            vrCalcState.menuOpen = false;
+            const dd = document.getElementById("vr-menu-dropdown");
+            if (dd) dd.style.display = "none";
+            const modal = document.getElementById("vr-saved-maps-modal");
+            if (!modal) return;
+            modal.style.display = show ? "flex" : "none";
+            if (show) vrRenderSavedMapsList();
         }
 
         function vrToggleReferenceInfo() {
