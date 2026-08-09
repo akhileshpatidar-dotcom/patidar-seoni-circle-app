@@ -102,7 +102,6 @@
                     <button id="staff-admin-header-menu-item" type="button" class="header-menu-item" onclick="openStaffAdmin()" style="display:none; background:#fff7ed; color:#c2410c; border:1.5px solid #fdba74;">STAFF ADMIN</button>
                     <button type="button" class="header-menu-item vr-header-menu-item" onclick="openVrSavedMapsMenu()" style="display:none;">🗺️ Saved Feeder Maps</button>
                     <button id="vr-menu-toggle-ref-btn" type="button" class="header-menu-item vr-header-menu-item" onclick="openVrReferenceInfoMenu()" style="display:none;">Show Limits &amp; CC Reference Table</button>
-                    <button type="button" class="header-menu-item vr-header-menu-item" onclick="openVrDownloadLogMenu()" style="display:none;">📊 Download Log Report</button>
                 </div>
             </div>
         </header>
@@ -323,6 +322,37 @@
                         </div>
                     </div>
 
+                    <div id="vr-reference-info-modal" class="vr-no-print" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.55); z-index:200; align-items:flex-end; justify-content:center;">
+                        <div style="background:#fff; width:100%; max-width:420px; max-height:82vh; overflow-y:auto; border-radius:20px 20px 0 0; padding:18px;">
+                            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+                                <h2 class="vr-calc-heading" style="margin:0;">Limits &amp; CC Reference Table</h2>
+                                <button class="vr-calc-menu-btn" onclick="vrShowReferenceInfoModal(false)" aria-label="Close">✕</button>
+                            </div>
+                            <div id="vr-reference-info" class="vr-no-print">
+                                <div class="vr-calc-footer-note">
+                                    <strong>MPERC / MP Electricity Rules के अनुसार Limits:</strong><br>
+                                    • LT (Three Phase, 400V): ± 6%<br>
+                                    • 11 kV: +6% / -9%<br>
+                                    • 33 kV: +6% / -9%
+                                </div>
+                                <table class="vr-calc-cc-table">
+                                    <tr><td colspan="2" style="text-align:center; font-weight:bold; padding:12px 8px; background:#f0f0f0;">LT Line — Conductor Constants</td></tr>
+                                    <tr><td>Squirrel (0.9 PF)</td><td style="text-align:right;">1.19</td></tr>
+                                    <tr><td>Weasel (0.9 PF)</td><td style="text-align:right;">1.94</td></tr>
+                                    <tr><td>Rabbit (0.9 PF)</td><td style="text-align:right;">3.00</td></tr>
+                                    <tr><td colspan="2" style="text-align:center; font-weight:bold; padding:12px 8px; background:#f0f0f0;">11 kV Line — Conductor Constants</td></tr>
+                                    <tr><td>Weasel (0.8 PF)</td><td style="text-align:right;">1020</td></tr>
+                                    <tr><td>Rabbit (0.8 PF)</td><td style="text-align:right;">1576</td></tr>
+                                    <tr><td>Raccoon (0.8 PF)</td><td style="text-align:right;">2380</td></tr>
+                                    <tr><td>Dog (0.8 PF)</td><td style="text-align:right;">3150</td></tr>
+                                    <tr><td colspan="2" style="text-align:center; font-weight:bold; padding:12px 8px; background:#f0f0f0;">33 kV Line — Conductor Constants</td></tr>
+                                    <tr><td>Raccoon (0.9 PF)</td><td style="text-align:right;">19121</td></tr>
+                                    <tr><td>Dog (0.9 PF)</td><td style="text-align:right;">22951</td></tr>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="vr-calc-card" id="vr-panel-sld">
                         <div class="vr-print-only vr-calc-print-banner">
                             <h2 id="vr-print-title-1a">SINGLE LINE DIAGRAM</h2>
@@ -425,29 +455,6 @@
                                 <span id="vr-formula-values" class="vr-calc-frac"></span>
                             </div>
                             <div id="vr-final-vr" class="vr-calc-final-vr"></div>
-                        </div>
-
-                        <div id="vr-reference-info" class="vr-no-print" style="display:none;">
-                            <div class="vr-calc-footer-note">
-                                <strong>MPERC / MP Electricity Rules के अनुसार Limits:</strong><br>
-                                • LT (Three Phase, 400V): ± 6%<br>
-                                • 11 kV: +6% / -9%<br>
-                                • 33 kV: +6% / -9%
-                            </div>
-                            <table class="vr-calc-cc-table">
-                                <tr><td colspan="2" style="text-align:center; font-weight:bold; padding:12px 8px; background:#f0f0f0;">LT Line — Conductor Constants</td></tr>
-                                <tr><td>Squirrel (0.9 PF)</td><td style="text-align:right;">1.19</td></tr>
-                                <tr><td>Weasel (0.9 PF)</td><td style="text-align:right;">1.94</td></tr>
-                                <tr><td>Rabbit (0.9 PF)</td><td style="text-align:right;">3.00</td></tr>
-                                <tr><td colspan="2" style="text-align:center; font-weight:bold; padding:12px 8px; background:#f0f0f0;">11 kV Line — Conductor Constants</td></tr>
-                                <tr><td>Weasel (0.8 PF)</td><td style="text-align:right;">1020</td></tr>
-                                <tr><td>Rabbit (0.8 PF)</td><td style="text-align:right;">1576</td></tr>
-                                <tr><td>Raccoon (0.8 PF)</td><td style="text-align:right;">2380</td></tr>
-                                <tr><td>Dog (0.8 PF)</td><td style="text-align:right;">3150</td></tr>
-                                <tr><td colspan="2" style="text-align:center; font-weight:bold; padding:12px 8px; background:#f0f0f0;">33 kV Line — Conductor Constants</td></tr>
-                                <tr><td>Raccoon (0.9 PF)</td><td style="text-align:right;">19121</td></tr>
-                                <tr><td>Dog (0.9 PF)</td><td style="text-align:right;">22951</td></tr>
-                            </table>
                         </div>
 
                         <div id="vr-seal-print-2" class="vr-print-only vr-calc-seal-print-row"></div>

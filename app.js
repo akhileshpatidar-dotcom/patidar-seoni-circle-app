@@ -15302,7 +15302,7 @@
 
         function openVrReferenceInfoMenu() {
             closeHeaderMenu();
-            vrToggleReferenceInfo();
+            vrShowReferenceInfoModal(true);
         }
 
         function openVrDownloadLogMenu() {
@@ -15310,15 +15310,13 @@
             openVrDownloadLog();
         }
 
-        function vrToggleReferenceInfo() {
-            vrCalcState.showReferenceInfo = !vrCalcState.showReferenceInfo;
-            vrCalcState.menuOpen = false;
-            const box = document.getElementById("vr-reference-info");
-            if (box) box.style.display = vrCalcState.showReferenceInfo ? "block" : "none";
-            const dd = document.getElementById("vr-menu-dropdown");
-            if (dd) dd.style.display = "none";
-            const btn = document.getElementById("vr-menu-toggle-ref-btn");
-            if (btn) btn.innerText = vrCalcState.showReferenceInfo ? "Hide Limits & CC Reference Table" : "Show Limits & CC Reference Table";
+        // Limits & CC Reference Table ab home screen par inline show/hide nahi
+        // hota - alag se dialog (modal) me khulta hai aur cross (✕) button se
+        // band hota hai, jaisa Saved Feeder Maps modal me hai.
+        function vrShowReferenceInfoModal(show) {
+            vrCalcState.showReferenceInfo = !!show;
+            const modal = document.getElementById("vr-reference-info-modal");
+            if (modal) modal.style.display = show ? "flex" : "none";
         }
 
         function initVrCalculation() {
