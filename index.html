@@ -100,6 +100,9 @@
                     <button type="button" class="header-menu-item revenue-header-menu-item" onclick="openRevenueMessageCenter()">💬 Send SMS / WhatsApp</button>
                     <button type="button" class="header-menu-item revenue-header-menu-item" onclick="openRevenuePaidUpload()" style="margin-top:10px; background:#fee2e2; color:#b91c1c; border:1.5px solid #fca5a5; border-top:2px solid #f87171; padding-top:10px;">🔒 Admin Upload Cash List</button>
                     <button id="staff-admin-header-menu-item" type="button" class="header-menu-item" onclick="openStaffAdmin()" style="display:none; background:#fff7ed; color:#c2410c; border:1.5px solid #fdba74;">STAFF ADMIN</button>
+                    <button type="button" class="header-menu-item vr-header-menu-item" onclick="openVrSavedMapsMenu()" style="display:none;">🗺️ Saved Feeder Maps</button>
+                    <button id="vr-menu-toggle-ref-btn" type="button" class="header-menu-item vr-header-menu-item" onclick="openVrReferenceInfoMenu()" style="display:none;">Show Limits &amp; CC Reference Table</button>
+                    <button type="button" class="header-menu-item vr-header-menu-item" onclick="openVrDownloadLogMenu()" style="display:none;">📊 Download Log Report</button>
                 </div>
             </div>
         </header>
@@ -278,32 +281,16 @@
             <div class="search-panel" style="padding-top:12px;">
                 <div class="vr-calc-wrap">
 
-                    <div class="vr-calc-card vr-no-print" style="padding:0; overflow:hidden;">
-                        <div style="background:linear-gradient(135deg, #0c447c 0%, #093761 100%); padding:16px 18px;">
-                            <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
-                                <div style="display:flex; align-items:center; gap:8px; min-width:0;">
-                                    <i class="ti ti-bolt" style="font-size:18px; color:#fff; flex-shrink:0;" aria-hidden="true"></i>
-                                    <h2 id="vr-report-title-1" style="font-size:15px; font-weight:700; color:#fff; margin:0; text-transform:uppercase; letter-spacing:0.02em;">VOLTAGE REGULATION CALCULATION</h2>
-                                </div>
-                                <div class="vr-no-print" style="position:relative; flex-shrink:0;">
-                                    <button id="vr-menu-btn" class="vr-calc-menu-btn" onclick="vrToggleMenu()" style="background:rgba(255,255,255,0.14); color:#fff; border:1px solid rgba(255,255,255,0.35);">⋮</button>
-                                    <div id="vr-menu-dropdown" style="display:none; position:absolute; right:0; top:40px; background:#fff; border:1px solid #ddd; border-radius:6px; box-shadow:0 4px 12px rgba(0,0,0,0.12); z-index:10; width:220px;">
-                                        <button onclick="vrToggleSavedMapsModal(true)" style="width:100%; text-align:left; padding:10px 14px; background:none; border:none; cursor:pointer; font-size:13px; color:#333;">🗺️ Saved Feeder Maps</button>
-                                        <button id="vr-menu-toggle-ref-btn" onclick="vrToggleReferenceInfo()" style="width:100%; text-align:left; padding:10px 14px; background:none; border:none; border-top:1px solid #eee; cursor:pointer; font-size:13px; color:#333;">Show Limits &amp; CC Reference Table</button>
-                                        <button onclick="openVrDownloadLog()" style="width:100%; text-align:left; padding:10px 14px; background:none; border:none; border-top:1px solid #eee; cursor:pointer; font-size:13px; color:#333;">📊 Download Log Report</button>
-                                    </div>
-                                </div>
-                            </div>
-                            <h3 id="vr-report-title-2" style="font-size:12px; color:#B5D4F4; margin:4px 0 0; font-weight:500;"></h3>
-                            <div style="display:flex; align-items:center; gap:8px; margin-top:10px;">
-                                <span id="vr-status-badge" style="background:rgba(255,255,255,0.16); color:#fff; font-size:11px; font-weight:700; padding:3px 11px; border-radius:999px; text-transform:uppercase;">Existing</span>
-                                <span id="vr-linetype-badge" style="font-size:12px; color:#B5D4F4; font-weight:600;">33 kV line</span>
-                            </div>
+                    <div class="vr-calc-card vr-no-print" style="border-left:3px solid #185FA5; border-radius:0 12px 12px 0;">
+                        <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+                            <h2 id="vr-report-title-1" style="font-size:15px; font-weight:700; color:#0f172a; margin:0;">VOLTAGE REGULATION CALCULATION</h2>
+                            <span id="vr-status-badge" style="background:#E6F1FB; color:#0C447C; font-size:11px; font-weight:700; padding:3px 11px; border-radius:999px; white-space:nowrap; flex-shrink:0;">Existing · 33 kV</span>
                         </div>
-                        <div style="padding:16px 18px;">
+                        <h3 id="vr-report-title-2" style="font-size:12px; color:#64748b; margin:4px 0 0; font-weight:500;"></h3>
+                        <div style="border-top:0.5px solid #e2e8f0; margin-top:12px; padding-top:12px;">
                             <label class="vr-calc-label">Header Description</label>
                             <input id="vr-header-desc" type="text" class="ivrs-input vr-calc-input" placeholder="e.g. 220 kV EHV Substation Seoni to 33/11 kV Substation Chhapara" oninput="vrSetHeaderDescription(this.value)">
-                            <div class="vr-calc-config-row" style="margin-top:14px; padding-top:14px; border-top:0.5px solid #e2e8f0;">
+                            <div class="vr-calc-config-row" style="margin-top:14px;">
                                 <div>
                                     <label class="vr-calc-label">Status</label>
                                     <select id="vr-line-status" class="ivrs-input vr-calc-input" onchange="vrSetLineStatus(this.value)">

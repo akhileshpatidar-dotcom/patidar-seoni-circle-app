@@ -15097,9 +15097,10 @@
             if (title1) title1.innerText = "VOLTAGE REGULATION CALCULATION";
             if (title2) title2.innerText = headerDescription || "";
             const statusBadge = document.getElementById("vr-status-badge");
-            const lineTypeBadge = document.getElementById("vr-linetype-badge");
-            if (statusBadge) statusBadge.innerText = lineStatus.charAt(0) + lineStatus.slice(1).toLowerCase();
-            if (lineTypeBadge) lineTypeBadge.innerText = (vrLineTypeLabels[lineType] || lineType) + " line";
+            if (statusBadge) {
+                const statusLabel = lineStatus.charAt(0) + lineStatus.slice(1).toLowerCase();
+                statusBadge.innerText = `${statusLabel} · ${vrLineTypeLabels[lineType] || lineType}`;
+            }
 
             const printTitle1a = document.getElementById("vr-print-title-1a");
             const printTitle1b = document.getElementById("vr-print-title-1b");
@@ -15249,13 +15250,29 @@
         }
 
         function vrToggleSavedMapsModal(show) {
-            vrCalcState.menuOpen = false;
-            const dd = document.getElementById("vr-menu-dropdown");
-            if (dd) dd.style.display = "none";
             const modal = document.getElementById("vr-saved-maps-modal");
             if (!modal) return;
             modal.style.display = show ? "flex" : "none";
             if (show) vrRenderSavedMapsList();
+        }
+
+        // App ke main header (⋮ menu) se VR Calculation ke teeno options trigger
+        // karne wale wrappers - pehle inka apna alag chhota ⋮ button/dropdown
+        // VR card ke andar tha, ab baaki features (Mobile No Update, Revenue
+        // Collection) jaisa hi shared main header menu use hota hai.
+        function openVrSavedMapsMenu() {
+            closeHeaderMenu();
+            vrToggleSavedMapsModal(true);
+        }
+
+        function openVrReferenceInfoMenu() {
+            closeHeaderMenu();
+            vrToggleReferenceInfo();
+        }
+
+        function openVrDownloadLogMenu() {
+            closeHeaderMenu();
+            openVrDownloadLog();
         }
 
         function vrToggleReferenceInfo() {
@@ -15634,9 +15651,11 @@
                 const headerMenuWrap = document.getElementById("header-menu-wrap");
                 const revenueMenuVisible = (id === "revenue-collection" || id === "revenue-live-progress" || id === "revenue-report-download" || id === "revenue-hq-village" || id === "revenue-target-achievement" || id === "revenue-top-defaulters" || id === "revenue-cash-reconcile" || id === "revenue-pending-list" || id === "revenue-paid-upload");
                 const mobileUpdateMenuVisible = (id === "mobile-update");
-                if (headerMenuWrap) headerMenuWrap.style.display = (revenueMenuVisible || mobileUpdateMenuVisible || id === "subdn-chhapara") ? "block" : "none";
+                const vrMenuVisible = (id === "vr-calculation");
+                if (headerMenuWrap) headerMenuWrap.style.display = (revenueMenuVisible || mobileUpdateMenuVisible || vrMenuVisible || id === "subdn-chhapara") ? "block" : "none";
                 document.querySelectorAll(".revenue-header-menu-item").forEach((item) => item.style.display = revenueMenuVisible ? "block" : "none");
                 document.querySelectorAll(".mobile-update-header-menu-item").forEach((item) => item.style.display = mobileUpdateMenuVisible ? "block" : "none");
+                document.querySelectorAll(".vr-header-menu-item").forEach((item) => item.style.display = vrMenuVisible ? "block" : "none");
                 const staffAdminMenuItem = document.getElementById("staff-admin-header-menu-item");
                 if (staffAdminMenuItem) staffAdminMenuItem.style.display = id === "subdn-chhapara" ? "block" : "none";
                 closeHeaderMenu();
