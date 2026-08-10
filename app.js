@@ -150,6 +150,7 @@
         let revenuePendingIndex = { hqMap: new Map(), villageMap: new Map(), categoryMap: new Map(), rowsMap: new Map() };
         let revenuePendingPaidIvrsSet = new Set();
         let revenuePendingPaidRefreshToken = 0;
+        let revenuePendingPaidDataIncomplete = false;
         let revenuePendingDownloadInProgress = false;
         let revenueReportRenderToken = 0;
         let revenueLiveDownloadInProgress = false;
@@ -10811,6 +10812,16 @@
                 ]);
                 if (refreshToken !== revenuePendingPaidRefreshToken) { if (pendingListProgress) pendingListProgress.stop(); return; }
                 revenuePendingPaidIvrsSet = paidSet;
+                // Bade DC (SEONI (T) jaise) me kabhi-kabhi backend se poori "paid" list
+                // sync fail ho jaati hai (network/timeout) aur app chup-chap adhura/local
+                // data dikha deta - isse Pending count galat (bahut zyada) dikhta tha
+                // bina kisi warning ke. Ab agar poora backend sync nahi ho paaya to
+                // status line me saaf warning dikhayenge, taaki number par bharosa na
+                // kiya jaaye aur user dobara try kar sake.
+                const pendingDcKey = normalizeLookupValue(activeDC || "");
+                revenuePendingPaidDataIncomplete = !revenueUploadedPaidMasterRowsCache
+                    || revenueUploadedPaidMasterRowsCache.dcKey !== pendingDcKey
+                    || !revenueUploadedPaidMasterRowsCache.backendSynced;
                 const loadedRows = freshRows.length ? freshRows : fallbackRows;
                 const assignedHq = revenueMessageSelectionMode ? String(revenueMessageSession?.staff?.hq_name || "").trim() : "";
                 revenuePendingBaseRows = loadedRows.filter((row) => (
@@ -10989,7 +11000,12 @@
                 renderRevenueMessagePendingSelection(rows, statusBox, listBox);
                 return;
             }
-            statusBox.innerHTML = `Pending Consumer: <strong>${rows.length}</strong> | HQ: ${escapeHtml(hqValue || "ALL")} | Village: ${escapeHtml(villageValue || "ALL")} | Category: ${escapeHtml(categoryValue || "ALL")} | Net Bill Slab: ${escapeHtml(slabValue || "ALL")} | Type: ${escapeHtml(govtLabel)} | IVRS: ${escapeHtml(ivrsSearch || "ALL")}`;
+            const incompleteWarning = revenuePendingPaidDataIncomplete ? `
+                <div style="background:#fff1f2; border:1.5px solid #fda4af; border-radius:12px; padding:10px; color:#991b1b; font-size:0.74rem; font-weight:900; text-align:center; margin-bottom:8px;">
+                    ⚠️ Paid (Cash List) data poora sync nahi ho paaya - yeh number galat/zyada ho sakta hai. Kripya internet check karke wapas is report par aayein taaki dobara sync ho.
+                </div>
+            ` : "";
+            statusBox.innerHTML = `${incompleteWarning}Pending Consumer: <strong>${rows.length}</strong> | HQ: ${escapeHtml(hqValue || "ALL")} | Village: ${escapeHtml(villageValue || "ALL")} | Category: ${escapeHtml(categoryValue || "ALL")} | Net Bill Slab: ${escapeHtml(slabValue || "ALL")} | Type: ${escapeHtml(govtLabel)} | IVRS: ${escapeHtml(ivrsSearch || "ALL")}`;
             listBox.innerHTML = rows.length ? `
                 <div style="display:flex; gap:10px; width:100%; margin:0 auto;">
                     <button id="revenue-pending-pdf-btn" onclick="downloadRevenuePendingList('PDF')" style="flex:1; height:44px; border:none; border-radius:14px; background:#ef4444; color:#ffffff; font-size:0.78rem; font-weight:950;">PDF</button>
@@ -11118,7 +11134,16 @@
         async function getRevenuePendingPaidIvrsSet() {
             const paidSet = new Set();
             try {
-                const liveRows = await withTimeout(syncRevenueLiveEntriesFromSheet(), 3500, getRevenueLiveEntries());
+                // NOTE (bug fix): yahan pehle sirf 3.5 second ka withTimeout tha - Live
+                // Entries endpoint SABHI DC ka combined data ek saath deta hai, bade DC
+                // (jaise SEONI (T)) ke waqt is response me itna time lag jaata tha ki
+                // 3.5 second me timeout ho jaata aur purana/khali local cache (getRevenueLiveEntries)
+                // turant fallback ho jaata - isi wajah se sync "turant 100%" dikhta tha
+                // lekin asal me sahi data sync hi nahi hota tha, aur bahut saare already-paid
+                // consumer galti se "pending" dikh jaate the (jaise 1200 ki jagah 19276).
+                // Ab yahan bhi uploaded-paid-master jaisa hi robust 45-second timeout use
+                // karte hain, taaki bade DC ke liye bhi live entries poora sync ho paayein.
+                const liveRows = await withTimeout(syncRevenueLiveEntriesFromSheet(), 45000, getRevenueLiveEntries());
                 liveRows.forEach((row) => {
                     if (normalizeLookupValue(row.dcName || "") === normalizeLookupValue(activeDC || "")) {
                         const ivrsNo = normalizeRevenueIvrs(row.ivrsNo);
