@@ -11177,12 +11177,24 @@
         // report par jaane par bhi dobara fetch hota tha. Ab DC-scoped 60-second
         // shared TTL cache hai - same DC ke liye 60 second ke andar dusri report
         // usi cache ko turant reuse karegi.
-        let revenueUploadedPaidMasterRowsCache = null; // { dcKey, rows, syncedAt }
+        let revenueUploadedPaidMasterRowsCache = null; // { dcKey, rows, syncedAt, backendSynced }
         const REVENUE_UPLOADED_PAID_MASTER_SYNC_TTL_MS = 60000;
         async function getRevenueUploadedPaidMasterRows(forceRefresh = false) {
             const dcKey = normalizeLookupValue(activeDC || "");
+            // NOTE (bug fix): pehle yahan har outcome - chahe backend se poora sync
+            // safal hua ho ya (bade DC jaise SEONI (T) me) fetch fail/timeout hoke
+            // sirf adhura local fallback mila ho - dono ko ek jaisa 60-second "fresh"
+            // cache maan liya jaata tha. Isse agar ek baar sync fail ho jaaye to
+            // adhuri paid list (bahut kam ya khali) 60 second tak "sahi/fresh" maan
+            // kar Pending DO List/Cash Reconcile jaisi SABHI reports me reuse hoti
+            // rahti thi - jisse Pending count bahut zyada galat (jaise 1200 ki jagah
+            // 19276) dikhta tha. Ab sirf backendSynced:true wale cache ko hi "fresh"
+            // maante hain; adhura/fallback result cache to hota hai (turant dikhane
+            // ke liye) lekin usko fresh nahi maana jaata, isliye agla call turant
+            // dobara backend se poora sahi data laane ki koshish karega.
             if (!forceRefresh && revenueUploadedPaidMasterRowsCache
                 && revenueUploadedPaidMasterRowsCache.dcKey === dcKey
+                && revenueUploadedPaidMasterRowsCache.backendSynced
                 && Date.now() - revenueUploadedPaidMasterRowsCache.syncedAt < REVENUE_UPLOADED_PAID_MASTER_SYNC_TTL_MS) {
                 return revenueUploadedPaidMasterRowsCache.rows;
             }
@@ -11221,12 +11233,16 @@
                             if (key) merged.set(key, row);
                         });
                         const finalRows = Array.from(merged.values());
-                        revenueUploadedPaidMasterRowsCache = { dcKey, rows: finalRows, syncedAt: Date.now() };
+                        revenueUploadedPaidMasterRowsCache = { dcKey, rows: finalRows, syncedAt: Date.now(), backendSynced: true };
                         return finalRows;
                     }
                 } catch (_) {}
             }
-            revenueUploadedPaidMasterRowsCache = { dcKey, rows: localRowsBeforeSync, syncedAt: Date.now() };
+            // Backend se poora sync nahi ho paaya (fail/timeout/purana backend) -
+            // turant dikhane ke liye local fallback rows cache to karte hain, lekin
+            // backendSynced:false rakhte hain taaki isse "fresh"/authoritative na
+            // maana jaaye aur agla call turant fir se poora backend fetch try kare.
+            revenueUploadedPaidMasterRowsCache = { dcKey, rows: localRowsBeforeSync, syncedAt: Date.now(), backendSynced: false };
             return localRowsBeforeSync;
         }
 
@@ -12796,6 +12812,7 @@
             const dcKey = normalizeLookupValue(activeDC || "");
             return !!revenueLiveEntriesSyncedAt && (Date.now() - revenueLiveEntriesSyncedAt < REVENUE_LIVE_ENTRIES_SYNC_TTL_MS)
                 && !!revenueUploadedPaidMasterRowsCache && revenueUploadedPaidMasterRowsCache.dcKey === dcKey
+                && !!revenueUploadedPaidMasterRowsCache.backendSynced
                 && (Date.now() - revenueUploadedPaidMasterRowsCache.syncedAt < REVENUE_UPLOADED_PAID_MASTER_SYNC_TTL_MS);
         }
 
