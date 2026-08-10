@@ -9768,7 +9768,12 @@
         // ek report me TD entries sync ho jaane ke baad dusri report (jo bhi isi
         // function ko call kare) usi cache ko reuse karegi.
         let revenueTdEntriesSyncedAt = 0;
-        const REVENUE_TD_ENTRIES_SYNC_TTL_MS = 60000;
+        // RESET (user request): shared 60-second caching disable kar diya hai -
+        // isi caching ke baad se Pending DO List / Cash Reconcile me SEONI (T)
+        // jaisi bade DC me galat count aana shuru hua tha, aur kai targeted fix
+        // ke baad bhi theek nahi hua, isliye TTL=0 karke purana "hamesha fresh
+        // sync karo" wala reliable behaviour wapas kar diya hai.
+        const REVENUE_TD_ENTRIES_SYNC_TTL_MS = 0;
         async function syncRevenueTdEntriesFromSheet(attempts = 3, forceRefresh = false) {
             if (!forceRefresh && revenueTdEntriesSyncedAt && Date.now() - revenueTdEntriesSyncedAt < REVENUE_TD_ENTRIES_SYNC_TTL_MS) {
                 return getRevenueTdEntriesLocal();
@@ -11203,7 +11208,9 @@
         // shared TTL cache hai - same DC ke liye 60 second ke andar dusri report
         // usi cache ko turant reuse karegi.
         let revenueUploadedPaidMasterRowsCache = null; // { dcKey, rows, syncedAt, backendSynced }
-        const REVENUE_UPLOADED_PAID_MASTER_SYNC_TTL_MS = 60000;
+        // RESET (user request): dekhein REVENUE_TD_ENTRIES_SYNC_TTL_MS wali note -
+        // shared caching disable kar diya, hamesha fresh backend sync hoga.
+        const REVENUE_UPLOADED_PAID_MASTER_SYNC_TTL_MS = 0;
         async function getRevenueUploadedPaidMasterRows(forceRefresh = false) {
             const dcKey = normalizeLookupValue(activeDC || "");
             // NOTE (bug fix): pehle yahan har outcome - chahe backend se poora sync
@@ -12236,7 +12243,9 @@
         // baaki sabhi report usi cache ko turant reuse karenge jab tak app se
         // bahar nahi jaate / 60 second se zyada time nahi beetta.
         let revenueLiveEntriesSyncedAt = 0;
-        const REVENUE_LIVE_ENTRIES_SYNC_TTL_MS = 60000;
+        // RESET (user request): dekhein REVENUE_TD_ENTRIES_SYNC_TTL_MS wali note -
+        // shared caching disable kar diya, hamesha fresh backend sync hoga.
+        const REVENUE_LIVE_ENTRIES_SYNC_TTL_MS = 0;
         async function syncRevenueLiveEntriesFromSheet(attempts = 3, forceRefresh = false) {
             if (!forceRefresh && revenueLiveEntriesSyncedAt && Date.now() - revenueLiveEntriesSyncedAt < REVENUE_LIVE_ENTRIES_SYNC_TTL_MS) {
                 return getRevenueLiveEntries();
