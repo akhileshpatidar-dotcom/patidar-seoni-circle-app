@@ -13031,7 +13031,20 @@
             }
         }
 
+        // Ek baar is view me kisi DC ke liye poora sync/render ho jaaye, uske baad
+        // usi view-session ke andar date/month/HQ/status dropdown sirf local
+        // filter hain - dobara sync ki koi zaroorat nahi. Pehle yeh decision
+        // sirf cross-report shared TTL cache (isRevenueCashReconcileDataFresh)
+        // par depend karta tha, jo bade DC (jaise SEONI (T)) me kabhi-kabhi
+        // backendSynced:false ho jaata to dropdown badalte hi dobara poora sync
+        // shuru ho jaata - user ko irritate karta tha. Ab yeh alag, simple flag
+        // hai jo sirf "is DC ke liye is view me ek baar poora load ho chuka"
+        // track karta hai - jab tak view se bahar jaakar dobara na aayein, dropdown
+        // change par kabhi resync nahi hoga.
+        let revenueCashReconcileLoadedDcKey = null;
+
         function initRevenueCashReconcile() {
+            revenueCashReconcileLoadedDcKey = null;
             const dateInput = document.getElementById("revenue-cash-date");
             const monthInput = document.getElementById("revenue-cash-month");
             if (dateInput && !dateInput.value) dateInput.value = getTodayIsoDate();
@@ -13182,12 +13195,22 @@
             const renderToken = ++revenueCashReconcileRenderToken;
             if (statusBox) statusBox.style.display = "none";
             const isRenderValid = () => renderToken === revenueCashReconcileRenderToken && document.getElementById("revenue-cash-reconcile-view")?.classList.contains("active");
+            const dcKey = normalizeLookupValue(activeDC || "");
+            if (revenueCashReconcileLoadedDcKey === dcKey && revenueCashReconcileRows.length) {
+                // Is DC ke liye is view-session me ek baar poora load ho chuka hai -
+                // date/month/HQ/status dropdown sirf local filter hai, kabhi resync
+                // nahi hoga jab tak view se bahar jaakar dobara na aayein.
+                tableBox.innerHTML = getRevenueCashDataIncompleteWarningHtml() + renderRevenueCashSummary(getRevenueCashFilteredRows());
+                if (statusBox) statusBox.style.display = "none";
+                return;
+            }
             const dataFresh = isRevenueCashReconcileDataFresh();
             if (dataFresh && revenueCashReconcileRows.length) {
                 // Data pehle se fresh hai (isi report me ya Live Progress/Pending DO
                 // List me pehle hi sync ho chuka hai) - date/month/HQ/status dropdown
                 // change sirf local filter hai, network re-fetch skip karke turant
                 // re-render ho jaata hai.
+                revenueCashReconcileLoadedDcKey = dcKey;
                 tableBox.innerHTML = getRevenueCashDataIncompleteWarningHtml() + renderRevenueCashSummary(getRevenueCashFilteredRows());
                 if (statusBox) statusBox.style.display = "none";
                 return;
@@ -13197,6 +13220,7 @@
                 // liye sirf pehli baar rows build karne hain - network call nahi.
                 revenueCashReconcileRows = buildRevenueCashReconcileRows();
                 populateRevenueCashHqOptions(revenueCashReconcileRows);
+                revenueCashReconcileLoadedDcKey = dcKey;
                 tableBox.innerHTML = getRevenueCashDataIncompleteWarningHtml() + renderRevenueCashSummary(getRevenueCashFilteredRows());
                 if (statusBox) statusBox.style.display = "none";
                 return;
@@ -13210,6 +13234,7 @@
                 if (renderToken !== revenueCashReconcileRenderToken) { progress.stop(); return; }
                 revenueCashReconcileRows = buildRevenueCashReconcileRows();
                 populateRevenueCashHqOptions(revenueCashReconcileRows);
+                revenueCashReconcileLoadedDcKey = dcKey;
                 await progress.finish();
                 if (renderToken !== revenueCashReconcileRenderToken) return;
                 tableBox.innerHTML = getRevenueCashDataIncompleteWarningHtml() + renderRevenueCashSummary(getRevenueCashFilteredRows());
