@@ -151,6 +151,12 @@
         let revenuePendingPaidIvrsSet = new Set();
         let revenuePendingPaidRefreshToken = 0;
         let revenuePendingPaidDataIncomplete = false;
+        // Deep-diagnostic counters (user ne SEONI (T) me galat Pending count report
+        // kiya, timeout badhane ke baad bhi theek nahi hua - isliye ab yahan asli
+        // numbers (kitne uploaded-paid fetch hue, kitne live-paid fetch hue, kitne
+        // total master consumer hain) status line me dikhayenge taaki exactly pata
+        // chale kaunsa hissa galat/adhura hai.
+        let revenuePendingDiag = { liveTotal: 0, liveDcMatched: 0, uploadedFetched: 0, masterRows: 0 };
         let revenuePendingDownloadInProgress = false;
         let revenueReportRenderToken = 0;
         let revenueLiveDownloadInProgress = false;
@@ -9776,12 +9782,9 @@
         // ek report me TD entries sync ho jaane ke baad dusri report (jo bhi isi
         // function ko call kare) usi cache ko reuse karegi.
         let revenueTdEntriesSyncedAt = 0;
-        // RESET (user request): shared 60-second caching disable kar diya hai -
-        // isi caching ke baad se Pending DO List / Cash Reconcile me SEONI (T)
-        // jaisi bade DC me galat count aana shuru hua tha, aur kai targeted fix
-        // ke baad bhi theek nahi hua, isliye TTL=0 karke purana "hamesha fresh
-        // sync karo" wala reliable behaviour wapas kar diya hai.
-        const REVENUE_TD_ENTRIES_SYNC_TTL_MS = 0;
+        // RESTORED (user confirmed root cause was NGB Cash List upload replacing
+        // old data, not this caching) - shared 60-second TTL cache wapas ON hai.
+        const REVENUE_TD_ENTRIES_SYNC_TTL_MS = 60000;
         async function syncRevenueTdEntriesFromSheet(attempts = 3, forceRefresh = false) {
             if (!forceRefresh && revenueTdEntriesSyncedAt && Date.now() - revenueTdEntriesSyncedAt < REVENUE_TD_ENTRIES_SYNC_TTL_MS) {
                 return getRevenueTdEntriesLocal();
@@ -10836,6 +10839,7 @@
                     || revenueUploadedPaidMasterRowsCache.dcKey !== pendingDcKey
                     || !revenueUploadedPaidMasterRowsCache.backendSynced;
                 const loadedRows = freshRows.length ? freshRows : fallbackRows;
+                revenuePendingDiag.masterRows = loadedRows.length;
                 const assignedHq = revenueMessageSelectionMode ? String(revenueMessageSession?.staff?.hq_name || "").trim() : "";
                 revenuePendingBaseRows = loadedRows.filter((row) => (
                     getRevenuePendingNetBillAmount(row) > 0
@@ -11018,7 +11022,15 @@
                     ⚠️ Paid (Cash List) data poora sync nahi ho paaya - yeh number galat/zyada ho sakta hai. Kripya internet check karke wapas is report par aayein taaki dobara sync ho.
                 </div>
             ` : "";
-            statusBox.innerHTML = `${incompleteWarning}Pending Consumer: <strong>${rows.length}</strong> | HQ: ${escapeHtml(hqValue || "ALL")} | Village: ${escapeHtml(villageValue || "ALL")} | Category: ${escapeHtml(categoryValue || "ALL")} | Net Bill Slab: ${escapeHtml(slabValue || "ALL")} | Type: ${escapeHtml(govtLabel)} | IVRS: ${escapeHtml(ivrsSearch || "ALL")}`;
+            // Deep-diagnostic line - SEONI (T) jaisi galat count wali DC me exactly
+            // yeh dekhne ke liye ki dikkat kahan hai: Master (total consumer jinka
+            // net bill > 0 hai), Uploaded Cash List fetch (backend se jitne "paid"
+            // rows mile), aur Live entries (app se manually paid). Agar Uploaded
+            // Fetch bahut kam/0 hai to backend/sheet me dikkat hai; agar fetch to
+            // poora hai lekin fir bhi Pending zyada hai to IVRS format/matching me
+            // dikkat hai.
+            const diagLine = `<div style="font-size:0.66rem; color:#64748b; margin-top:4px;">Diagnostic - Master: ${revenuePendingDiag.masterRows} | Uploaded Paid Fetched: ${revenuePendingDiag.uploadedFetched} | Live Paid Fetched: ${revenuePendingDiag.liveDcMatched} (of ${revenuePendingDiag.liveTotal} all-DC)</div>`;
+            statusBox.innerHTML = `${incompleteWarning}Pending Consumer: <strong>${rows.length}</strong> | HQ: ${escapeHtml(hqValue || "ALL")} | Village: ${escapeHtml(villageValue || "ALL")} | Category: ${escapeHtml(categoryValue || "ALL")} | Net Bill Slab: ${escapeHtml(slabValue || "ALL")} | Type: ${escapeHtml(govtLabel)} | IVRS: ${escapeHtml(ivrsSearch || "ALL")}${diagLine}`;
             listBox.innerHTML = rows.length ? `
                 <div style="display:flex; gap:10px; width:100%; margin:0 auto;">
                     <button id="revenue-pending-pdf-btn" onclick="downloadRevenuePendingList('PDF')" style="flex:1; height:44px; border:none; border-radius:14px; background:#ef4444; color:#ffffff; font-size:0.78rem; font-weight:950;">PDF</button>
@@ -11164,12 +11176,16 @@
                 // baad give up kar dete hain), taaki bade DC me bhi poora sahi data
                 // mile chahe thoda zyada time lage.
                 const liveRows = await syncRevenueLiveEntriesFromSheet();
+                revenuePendingDiag.liveTotal = liveRows.length;
+                let liveDcMatched = 0;
                 liveRows.forEach((row) => {
                     if (normalizeLookupValue(row.dcName || "") === normalizeLookupValue(activeDC || "")) {
+                        liveDcMatched++;
                         const ivrsNo = normalizeRevenueIvrs(row.ivrsNo);
                         if (ivrsNo) paidSet.add(ivrsNo);
                     }
                 });
+                revenuePendingDiag.liveDcMatched = liveDcMatched;
             } catch (_) {}
 
             // NOTE: pehle yahan uploaded-paid-entries fetch ko sirf 3.5 second ka
@@ -11182,6 +11198,7 @@
             // Wise/HQ-Village report jaisa hi robust fetch (45 second + 2 retry) use
             // karte hain, taaki bade DC ke liye bhi latest uploaded paid data sahi mile.
             const uploadedRows = await getRevenueUploadedPaidMasterRows();
+            revenuePendingDiag.uploadedFetched = uploadedRows.length;
             uploadedRows.forEach((row) => {
                 const ivrsNo = normalizeRevenueIvrs(row.ivrs_no || row.ivrsNo || row.consumerNo);
                 if (ivrsNo) paidSet.add(ivrsNo);
@@ -11223,9 +11240,10 @@
         // shared TTL cache hai - same DC ke liye 60 second ke andar dusri report
         // usi cache ko turant reuse karegi.
         let revenueUploadedPaidMasterRowsCache = null; // { dcKey, rows, syncedAt, backendSynced }
-        // RESET (user request): dekhein REVENUE_TD_ENTRIES_SYNC_TTL_MS wali note -
-        // shared caching disable kar diya, hamesha fresh backend sync hoga.
-        const REVENUE_UPLOADED_PAID_MASTER_SYNC_TTL_MS = 0;
+        // RESTORED (user confirmed root cause tha NGB Cash List upload data
+        // replace kar deta tha, is caching me koi dikkat nahi thi) - DC-scoped
+        // shared 60-second TTL cache wapas ON hai.
+        const REVENUE_UPLOADED_PAID_MASTER_SYNC_TTL_MS = 60000;
         async function getRevenueUploadedPaidMasterRows(forceRefresh = false) {
             const dcKey = normalizeLookupValue(activeDC || "");
             // NOTE (bug fix): pehle yahan har outcome - chahe backend se poora sync
@@ -12258,9 +12276,10 @@
         // baaki sabhi report usi cache ko turant reuse karenge jab tak app se
         // bahar nahi jaate / 60 second se zyada time nahi beetta.
         let revenueLiveEntriesSyncedAt = 0;
-        // RESET (user request): dekhein REVENUE_TD_ENTRIES_SYNC_TTL_MS wali note -
-        // shared caching disable kar diya, hamesha fresh backend sync hoga.
-        const REVENUE_LIVE_ENTRIES_SYNC_TTL_MS = 0;
+        // RESTORED (user confirmed root cause tha NGB Cash List upload data
+        // replace kar deta tha, is caching me koi dikkat nahi thi) - shared
+        // 60-second TTL cache wapas ON hai.
+        const REVENUE_LIVE_ENTRIES_SYNC_TTL_MS = 60000;
         async function syncRevenueLiveEntriesFromSheet(attempts = 3, forceRefresh = false) {
             if (!forceRefresh && revenueLiveEntriesSyncedAt && Date.now() - revenueLiveEntriesSyncedAt < REVENUE_LIVE_ENTRIES_SYNC_TTL_MS) {
                 return getRevenueLiveEntries();
