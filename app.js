@@ -11932,6 +11932,13 @@
                 const amount = parseRevenuePaidNumber(row[amountIndex]);
                 if (!ivrsNo || !amount) return null;
                 const paymentDateValue = dateIndex > -1 ? row[dateIndex] : "";
+                const tariffCategory = paidFileType.includes("AG") ? "LV5" : normalizeRevenueCategory(categoryIndex > -1 ? row[categoryIndex] : "");
+                // User ke explicit business rule: NORMAL cash list me LV5 (Agriculture)
+                // consumer nahi lene - LV5 sirf AG (agriculture) file se hi aata hai.
+                // Kabhi-kabhi NORMAL export me galti se LV5 row aa jaati hai, use yahin
+                // skip kar dete hain taaki AG-specific merge logic (neeche) ke saath
+                // conflict na ho.
+                if (!paidFileType.includes("AG") && tariffCategory === "LV5") return null;
                 return {
                     ivrsNo,
                     amount,
@@ -11939,7 +11946,7 @@
                     paymentDateRaw: paymentDateValue,
                     source: sourceIndex > -1 ? String(row[sourceIndex] || "").trim() : "",
                     payMode: modeIndex > -1 ? String(row[modeIndex] || "").trim() : "",
-                    tariffCategory: paidFileType.includes("AG") ? "LV5" : normalizeRevenueCategory(categoryIndex > -1 ? row[categoryIndex] : ""),
+                    tariffCategory,
                     sourceType
                 };
             }).filter(Boolean);
