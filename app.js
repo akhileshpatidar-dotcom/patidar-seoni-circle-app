@@ -1508,10 +1508,18 @@
         // hai. Agar backend abhi purana hi hai (naya action nahi mila), to
         // fetchUploadedPaidEntriesWithRetry_ (purana, poora data) par fallback
         // ho jaata hai - koi cheez toot nahi ti.
-        async function fetchUploadedPaidIvrsListWithRetry_(dcName, attempts = 2) {
+        async function fetchUploadedPaidIvrsListWithRetry_(dcName, attempts = 3) {
             for (let attempt = 1; attempt <= attempts; attempt++) {
                 const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
-                const timer = setTimeout(() => { try { if (controller) controller.abort(); } catch (_) {} }, 60000);
+                // BUG FIX (user report): SEONI (T) jaisi bade DC (34,000+ consumer) me
+                // pehle sirf 60 second ka per-attempt timeout tha - itne bade sheet ko
+                // Apps Script se slow/mobile network par padhne-bhejne me isse zyada
+                // time lag sakta hai, isliye yeh call beech me hi cut ho jaata tha aur
+                // adhura/khali local fallback data use hota tha (isi wajah se Pending
+                // count bahut zyada galat aata tha). Ab 150 second (2.5 minute) diya hai
+                // taaki bade DC ko poora sync hone ka pura mauka mile, chahe thoda time
+                // lage.
+                const timer = setTimeout(() => { try { if (controller) controller.abort(); } catch (_) {} }, 150000);
                 try {
                     const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getUploadedPaidIvrsList&dc_name=${encodeURIComponent(dcName)}&t=${Date.now()}`, controller ? { signal: controller.signal } : {});
                     const parsed = await response.json();
@@ -11146,9 +11154,16 @@
                 // turant fallback ho jaata - isi wajah se sync "turant 100%" dikhta tha
                 // lekin asal me sahi data sync hi nahi hota tha, aur bahut saare already-paid
                 // consumer galti se "pending" dikh jaate the (jaise 1200 ki jagah 19276).
-                // Ab yahan bhi uploaded-paid-master jaisa hi robust 45-second timeout use
-                // karte hain, taaki bade DC ke liye bhi live entries poora sync ho paayein.
-                const liveRows = await withTimeout(syncRevenueLiveEntriesFromSheet(), 45000, getRevenueLiveEntries());
+                // BUG FIX (user report): 45-second cap bhi bade DC (SEONI (T),
+                // 34,000+ consumer) ke liye kaafi nahi tha - syncRevenueLiveEntriesFromSheet
+                // apne andar hi 3 attempt + retry-delay karta hai, jisse poora sync
+                // 45 second se zyada le sakta hai, aur bahar ka timeout use beech me
+                // hi cut karke adhura local data thop deta tha. Ab koi outer timeout
+                // nahi laga rahe - syncRevenueLiveEntriesFromSheet() ko jitna time
+                // chahiye utna lene denge (uske apne 3 attempt khud hi ek waqt ke
+                // baad give up kar dete hain), taaki bade DC me bhi poora sahi data
+                // mile chahe thoda zyada time lage.
+                const liveRows = await syncRevenueLiveEntriesFromSheet();
                 liveRows.forEach((row) => {
                     if (normalizeLookupValue(row.dcName || "") === normalizeLookupValue(activeDC || "")) {
                         const ivrsNo = normalizeRevenueIvrs(row.ivrsNo);
