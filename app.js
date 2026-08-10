@@ -159,6 +159,11 @@
         let revenuePendingDiag = { liveTotal: 0, liveDcMatched: 0, uploadedFetched: 0, masterRows: 0 };
         let revenuePendingDownloadInProgress = false;
         let revenueReportRenderToken = 0;
+        // Cash Reconcile jaisa hi fix: ek baar is view me kisi scope (DC/Division/
+        // Circle) ke liye data sync ho jaaye, uske baad usi view-session ke andar
+        // DATE WISE/MONTH WISE toggle ya HQ/TYPE dropdown sirf local filter hain -
+        // dobara sync (background wala bhi) ki koi zaroorat nahi.
+        let revenueReportLoadedScopeKey = null;
         let revenueLiveDownloadInProgress = false;
         let revenueReportDownloadInProgress = false;
         let revenuePaidUploadInProgress = false;
@@ -12892,6 +12897,7 @@
         }
 
         function initRevenueReportDownload() {
+            revenueReportLoadedScopeKey = null;
             const dateInput = document.getElementById("revenue-report-date");
             const monthInput = document.getElementById("revenue-report-month");
             if (dateInput && !dateInput.value) dateInput.value = getTodayIsoDate();
@@ -12966,7 +12972,16 @@
                 : getRevenueCombinedFilteredEntries("DAILY", document.getElementById("revenue-report-date")?.value || getTodayIsoDate());
             populateRevenueReportHqOptions(baseRows);
             tableBox.innerHTML = renderRevenueReportHtml(getRevenueSelectedReportRows(), "Selected date/month me paid/TD entry nahi hai.");
+
+            // Is view me is scope (DC/Division/Circle) ke liye ek baar background
+            // sync ho chuka ho to DATE WISE/MONTH WISE toggle ya HQ/TYPE dropdown
+            // dobara koi network sync trigger nahi karenge - sirf upar wala local
+            // filter/re-render hi kaafi hai.
+            const scopeKey = activeDC || activeDiv || "CIRCLE";
+            if (revenueReportLoadedScopeKey === scopeKey) return;
+
             Promise.all([syncRevenueLiveEntriesFromSheet(), syncRevenueTdEntriesFromSheet()]).then(() => {
+                revenueReportLoadedScopeKey = scopeKey;
                 if (renderToken !== revenueReportRenderToken || !document.getElementById("revenue-report-download-view")?.classList.contains("active")) return;
                 const refreshedBaseRows = revenueReportMode === "MONTHLY"
                     ? getRevenueCombinedFilteredEntries("MONTHLY", document.getElementById("revenue-report-month")?.value || getTodayIsoDate().slice(0, 7))
