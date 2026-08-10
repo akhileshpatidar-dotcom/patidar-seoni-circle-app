@@ -13010,6 +13010,27 @@
 
         function getRevenueCashUploadedIvrsSet() {
             const set = new Set();
+            // BUG FIX: yeh function pehle SIRF do purane local-only cache
+            // (getRevenueUploadedPaidCache / getRevenueCategoryRawPaymentRows) se
+            // data leta tha - dono sirf tabhi bharte hain jab is DEVICE par kabhi
+            // Admin Upload ya Category Wise/Defaulters jaisi report chali ho.
+            // renderRevenueCashReconcile() jo asli network sync karta hai
+            // (syncRevenueLiveEntriesFromSheet + getRevenueUploadedPaidMasterRows),
+            // uska result kahin bhi is function tak nahi pahunch raha tha - matlab
+            // "sync" ho jaane ke baad bhi NGB-matching purane/khali data se hi ho
+            // rahi thi, isliye "Paid by Staff vs NGB Cash List" me galat count
+            // (jaise sab "Balance/Not Updated" dikhna) aata tha. Ab sabse pehle
+            // wahi taaza, sahi-sync hui revenueUploadedPaidMasterRowsCache (jo
+            // getRevenueUploadedPaidMasterRows abhi-abhi backend se laaya) use
+            // karte hain, baaki purane local cache extra safety ke liye union
+            // me jode rehte hain.
+            const dcKey = normalizeLookupValue(activeDC || "");
+            if (revenueUploadedPaidMasterRowsCache && revenueUploadedPaidMasterRowsCache.dcKey === dcKey) {
+                (revenueUploadedPaidMasterRowsCache.rows || []).forEach((row) => {
+                    const ivrs = normalizeRevenueIvrs(row.ivrs_no || row.ivrsNo || row.consumerNo);
+                    if (ivrs) set.add(ivrs);
+                });
+            }
             const addRow = (row) => {
                 const ivrs = getRevenueUploadedPaidRowIvrs(row);
                 if (ivrs) set.add(ivrs);
@@ -13095,6 +13116,15 @@
             return `<div style="background:#ffffff; border:1.5px solid #fdba74; border-radius:16px; padding:10px; overflow:hidden;"><div style="font-size:0.72rem; font-weight:950; color:#c2410c; text-align:center; margin-bottom:8px;">IVRS Matching Only | DC: ${escapeHtml(activeDC || "-")}</div><table style="width:100%; table-layout:fixed; border-collapse:collapse; font-size:0.55rem; font-weight:850; color:#1e293b; text-align:center;"><thead><tr style="background:#fed7aa; color:#7c2d12;"><th style="border:1px solid #fdba74; padding:5px;">HQ Name</th><th style="border:1px solid #fdba74; padding:5px;">Paid by Staff</th><th style="border:1px solid #fdba74; padding:5px;">NGB Update</th><th style="border:1px solid #fdba74; padding:5px;">Balance</th></tr></thead><tbody>${body}</tbody><tfoot><tr style="background:#fff7ed; font-weight:950;"><td style="border:1px solid #fdba74; padding:5px;">TOTAL</td><td style="border:1px solid #fdba74; padding:5px;">${totals.staffCount}<br>${escapeHtml(formatRevenueAmount(totals.staffAmount))}</td><td style="border:1px solid #fdba74; padding:5px; color:#047857;">${totals.ngbCount}<br>${escapeHtml(formatRevenueAmount(totals.ngbAmount))}</td><td style="border:1px solid #fdba74; padding:5px; color:#b91c1c;">${totals.balanceCount}<br>${escapeHtml(formatRevenueAmount(totals.balanceAmount))}</td></tr></tfoot></table></div>`;
         }
 
+        function getRevenueCashDataIncompleteWarningHtml() {
+            const dcKey = normalizeLookupValue(activeDC || "");
+            const incomplete = !revenueUploadedPaidMasterRowsCache
+                || revenueUploadedPaidMasterRowsCache.dcKey !== dcKey
+                || !revenueUploadedPaidMasterRowsCache.backendSynced;
+            if (!incomplete) return "";
+            return `<div style="background:#fff1f2; border:1.5px solid #fda4af; border-radius:12px; padding:10px; color:#991b1b; font-size:0.74rem; font-weight:900; text-align:center; margin-bottom:8px;">⚠️ NGB Cash List data poora sync nahi ho paaya - "NGB Update"/"Balance" number galat ho sakte hain. Internet check karke wapas is report par aayein.</div>`;
+        }
+
         async function renderRevenueCashReconcile() {
             const tableBox = document.getElementById("revenue-cash-table");
             const statusBox = document.getElementById("revenue-cash-download-status");
@@ -13108,7 +13138,7 @@
                 // List me pehle hi sync ho chuka hai) - date/month/HQ/status dropdown
                 // change sirf local filter hai, network re-fetch skip karke turant
                 // re-render ho jaata hai.
-                tableBox.innerHTML = renderRevenueCashSummary(getRevenueCashFilteredRows());
+                tableBox.innerHTML = getRevenueCashDataIncompleteWarningHtml() + renderRevenueCashSummary(getRevenueCashFilteredRows());
                 if (statusBox) statusBox.style.display = "none";
                 return;
             }
@@ -13117,7 +13147,7 @@
                 // liye sirf pehli baar rows build karne hain - network call nahi.
                 revenueCashReconcileRows = buildRevenueCashReconcileRows();
                 populateRevenueCashHqOptions(revenueCashReconcileRows);
-                tableBox.innerHTML = renderRevenueCashSummary(getRevenueCashFilteredRows());
+                tableBox.innerHTML = getRevenueCashDataIncompleteWarningHtml() + renderRevenueCashSummary(getRevenueCashFilteredRows());
                 if (statusBox) statusBox.style.display = "none";
                 return;
             }
@@ -13132,7 +13162,7 @@
                 populateRevenueCashHqOptions(revenueCashReconcileRows);
                 await progress.finish();
                 if (renderToken !== revenueCashReconcileRenderToken) return;
-                tableBox.innerHTML = renderRevenueCashSummary(getRevenueCashFilteredRows());
+                tableBox.innerHTML = getRevenueCashDataIncompleteWarningHtml() + renderRevenueCashSummary(getRevenueCashFilteredRows());
                 if (statusBox) statusBox.style.display = "none";
             } catch (_) {
                 progress.stop();
