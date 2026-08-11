@@ -9419,19 +9419,13 @@
             switchView("mobile-update");
             const searchInput = document.getElementById("search-ivrs");
             if (searchInput) searchInput.value = ivrsNo;
-            // Revenue me IVRS search abhi-abhi ho chuka hai, matlab consumer ka
-            // naam/pita/village/HQ/mobile pehle se currentRevenueRecord me maujood
-            // hai (usi master sheet se, jaisa Mobile Update wala consumer-master
-            // bhi use karta hai) - isko seedha "Mobile Update me bhi search ho chuka
-            // hai" jaisa treat kar dete hain, dobara poora bada consumer CSV
-            // (ensureDcDataLoaded) fetch nahi karna padta - yahi slow-ness ka असली
-            // कारण tha. Agar kisi wajah se record me naam hi na mile (edge case),
-            // to purana slow-lekin-safe performSearch() fallback chalega.
-            if (record && (record.consumerName || record.hqName || record.village)) {
-                populateMobileUpdateSearchFromRevenue(record, ivrsNo);
-            } else {
-                performSearch();
-            }
+            // User ki request (fast searching ke liye): yahan se ab sirf IVRS No
+            // Mobile Update ke search box me copy-paste ho jaata hai - details
+            // auto-open nahi hoti aur already-submitted check bhi yahan se trigger
+            // nahi hota. User khud SEARCH button dabayega, tabhi performSearch()
+            // chalega aur already-submitted/submit-button-hide wala normal flow
+            // apne aap chalega (jaisa Mobile Update screen par direct search karne
+            // par hota hai).
         }
 
         async function populateMobileUpdateSearchFromRevenue(record, ivrsNo) {
