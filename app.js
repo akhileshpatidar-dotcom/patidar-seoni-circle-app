@@ -517,8 +517,14 @@
                     alreadyBox.innerHTML = `Is consumer ka mobile number pehle hi update ho chuka hai${mobileText}${dateText}. Dobara submit nahi ho sakta.`;
                     alreadyBox.style.display = "block";
                 }
-                if (entryBox) entryBox.style.display = "none";
-                if (submitBtn) submitBtn.style.display = "none";
+                // User ki request: ab already-submitted consumer ke liye bhi "Enter
+                // Correct Mobile" input aur Submit button hide nahi honge, sabhi
+                // consumers ke liye unhide hi rahenge. Agar phir bhi koi dobara Submit
+                // dabaye, to submitToSheet() ka pehle se maujood safety re-check
+                // (getMobileAlreadySubmittedEntry check) usi purane wale "pehle hi
+                // submit ho chuka hai" alert ke saath block kar dega - flow wahi hai.
+                if (entryBox) entryBox.style.display = "block";
+                if (submitBtn) submitBtn.style.display = "block";
             } else {
                 if (alreadyBox) alreadyBox.style.display = "none";
                 if (entryBox) entryBox.style.display = "block";
