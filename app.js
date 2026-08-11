@@ -355,12 +355,28 @@
             return getAllDcConfigs().find((config) => normalizeDcName(config.name) === normalized) || null;
         }
 
+        // In-flight fetch ko dedupe karne ke liye (DC-select ke time jo background
+        // "ensureDcDataLoaded" already chal raha ho, usi ko Revenue->Update Mobile No
+        // jump jaisi jaldi wali flow me performSearch() bhi await kar le, dobara wahi
+        // poora bada CSV alag se fetch na kare - isi wajह se direct Mobile Update
+        // search fast hota tha (cache tab tak ban chuka hota tha) lekin Revenue se
+        // jump karne par turant dusra parallel fetch shuru ho jaata tha).
+        const dcDataLoadFetchPromises = {};
+
         async function ensureDcDataLoaded(dcName, forceRefresh = false) {
             const normalized = normalizeDcName(dcName);
             if (!normalized) return [];
             if (!forceRefresh && dcCacheRows[normalized]?.length) return dcCacheRows[normalized];
+            if (!forceRefresh && dcDataLoadFetchPromises[normalized]) return dcDataLoadFetchPromises[normalized];
             const config = getDcConfigByName(normalized);
             if (!config || !config.csvUrl) return [];
+            dcDataLoadFetchPromises[normalized] = ensureDcDataLoadedInner_(normalized, config, forceRefresh).finally(() => {
+                delete dcDataLoadFetchPromises[normalized];
+            });
+            return dcDataLoadFetchPromises[normalized];
+        }
+
+        async function ensureDcDataLoadedInner_(normalized, config, forceRefresh) {
             try {
                 const rawCsv = await loadRemoteText(config.csvUrl);
                 const parsedRows = isLikelyCsvPayload(rawCsv) ? parseConsumerCsv(rawCsv) : [];
@@ -444,29 +460,43 @@
         let mobileAlreadySubmittedMap = {};
         let mobileAlreadySubmittedMapLoadedAt = 0;
         const mobileAlreadySubmittedTtlMs = 60 * 1000;
+        // In-flight request ko dedupe karne ke liye - agar Revenue search ke time
+        // background prefetch abhi chal hi raha ho, aur usi 15-20 sec ke andar user
+        // "UPDATE MOBILE NO" dabaकर Mobile Update screen par pahunch jaye, to
+        // performSearch() ka call ek NAYI (duplicate) fetch shuru karne ke bajaye
+        // usi chal rahi request ko await karega - taaki jo time pehle se background
+        // me beet chuka hai wo dobara wait na karna pade.
+        let mobileAlreadySubmittedMapFetchPromise = null;
 
         async function loadMobileAlreadySubmittedMap(forceRefresh = false) {
             if (!forceRefresh && mobileAlreadySubmittedMapLoadedAt && (Date.now() - mobileAlreadySubmittedMapLoadedAt) < mobileAlreadySubmittedTtlMs) {
                 return mobileAlreadySubmittedMap;
             }
-            try {
-                const cloudData = await loadRemoteJson(`${scriptURL}?action=getSummary&t=${Date.now()}`);
-                const nextMap = {};
-                (Array.isArray(cloudData) ? cloudData : []).forEach((entry) => {
-                    const dc = normalizeLookupValue(entry.dc || "");
-                    const ivrs = normalizeLookupDigits(entry.ivrs || "");
-                    if (!dc || !ivrs) return;
-                    const key = `${dc}__${ivrs}`;
-                    const mobile = String(entry.correct_mobile || "").trim();
-                    const date = String(entry.date || entry.timestamp || "").trim();
-                    if (!nextMap[key] || date >= (nextMap[key].date || "")) {
-                        nextMap[key] = { mobile, date };
-                    }
-                });
-                mobileAlreadySubmittedMap = nextMap;
-                mobileAlreadySubmittedMapLoadedAt = Date.now();
-            } catch (_) {}
-            return mobileAlreadySubmittedMap;
+            if (!forceRefresh && mobileAlreadySubmittedMapFetchPromise) {
+                return mobileAlreadySubmittedMapFetchPromise;
+            }
+            mobileAlreadySubmittedMapFetchPromise = (async () => {
+                try {
+                    const cloudData = await loadRemoteJson(`${scriptURL}?action=getSummary&t=${Date.now()}`);
+                    const nextMap = {};
+                    (Array.isArray(cloudData) ? cloudData : []).forEach((entry) => {
+                        const dc = normalizeLookupValue(entry.dc || "");
+                        const ivrs = normalizeLookupDigits(entry.ivrs || "");
+                        if (!dc || !ivrs) return;
+                        const key = `${dc}__${ivrs}`;
+                        const mobile = String(entry.correct_mobile || "").trim();
+                        const date = String(entry.date || entry.timestamp || "").trim();
+                        if (!nextMap[key] || date >= (nextMap[key].date || "")) {
+                            nextMap[key] = { mobile, date };
+                        }
+                    });
+                    mobileAlreadySubmittedMap = nextMap;
+                    mobileAlreadySubmittedMapLoadedAt = Date.now();
+                } catch (_) {}
+                mobileAlreadySubmittedMapFetchPromise = null;
+                return mobileAlreadySubmittedMap;
+            })();
+            return mobileAlreadySubmittedMapFetchPromise;
         }
 
         function getMobileAlreadySubmittedEntry(dcName, ivrsNo) {
