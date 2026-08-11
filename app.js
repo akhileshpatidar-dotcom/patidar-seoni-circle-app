@@ -10056,6 +10056,14 @@
                 currentRevenueRecord = found;
                 renderRevenueConsumer(found, ivrs);
                 syncRevenueUploadedPaidStatus(found, ivrs).catch(() => {});
+                // Revenue IVRS search ke sath hi "mobile already submitted" map bhi
+                // background me warm kar dete hain (fire-and-forget, silent fail) -
+                // taaki jab user "UPDATE MOBILE NO" button dabaye to Mobile Update
+                // screen par performSearch() ka loadMobileAlreadySubmittedMap() call
+                // is already-loaded 60-second cache se turant mil jaaye, aur submit
+                // button show/hide ka wahi purana correct logic bina kisi extra 5
+                // second wait ke turant apply ho jaaye.
+                loadMobileAlreadySubmittedMap().catch(() => {});
                 showRevenueActionBox();
                 getRevenuePaidEntryFromSheet(found, ivrs).then((paidEntryFromSheet) => {
                     if (normalizeRevenueIvrs(currentRevenueRecord?.ivrsNo) !== normalizeRevenueIvrs(found.ivrsNo || ivrs)) return;
