@@ -164,6 +164,13 @@
         // DATE WISE/MONTH WISE toggle ya HQ/TYPE dropdown sirf local filter hain -
         // dobara sync (background wala bhi) ki koi zaroorat nahi.
         let revenueReportLoadedScopeKey = null;
+        // Daily Progress (DC) summary ke "Revenue" module me ek baar kisi DC ke
+        // liye master collection data force-fetch ho jaaye, uske baad usi DC ke
+        // liye DATE WISE/MONTH WISE toggle (setMode -> refreshSummary) dobara
+        // poori master CSV force-refresh nahi karega - sirf apna internal cache
+        // reuse karega. DC badalte hi dcKey badal jaata hai, isliye naya DC select
+        // karne par fresh force-refresh apne aap ho jaata hai.
+        let revenueSummaryMasterLoadedDcKey = null;
         let revenueLiveDownloadInProgress = false;
         let revenueReportDownloadInProgress = false;
         let revenuePaidUploadInProgress = false;
@@ -2874,7 +2881,10 @@
                 try {
                     if (activeViewLevel === "DC") {
                         await ensureConsumerDataLoadedFor([activeDC]);
-                        await loadRevenueCollectionData(activeDC, true);
+                        const revenueSummaryDcKey = getRevenueCollectionDcKey(activeDC);
+                        const forceMasterRefresh = revenueSummaryMasterLoadedDcKey !== revenueSummaryDcKey;
+                        await loadRevenueCollectionData(activeDC, forceMasterRefresh);
+                        revenueSummaryMasterLoadedDcKey = revenueSummaryDcKey;
                     }
                     await Promise.all([
                         syncRevenueLiveEntriesFromSheet(),
@@ -14994,7 +15004,11 @@
             const inlineSaveWrap = document.getElementById("vr-inline-save-wrap");
             const editBanner = document.getElementById("vr-map-edit-banner");
             const isEditingMap = !!vrEditingMapId;
-            if (inlineSaveWrap) inlineSaveWrap.style.display = (showManualFlow && nodes.length > 0 && !isEditingMap) ? "block" : "none";
+            // "Save Current as Map" sirf Existing status me hi dikhta hai - Saved
+            // Feeder Maps hamesha Existing SLD ke liye hi bante hain, New/Proposed
+            // me purana flow (three-dot menu / seedha calculate-download) use hoga.
+            const isExistingStatus = vrCalcState.lineStatus === "EXISTING";
+            if (inlineSaveWrap) inlineSaveWrap.style.display = (showManualFlow && isExistingStatus && nodes.length > 0 && !isEditingMap) ? "block" : "none";
             if (editBanner) editBanner.style.display = (showManualFlow && isEditingMap) ? "flex" : "none";
             if (!showManualFlow) {
                 vrRenderInsertProposedForm();
@@ -15400,9 +15414,28 @@
         }
 
         function vrSetLineStatus(value) {
+            const previousStatus = vrCalcState.lineStatus;
             vrCalcState.lineStatus = value;
             if (value !== "PROPOSED") {
                 vrCalcState.nodes = vrCalcState.nodes.map((n) => ({ ...n, isProposed: false }));
+            }
+            // User dropdown se Status (Existing/New/Proposed) badle to poora page
+            // reset ho jaata hai - purane status ke points naye status me carry
+            // nahi hote (Existing/New/Proposed alag-alag independent maps hote
+            // hain). Yeh sirf manual dropdown-change par lagu hota hai - Load/Edit
+            // Saved Map flow (vrLoadSavedMap/vrEditSavedMap) seedhe vrCalcState.lineStatus
+            // set karte hain (is function ko call nahi karte), isliye woh is reset
+            // se prabhavit nahi hote.
+            if (value !== previousStatus) {
+                vrCalcState.nodes = [];
+                vrCalcState.proposedInsertOnly = false;
+                vrEditingMapId = null;
+                const nameEl = document.getElementById("vr-draft-name");
+                const kvaEl = document.getElementById("vr-draft-kva");
+                const distEl = document.getElementById("vr-draft-dist");
+                if (nameEl) nameEl.value = "";
+                if (kvaEl) kvaEl.value = "";
+                if (distEl) distEl.value = "";
             }
             vrRenderNodeList();
             vrRenderCalc();
