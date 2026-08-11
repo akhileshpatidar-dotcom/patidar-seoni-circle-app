@@ -915,11 +915,25 @@
             document.getElementById("res-old").innerText = currentData.old || "N/A";
             document.getElementById("res-addr").innerText = currentData.addr;
             document.getElementById("result-box").style.display = "block";
-            // Is consumer (DC + IVRS) ka mobile number pehle hi submit ho chuka hai to
-            // dobara submit karne ka option hi na dikhe - "Enter Correct Mobile" input
-            // aur Submit button chhup jayenge, uski jagah ek clear message dikhega.
-            await loadMobileAlreadySubmittedMap();
-            applyMobileAlreadySubmittedUi(getMobileAlreadySubmittedEntry(activeDC, currentData.ivrs));
+            const entryBoxNow = document.getElementById("mobile-entry-box");
+            const submitBtnNow = document.getElementById("submit-btn");
+            const alreadyBoxNow = document.getElementById("mobile-already-submitted-box");
+            if (alreadyBoxNow) alreadyBoxNow.style.display = "none";
+            if (entryBoxNow) entryBoxNow.style.display = "block";
+            if (submitBtnNow) submitBtnNow.style.display = "block";
+            // User ki request: ab yahan already-submitted map ke fetch (~15 sec tak lag
+            // sakta tha, scriptURL?action=getSummary ka pura data) ka WAIT nahi karte -
+            // "Enter Correct Mobile" input aur Submit button turant (search khatam hote
+            // hi) dikha dete hain, taaki search fast lage. Already-submitted check background
+            // me chalta rehta hai; result aane par sirf informational banner update ho jaata
+            // hai (agar match mila to), submit button phir bhi visible hi rehta hai - agar
+            // koi already-submitted consumer ke liye dobara Submit dabaye, to submitToSheet()
+            // ka pehle se maujood safety check hi usko block karega.
+            const searchedIvrsForAsyncCheck = searchIvrs;
+            loadMobileAlreadySubmittedMap().then(() => {
+                if (!currentData || normalizeLookupDigits(currentData.ivrs) !== searchedIvrsForAsyncCheck) return;
+                applyMobileAlreadySubmittedUi(getMobileAlreadySubmittedEntry(activeDC, currentData.ivrs));
+            }).catch(() => {});
         }
 
         async function submitToSheet() {
@@ -1293,10 +1307,18 @@
         function formatProgressReportAmount(value) {
             const amount = Number(value || 0);
             // Point/paise nahi dikhane - amount Rs me poori tarah round off hoke dikhega.
-            // Extra safety: agar kabhi koi garbage/asambhav bada number (>1 crore) yahan tak
-            // pahunch jaaye to bhi 0 dikhayenge, warna JS bade number ko khud "9.88e+22"
-            // jaisi scientific notation me convert kar deta hai.
-            if (!Number.isFinite(amount) || Math.abs(amount) > 1e7) return "0";
+            // Extra safety: agar kabhi koi garbage/asambhav bada number yahan tak pahunch
+            // jaaye to bhi 0 dikhayenge, warna JS bade number ko khud "9.88e+22" jaisi
+            // scientific notation me convert kar deta hai.
+            // BUG FIX (2026-08-11): pehle yeh limit 1 crore (1e7) thi - iski wajah se
+            // Target vs Achievement jaisi reports me DIVISION/CIRCLE scope ke TOTAL/summary
+            // row (jo kai HQ/DC ke Net Bill Target ko jod kar bana hai, aasani se 1 crore se
+            // upar chala jaata hai) ghalti se "0" dikha deta tha - jabki neeche wali
+            // individual HQ/DC rows sahi dikhti thi (kyunki wo akele 1 crore se kam thi).
+            // Ab limit 1 lakh crore (1e12) kar di hai taaki genuine circle-level totals
+            // (jo kai crore tak jaa sakte hain) na katein, sirf sach me garbage/corrupt
+            // (asambhav bada) number hi 0 dikhega.
+            if (!Number.isFinite(amount) || Math.abs(amount) > 1e12) return "0";
             return String(Math.round(amount));
         }
 
