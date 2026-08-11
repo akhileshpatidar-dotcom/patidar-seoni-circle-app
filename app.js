@@ -10126,6 +10126,15 @@
                 // button show/hide ka wahi purana correct logic bina kisi extra 5
                 // second wait ke turant apply ho jaaye.
                 loadMobileAlreadySubmittedMap().catch(() => {});
+                // Isi tarah Mobile Update wale consumer-master rows (ensureDcDataLoaded,
+                // jo alag cache hai revenueCollectionCsvUrls wale se) bhi yahin se
+                // background me warm karna shuru kar dete hain (fire-and-forget) -
+                // taaki jab user Mobile Update screen par paste hui IVRS ko khud
+                // Search dabaye, tab tak yeh fetch already chal/khatam ho chuka ho aur
+                // performSearch() ka apna ensureDcDataLoaded() call usi in-flight/
+                // cached promise se turant resolve ho jaaye - dobara naya fetch shuru
+                // na ho. Submitted aur non-submitted dono consumers ke liye fast rahega.
+                ensureDcDataLoaded(activeDC).catch(() => {});
                 showRevenueActionBox();
                 getRevenuePaidEntryFromSheet(found, ivrs).then((paidEntryFromSheet) => {
                     if (normalizeRevenueIvrs(currentRevenueRecord?.ivrsNo) !== normalizeRevenueIvrs(found.ivrsNo || ivrs)) return;
