@@ -9419,7 +9419,45 @@
             switchView("mobile-update");
             const searchInput = document.getElementById("search-ivrs");
             if (searchInput) searchInput.value = ivrsNo;
-            performSearch();
+            // Revenue me IVRS search abhi-abhi ho chuka hai, matlab consumer ka
+            // naam/pita/village/HQ/mobile pehle se currentRevenueRecord me maujood
+            // hai (usi master sheet se, jaisa Mobile Update wala consumer-master
+            // bhi use karta hai) - isko seedha "Mobile Update me bhi search ho chuka
+            // hai" jaisa treat kar dete hain, dobara poora bada consumer CSV
+            // (ensureDcDataLoaded) fetch nahi karna padta - yahi slow-ness ka असली
+            // कारण tha. Agar kisi wajah se record me naam hi na mile (edge case),
+            // to purana slow-lekin-safe performSearch() fallback chalega.
+            if (record && (record.consumerName || record.hqName || record.village)) {
+                populateMobileUpdateSearchFromRevenue(record, ivrsNo);
+            } else {
+                performSearch();
+            }
+        }
+
+        async function populateMobileUpdateSearchFromRevenue(record, ivrsNo) {
+            currentData = {
+                ivrs: ivrsNo,
+                name: record.consumerName || "",
+                father: record.fatherName || "",
+                old: normalizeMobileDisplayValue(record.mobileNo || ""),
+                addr: record.village || "",
+                hq: record.hqName || ""
+            };
+            const newMobileInput = document.getElementById("new-mobile");
+            if (newMobileInput) newMobileInput.value = "";
+            document.getElementById("res-ivrs").innerText = currentData.ivrs;
+            document.getElementById("res-name").innerText = currentData.name;
+            document.getElementById("res-old").innerText = currentData.old || "N/A";
+            document.getElementById("res-addr").innerText = currentData.addr;
+            document.getElementById("result-box").style.display = "block";
+            document.getElementById("submit-btn").style.display = "none";
+            const alreadyBoxReset = document.getElementById("mobile-already-submitted-box");
+            if (alreadyBoxReset) alreadyBoxReset.style.display = "none";
+            // Yeh normally ab tak Revenue search ke waqt hi background me warm ho
+            // chuka hota hai (searchRevenueIvrs() me loadMobileAlreadySubmittedMap()
+            // call), isliye yeh await 60-second cache se turant resolve ho jaata hai.
+            await loadMobileAlreadySubmittedMap();
+            applyMobileAlreadySubmittedUi(getMobileAlreadySubmittedEntry(activeDC, currentData.ivrs));
         }
 
         function copyRevenueText(value) {
