@@ -938,19 +938,32 @@
                     statusBox.innerText = "Upload ho raha hai...";
                 }
                 try {
-                    const p = new URLSearchParams();
-                    p.append("action", "uploadExternalToolHtml");
-                    p.append("tool_key", "EXCEL_AUTOMATION");
-                    p.append("html", htmlContent);
-                    p.append("file_name", file.name);
-                    // Debug helper: har baar upload try hote hi console me clearly log
-                    // ho jaata hai (F12 -> Console) - "EXCEL TOOL UPLOAD:" se dhoondh
-                    // sakte hain agar status box ka message adhoora lage.
-                    console.log("EXCEL TOOL UPLOAD: starting, html length =", htmlContent.length, "file =", file.name);
+                    // BUG FIX: pehle yahan URLSearchParams (application/x-www-form-urlencoded)
+                    // use hota tha - HTML content me bahut saare space/</>/"quote/newline
+                    // hote hain, jo percent-encoding me har character ko "%XX" (3 character)
+                    // bana deta hai - isse ek 72KB ki file ka POST body 150-200KB+ tak phool
+                    // jaata tha, jisse Google ka front-end request ko hi reject kar deta tha
+                    // (HTTP 404 + ek generic Google error HTML page, JSON ki jagah).
+                    // Fix: ab JSON.stringify() se body banate hain (bahut kam overhead,
+                    // sirf quotes/backslash/newline escape hote hain) - lekin Content-Type
+                    // "application/json" nahi rakha, kyonki wo CORS "preflight" (OPTIONS
+                    // request) trigger karta hai jise Apps Script web app handle nahi karta.
+                    // Isliye Content-Type "text/plain" (CORS-safe, "simple request", koi
+                    // preflight nahi) rakha hai - backend ka getRequestData_() body ke
+                    // shuru me "{" dekhkar khud hi ise JSON samajh kar parse kar leta hai
+                    // (Content-Type header par depend nahi karta), toh yeh already-existing
+                    // logic ke saath bhi compatible hai.
+                    const payload = JSON.stringify({
+                        action: "uploadExternalToolHtml",
+                        tool_key: "EXCEL_AUTOMATION",
+                        html: htmlContent,
+                        file_name: file.name
+                    });
+                    console.log("EXCEL TOOL UPLOAD: starting, html length =", htmlContent.length, "payload length =", payload.length, "file =", file.name);
                     const response = await fetchWithTimeout(revenueCollectionSubmitScriptUrl, {
                         method: "POST",
-                        headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
-                        body: p.toString()
+                        headers: { "Content-Type": "text/plain;charset=UTF-8" },
+                        body: payload
                     }, 40000);
                     const responseText = await response.text();
                     console.log("EXCEL TOOL UPLOAD: http status =", response.status, "body (first 300 chars) =", responseText.slice(0, 300));
