@@ -943,14 +943,20 @@
                     p.append("tool_key", "EXCEL_AUTOMATION");
                     p.append("html", htmlContent);
                     p.append("file_name", file.name);
-                    const response = await fetch(revenueCollectionSubmitScriptUrl, {
+                    // Debug helper: har baar upload try hote hi console me clearly log
+                    // ho jaata hai (F12 -> Console) - "EXCEL TOOL UPLOAD:" se dhoondh
+                    // sakte hain agar status box ka message adhoora lage.
+                    console.log("EXCEL TOOL UPLOAD: starting, html length =", htmlContent.length, "file =", file.name);
+                    const response = await fetchWithTimeout(revenueCollectionSubmitScriptUrl, {
                         method: "POST",
                         headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
                         body: p.toString()
-                    });
+                    }, 40000);
                     const responseText = await response.text();
+                    console.log("EXCEL TOOL UPLOAD: http status =", response.status, "body (first 300 chars) =", responseText.slice(0, 300));
                     let parsed = {};
-                    try { parsed = JSON.parse(responseText || "{}"); } catch (_) {}
+                    let parseFailed = false;
+                    try { parsed = JSON.parse(responseText || "{}"); } catch (_) { parseFailed = true; }
                     if (response.ok && parsed.status !== "error") {
                         if (statusBox) {
                             statusBox.style.background = "#ecfdf5";
@@ -959,13 +965,21 @@
                         }
                         showToast("Tool update ho gaya", true);
                     } else {
-                        throw new Error(parsed.message || "Upload nahi ho paya");
+                        // Jitna detail mil sake utna dikhate hain (HTTP status + backend
+                        // ka message, ya agar JSON hi nahi mila to raw response ka
+                        // shuruaati hissa) - taaki screenshot se hi asli wajah pata chal
+                        // jaaye, DevTools kholne ki zaroorat na pade.
+                        const detail = parsed.message
+                            ? parsed.message
+                            : (parseFailed ? `Server se JSON nahi mila (HTTP ${response.status}): ${responseText.slice(0, 150)}` : `HTTP ${response.status}`);
+                        throw new Error(detail);
                     }
                 } catch (error) {
+                    console.log("EXCEL TOOL UPLOAD: failed -", error);
                     if (statusBox) {
                         statusBox.style.background = "#fff1f2";
                         statusBox.style.color = "#991b1b";
-                        statusBox.innerText = error?.message || "Upload nahi ho paya, network check kijiye";
+                        statusBox.innerText = "Upload nahi ho paya: " + (error?.message || "network/unknown error");
                     }
                     showToast("Upload nahi ho paya", false);
                 }
