@@ -9661,8 +9661,17 @@
                 const baseUrl = window.location.href.split("#")[0].split("?")[0];
                 const toolUrl = baseUrl.replace(/[^/]*$/, "") + "excel-automation.html";
                 try {
+                    // NOTE (fixed): pehle yahan sirf 8 second ka timeout tha - is backend
+                    // (Google Apps Script) ka response kabhi-kabhi 15-20+ second bhi le
+                    // leta hai (jaisa doosri Revenue reports me bhi pehle dekha gaya hai),
+                    // isliye 8 second me hi silently purani static GitHub file par
+                    // fallback ho jaata tha - koi error bhi nahi dikhta tha, isliye naya
+                    // upload kiya hua tool kabhi khulta hi nahi tha, hamesha purana hi
+                    // dikhta rehta tha. Ab 40 second diya hai (poori DC-agnostic report
+                    // fetches jaisa hi generous), aur agar phir bhi fallback ho to user ko
+                    // saaf toast bhi dikhega ki "latest fetch nahi ho paya".
                     const fetchUrl = `${revenueCollectionSubmitScriptUrl}?action=getExternalToolHtml&tool_key=EXCEL_AUTOMATION&t=${Date.now()}`;
-                    const response = await fetchWithTimeout(fetchUrl, {}, 8000);
+                    const response = await fetchWithTimeout(fetchUrl, {}, 40000);
                     const parsed = await response.json();
                     if (parsed && parsed.status === "success" && parsed.html) {
                         if (newTab && !newTab.closed) {
@@ -9675,7 +9684,10 @@
                         }
                         return;
                     }
-                } catch (_) {}
+                    showToast("Latest tool fetch nahi ho paya, purani file khul rahi hai", false);
+                } catch (_) {
+                    showToast("Latest tool fetch nahi ho paya, purani file khul rahi hai", false);
+                }
                 if (newTab && !newTab.closed) {
                     newTab.location.href = toolUrl;
                 } else {
