@@ -130,6 +130,7 @@ function doPost(e) {
     if (action === "uploadPaidMaster") return uploadPaidMaster_(data);
     if (action === "verifyAdminPassword") return verifyAdminPassword_(data);
     if (action === "submitTD") return submitLineTd_(data);
+    if (action === "uploadExternalToolHtml") return uploadExternalToolHtml_(data);
     return submitRevenuePayment_(data);
   } catch (error) {
     return jsonResponse_({
@@ -155,6 +156,7 @@ function doGet(e) {
     if (action === "getPaidMasterLastUploadDate") return getPaidMasterLastUploadDate_(params);
     if (action === "checkTD") return checkLineTd_(params);
     if (action === "getTDEntries") return getLineTdEntries_(params);
+    if (action === "getExternalToolHtml") return getExternalToolHtml_(params);
 
     return jsonResponse_({
       status: "success",
@@ -793,7 +795,7 @@ function submitRevenuePayment_(data) {
       time
     ]];
 
-    appendRows_(sheet, row, COLLECTION_HEADERS.length);
+    appendRows_(sheet, row, COLLECTION_HEADERS.length, COLLECTION_HEADERS);
     updateLineTdPaidStatus_(ss, dcName, ivrsNo, amountPaid, date, time);
 
     return jsonResponse_({
@@ -843,7 +845,7 @@ function submitLineTd_(data) {
       paidStatus
     ]];
 
-    appendRows_(sheet, row, LINE_TD_HEADERS.length);
+    appendRows_(sheet, row, LINE_TD_HEADERS.length, LINE_TD_HEADERS);
     return jsonResponse_({
       status: "success",
       message: "Line TD submit ho gaya",
@@ -857,6 +859,10 @@ function submitLineTd_(data) {
   }
 }
 
+function isAgSourceType_(sourceType) {
+  return String(sourceType || "").toUpperCase().indexOf("AG") > -1;
+}
+
 function uploadPaidMaster_(data) {
   const dcName = requireDcName_(data.dc_name);
   const entries = parseEntries_(data.entries_json);
@@ -865,27 +871,21 @@ function uploadPaidMaster_(data) {
   const now = new Date();
   const uploadDate = formatDate_(now);
   const uploadTime = formatTime_(now);
-  const rows = entries.map(function(entry) {
+  const newByIvrs = {};
+  entries.forEach(function(entry) {
     const ivrsNo = normalizeIvrs_(entry.ivrs_no || entry.ivrsNo);
-    if (!ivrsNo) return null;
-
-    const paymentRows = entry.payment_rows || entry.paymentRows || [];
-    return [
-      dcName,
-      ivrsNo,
-      clean_(entry.amount_paid || entry.amountPaid),
-      clean_(entry.payment_date || entry.paymentDate),
-      clean_(entry.payment_count || entry.paymentCount),
-      clean_(entry.source_type || entry.sourceType),
-      clean_(entry.source),
-      clean_(entry.pay_mode || entry.payMode),
-      uploadDate,
-      uploadTime,
-      stringifyPaymentRows_(paymentRows)
-    ];
-  }).filter(Boolean);
-
-  if (!rows.length) throw new Error("Valid IVRS No missing hai");
+    if (!ivrsNo) return;
+    newByIvrs[ivrsNo] = {
+      amountPaid: clean_(entry.amount_paid || entry.amountPaid),
+      paymentDate: clean_(entry.payment_date || entry.paymentDate),
+      paymentCount: clean_(entry.payment_count || entry.paymentCount),
+      sourceType: clean_(entry.source_type || entry.sourceType),
+      source: clean_(entry.source),
+      payMode: clean_(entry.pay_mode || entry.payMode),
+      paymentRows: entry.payment_rows || entry.paymentRows || []
+    };
+  });
+  if (!Object.keys(newByIvrs).length) throw new Error("Valid IVRS No missing hai");
 
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
@@ -893,15 +893,110 @@ function uploadPaidMaster_(data) {
   try {
     const ss = getSpreadsheet_();
     const sheet = getPaidMasterSheet_(ss, dcName, true);
-    replaceSheetData_(sheet, rows, PAID_MASTER_HEADERS);
-    updateLineTdStatusesFromPaidMaster_(ss, dcName, rows);
+
+    // Business rule (confirmed by user): NGB se हर बार sirf current month ki
+    // NORMAL cash list milti hai, jo naye Master Ledger ke saath hi banti hai -
+    // isliye NORMAL (LV1-LV4, non-Agriculture) consumer ke liye cash list hamesha
+    // REPLACE hoti hai (jaisa pehle tha), kyunki naye master ke against naya
+    // pura NORMAL data hi sahi/valid hai.
+    // LV5 (Agriculture/AG) consumer alag hain - unka bill 6 mahine me ek baar
+    // aata hai, isliye AG cash list me kabhi bhi sirf current month ka data
+    // nahi hota - April se ab tak ke sabhi AG payment "paid" maane jaane
+    // chahiye. Isliye sirf AG (source_type me "AG") wale rows KABHI REPLACE
+    // nahi hote - naya upload purane AG rows ko hata nahi sakta, sirf naya
+    // add/update (merge) karta hai.
+    const existingNormalRows = [];
+    const existingAgByIvrs = {};
+    if (sheet.getLastRow() >= 2) {
+      const existingValues = sheet.getRange(2, 1, sheet.getLastRow() - 1, PAID_MASTER_HEADERS.length).getValues();
+      existingValues.forEach(function(row) {
+        const ivrsNo = normalizeIvrs_(row[1]);
+        if (!ivrsNo) return;
+        if (isAgSourceType_(row[5])) {
+          existingAgByIvrs[ivrsNo] = row;
+        } else {
+          existingNormalRows.push(row);
+        }
+      });
+    }
+
+    const newNormalRows = [];
+    const updatedAgRowsThisUpload = [];
+    Object.keys(newByIvrs).forEach(function(ivrsNo) {
+      const incoming = newByIvrs[ivrsNo];
+      const isAg = isAgSourceType_(incoming.sourceType);
+
+      if (!isAg) {
+        // NORMAL: is upload ka poora naya set hi final rahega (replace).
+        newNormalRows.push([
+          dcName,
+          ivrsNo,
+          incoming.amountPaid,
+          incoming.paymentDate,
+          incoming.paymentCount,
+          incoming.sourceType,
+          incoming.source,
+          incoming.payMode,
+          uploadDate,
+          uploadTime,
+          stringifyPaymentRows_(incoming.paymentRows)
+        ]);
+        return;
+      }
+
+      // AG: purane AG record ke saath merge (kabhi delete nahi) - payment rows
+      // jud jaate hain, amount total ho jaata hai, taaki April se ab tak ke
+      // sabhi mahino ke AG payment collectively "paid" maane jaayein.
+      const existingRow = existingAgByIvrs[ivrsNo] || null;
+      const existingPaymentRows = existingRow ? parsePaymentRows_(existingRow[10]) : [];
+      const incomingPaymentRows = Array.isArray(incoming.paymentRows) ? incoming.paymentRows : [];
+      const seen = {};
+      const mergedPaymentRows = [];
+      existingPaymentRows.concat(incomingPaymentRows).forEach(function(pr) {
+        const sig = JSON.stringify([
+          (pr && (pr.payment_date || pr.paymentDate)) || "",
+          (pr && (pr.amount_paid || pr.amountPaid)) || "",
+          (pr && (pr.source || pr.source_type || pr.sourceType)) || ""
+        ]);
+        if (seen[sig]) return;
+        seen[sig] = true;
+        mergedPaymentRows.push(pr);
+      });
+      const existingAmount = existingRow ? (Number(String(existingRow[2]).replace(/,/g, "")) || 0) : 0;
+      const incomingAmount = Number(String(incoming.amountPaid).replace(/,/g, "")) || 0;
+      const existingCount = existingRow ? (Number(existingRow[4]) || 0) : 0;
+      const incomingCount = Number(incoming.paymentCount) || (incomingPaymentRows.length || 1);
+      const mergedRow = [
+        dcName,
+        ivrsNo,
+        existingRow ? (existingAmount + incomingAmount) : incomingAmount,
+        incoming.paymentDate || (existingRow ? existingRow[3] : ""),
+        existingCount + incomingCount,
+        incoming.sourceType || (existingRow ? existingRow[5] : ""),
+        incoming.source || (existingRow ? existingRow[6] : ""),
+        incoming.payMode || (existingRow ? existingRow[7] : ""),
+        uploadDate,
+        uploadTime,
+        stringifyPaymentRows_(mergedPaymentRows)
+      ];
+      existingAgByIvrs[ivrsNo] = mergedRow;
+      updatedAgRowsThisUpload.push(mergedRow);
+    });
+
+    const finalRows = existingNormalRows.length && !newNormalRows.length
+      ? existingNormalRows.concat(Object.values(existingAgByIvrs))
+      : newNormalRows.concat(Object.values(existingAgByIvrs));
+    replaceSheetData_(sheet, finalRows, PAID_MASTER_HEADERS);
+    updateLineTdStatusesFromPaidMaster_(ss, dcName, newNormalRows.concat(updatedAgRowsThisUpload));
 
     return jsonResponse_({
       status: "success",
-      message: "Paid master successfully upload ho gaya",
+      message: "Paid master successfully upload ho gaya (Normal replace, AG accumulate)",
       upload_complete: true,
       progress: 100,
-      rows_saved: rows.length,
+      rows_saved: finalRows.length,
+      normal_rows_this_upload: newNormalRows.length,
+      ag_rows_updated_this_upload: updatedAgRowsThisUpload.length,
       sheet_name: sheet.getName()
     });
   } finally {
@@ -1266,10 +1361,22 @@ function getDcSheet_(ss, prefix, dcName, headers, create) {
   return create ? getOrCreateSheet_(ss, sheetName, headers) : null;
 }
 
-function appendRows_(sheet, rows, columnCount) {
+function appendRows_(sheet, rows, columnCount, headers) {
   if (!rows.length) return;
   const startRow = Math.max(sheet.getLastRow() + 1, 2);
   const range = sheet.getRange(startRow, 1, rows.length, columnCount);
+  // DATE/TD DATE columns ko plain TEXT format karte hain values likhne SE
+  // PEHLE - warna Google Sheet apne locale ke hisaab se "dd/MM/yyyy" wali
+  // text string ko khud-ba-khud date samajh kar reinterpret kar sakta hai
+  // (din/mahina ulat sakta hai, jaise "04/08/2026" "08/04/2026" ban jaaye).
+  // Same fix jo replaceSheetData_() me PAID MASTER ke liye hai, yahan
+  // COLLECTION (PAID - {DC}) aur LINE TD sheets ke liye bhi - dono DC-agnostic,
+  // saare 24 DC par apply hote hain.
+  if (headers === COLLECTION_HEADERS) {
+    sheet.getRange(startRow, 12, rows.length, 1).setNumberFormat("@");
+  } else if (headers === LINE_TD_HEADERS) {
+    sheet.getRange(startRow, 11, rows.length, 1).setNumberFormat("@");
+  }
   range.setValues(rows);
   styleDataRange_(range);
 }
@@ -1454,6 +1561,89 @@ function saveTdPhotoIfProvided_(data) {
     file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
   } catch (_) {}
   return { link: file.getUrl(), blob: blob };
+}
+
+// =====================================================================
+// EXTERNAL TOOL HTML (e.g. "Excel Automation - Compare Two Excel File").
+// Sub DN Chhapara ke 3-dot menu se password-protected upload karke naya
+// .html file backend par save hoti hai - app ka openExcelAutomationTool()
+// (app.js) is same backend se latest content fetch karta hai, isliye ek
+// jagah upload karte hi sabhi DC me turant reflect ho jaata hai, GitHub
+// Pages par dobara upload karne ki zaroorat nahi.
+// NOTE (fixed): pehle yeh ek Sheet cell me content store karta tha, lekin
+// Google Sheets ke ek cell me max 50,000 character hi aa sakte hain - ek
+// real tool file (~51,000+ character) usse bhi bada nikla, isliye yeh
+// approach hamesha ke liye fail ho jaata. Ab HTML content Google Drive
+// file me store hota hai (koi practical size limit nahi), aur is sheet
+// me sirf chhota sa metadata (tool key, file name, updated time, Drive
+// file ID) rakha jaata hai.
+// =====================================================================
+const EXTERNAL_TOOL_SHEET_NAME = "EXTERNAL TOOL HTML";
+const EXTERNAL_TOOL_HEADERS = ["TOOL KEY", "FILE NAME", "UPDATED AT", "DRIVE FILE ID"];
+const EXTERNAL_TOOL_MAX_CHARS = 5000000; // ~5 MB sanity limit, sirf garbage upload rokne ke liye
+
+function uploadExternalToolHtml_(data) {
+  const toolKey = clean_(data.tool_key) || "EXCEL_AUTOMATION";
+  const fileName = clean_(data.file_name) || "tool.html";
+  // IMPORTANT: html content par clean_() nahi lagana - wo whitespace/newlines
+  // collapse kar deta hai, jisse HTML/JS tut jaayega. Raw string hi rakhni hai.
+  const htmlContent = String(data.html || "");
+  if (!htmlContent.trim()) throw new Error("HTML content khali hai");
+  if (htmlContent.length > EXTERNAL_TOOL_MAX_CHARS) {
+    throw new Error("File bahut badi hai (limit ~5 MB), chhoti file try kijiye");
+  }
+  const ss = getSpreadsheet_();
+  const sheet = getOrCreateSheet_(ss, EXTERNAL_TOOL_SHEET_NAME, EXTERNAL_TOOL_HEADERS);
+  const lastRow = sheet.getLastRow();
+  let targetRow = 0;
+  let oldDriveFileId = "";
+  if (lastRow > 1) {
+    const existingRows = sheet.getRange(2, 1, lastRow - 1, 4).getDisplayValues();
+    for (let i = 0; i < existingRows.length; i++) {
+      if (clean_(existingRows[i][0]) === toolKey) {
+        targetRow = i + 2;
+        oldDriveFileId = clean_(existingRows[i][3]);
+        break;
+      }
+    }
+  }
+  if (!targetRow) targetRow = Math.max(lastRow + 1, 2);
+
+  // Naya Drive file banate hain, phir purana (agar ho) trash kar dete hain -
+  // isse beech me kabhi bhi "file missing" wala gap nahi aata.
+  const newFile = DriveApp.createFile(fileName, htmlContent, MimeType.HTML);
+  if (oldDriveFileId) {
+    try { DriveApp.getFileById(oldDriveFileId).setTrashed(true); } catch (_) {}
+  }
+
+  const now = new Date();
+  const updatedAt = Utilities.formatDate(now, Session.getScriptTimeZone() || "Asia/Kolkata", "dd/MM/yyyy HH:mm:ss");
+  sheet.getRange(targetRow, 1, 1, 4).setValues([[toolKey, fileName, updatedAt, newFile.getId()]]);
+  return jsonResponse_({ status: "success", message: "Tool HTML update ho gaya", updated_at: updatedAt });
+}
+
+function getExternalToolHtml_(params) {
+  const toolKey = clean_(params.tool_key) || "EXCEL_AUTOMATION";
+  const ss = getSpreadsheet_();
+  const sheet = ss.getSheetByName(EXTERNAL_TOOL_SHEET_NAME);
+  if (!sheet) return jsonResponse_({ status: "error", message: "Tool abhi upload nahi hua hai" });
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return jsonResponse_({ status: "error", message: "Tool abhi upload nahi hua hai" });
+  const rows = sheet.getRange(2, 1, lastRow - 1, 4).getDisplayValues();
+  for (let i = 0; i < rows.length; i++) {
+    if (clean_(rows[i][0]) === toolKey) {
+      const driveFileId = clean_(rows[i][3]);
+      if (!driveFileId) return jsonResponse_({ status: "error", message: "Tool file nahi mili" });
+      try {
+        const file = DriveApp.getFileById(driveFileId);
+        const htmlContent = file.getBlob().getDataAsString("UTF-8");
+        return jsonResponse_({ status: "success", html: htmlContent, file_name: rows[i][1], updated_at: rows[i][2] });
+      } catch (error) {
+        return jsonResponse_({ status: "error", message: "Tool file read nahi ho payi: " + (error && error.message ? error.message : "") });
+      }
+    }
+  }
+  return jsonResponse_({ status: "error", message: "Tool abhi upload nahi hua hai" });
 }
 
 function getOrCreateSheet_(ss, sheetName, headers) {
