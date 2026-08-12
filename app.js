@@ -1599,20 +1599,44 @@
             return getRevenueMonthKey(raw);
         }
 
+        // NOTE (user request): pehle yahan sirf EXACT month/date match hota tha
+        // (paid date ka month === selected month, ya paid date === selected date) -
+        // isse ek hi cash list upload me agar kuch consumer ka real payment date
+        // pichhle month ka ho (real NGB exports me aksar mix milta hai), to wo
+        // consumer paid hote hue bhi us report me "pending/unpaid" dikhta tha.
+        // User ne explicitly bola ki Category Wise / Target vs Achievement /
+        // HQ-Village / Non-Payee jaisi reports me current + pichhle sabhi
+        // mahino ka paid data bhi count ho (cumulative "as of selected period") -
+        // sirf future (aage ke) month/date ka data ab bhi exclude rahega. Yeh
+        // sirf paid-status MATCHING ko relax karta hai; NORMAL file abhi bhi
+        // sirf LV1-LV4 aur AG file abhi bhi sirf LV5 count karti hai (wo alag
+        // getRevenueUploadedPaidRowCategory() me handle hota hai, yahan nahi
+        // chheda). Pending DO List apni alag paidSet logic use karta hai (date
+        // se bilkul independent, wahan pehle se hi koi restriction nahi thi) -
+        // isliye is change se wahan koi asar nahi padta.
         function isRevenueUploadedPaidInCategoryPeriod(row, mode, filterValue) {
             if (mode === "MONTHLY") {
                 const targetMonthKey = normalizeRevenueMonthFilterKey(filterValue);
                 if (!targetMonthKey) return false;
                 const paidDate = normalizeRevenuePaidDate(getRevenueUploadedPaidRowDate(row), targetMonthKey);
                 if (!paidDate) return false;
-                return getRevenueMonthKey(paidDate) === targetMonthKey;
+                return getRevenueMonthKey(paidDate) <= targetMonthKey;
             }
             const targetDate = normalizeRevenueReportDate(filterValue || getCurrentDateDDMMYYYY());
             if (!targetDate) return false;
             const targetMonthKey = getRevenueMonthKey(targetDate);
             const paidDate = normalizeRevenuePaidDate(getRevenueUploadedPaidRowDate(row), targetMonthKey);
             if (!paidDate) return false;
-            return normalizeRevenueReportDate(paidDate) === targetDate;
+            return revenueDateSortKey_(normalizeRevenueReportDate(paidDate)) <= revenueDateSortKey_(targetDate);
+        }
+
+        // DD-MM-YYYY ko YYYY-MM-DD me convert karta hai taaki string "<=" se
+        // chronological (calendar-wise) comparison sahi ho - DD-MM-YYYY ko
+        // seedhe compare karne se date order galat aata hai.
+        function revenueDateSortKey_(ddmmyyyy) {
+            const m = String(ddmmyyyy || "").match(/^(\d{2})-(\d{2})-(\d{4})$/);
+            if (!m) return "";
+            return `${m[3]}-${m[2]}-${m[1]}`;
         }
 
         function getRevenueUploadedPaidRowDcName(row, fallbackDc = "") {
