@@ -17562,6 +17562,30 @@
                 columnStyles: { 0: { halign: "left" }, 1: { halign: "right" } },
                 footStyles: { fillColor: [253, 242, 248], textColor: [157, 23, 77], fontStyle: "bold", halign: "right" }
             });
+            // "Calculation kaise hui" step-by-step box - screen ke explain-box jaisa
+            // hi content, PDF me bhi Download ke baad user ko dikhe isliye. jsPDF ka
+            // default font ₹ aur Devanagari support nahi karta, isliye Rs. use kiya
+            // hai aur stripDevanagariForPdf() se saaf kiya hai.
+            const explainLines = (lastBillCalcResult.explain || []).map((line) => stripDevanagariForPdf(line.replace(/₹/g, "Rs.")));
+            if (explainLines.length) {
+                const citationLine = explainLines[0];
+                const totalIdx = explainLines.map((l) => /^Total\b/i.test(l)).lastIndexOf(true);
+                const totalLine = totalIdx >= 0 ? explainLines[totalIdx] : null;
+                const stepLines = explainLines.slice(1, totalIdx >= 0 ? totalIdx : undefined);
+                doc.autoTable({
+                    startY: doc.lastAutoTable.finalY + 8,
+                    head: [["CALCULATION KAISE HUI? (Step-by-step)"]],
+                    body: [
+                        [{ content: citationLine, styles: { fontStyle: "italic", textColor: [30, 64, 175], fillColor: [239, 246, 255] } }],
+                        ...stepLines.map((l, i) => [`${i + 1}.  ${l}`])
+                    ],
+                    foot: totalLine ? [[totalLine.replace(/^Total\s*/, "TOTAL ")]] : undefined,
+                    theme: "grid",
+                    headStyles: { fillColor: [29, 78, 216], halign: "left", fontSize: 10 },
+                    styles: { fontSize: 8, cellPadding: 3, halign: "left", textColor: [51, 65, 85] },
+                    footStyles: { fillColor: [253, 242, 248], textColor: [157, 23, 77], fontStyle: "bold", halign: "left", fontSize: 8 }
+                });
+            }
             doc.setFontSize(7);
             doc.setTextColor(140);
             doc.text("Ye ek approximate estimate hai (PF surcharge/seasonal/DTR-metered shamil nahi). Arrear/Surcharge is total me shamil nahi hai.", 14, doc.lastAutoTable.finalY + 10);
@@ -17596,18 +17620,63 @@
             `;
         }
 
+        // Har explain-line ka format zyadatar "Label: detail text" hota hai
+        // (jaise computeBillXxx functions me banaya gaya) - isko todke label ko
+        // alag rang/bold me dikhane ke liye chota parser.
+        function billExplainSplitLabel(line) {
+            const m = line.match(/^([A-Za-z0-9À-ž.()\/ ]{2,42}):\s*(.*)$/s);
+            if (!m) return null;
+            return { label: m[1].trim(), detail: m[2].trim() };
+        }
+
         function renderBillCalcExplainBox(result) {
-            const lines = result.explain || [];
+            const lines = (result.explain || []).slice();
             if (!lines.length) return "";
-            const items = lines.map((line) => `<li style="margin-top:8px;">${escapeHtml(line)}</li>`).join("");
+
+            // Pehli line hamesha tariff-order citation hoti hai (billCiteLine se
+            // shuru hoti hai) - use header ke turant niche ek alag "source" strip
+            // me dikhate hain.
+            const citationLine = lines[0];
+            const totalIdx = lines.map((l) => /^Total\b/i.test(l)).lastIndexOf(true);
+            const totalLine = totalIdx >= 0 ? lines[totalIdx] : null;
+            const stepLines = lines.slice(1, totalIdx >= 0 ? totalIdx : undefined);
+
+            const stepIcons = ["⚡", "🔌", "➕", "🏛️", "🎁", "📐", "🔢", "➗"];
+            const stepsHtml = stepLines.map((line, i) => {
+                const parsed = billExplainSplitLabel(line);
+                const icon = stepIcons[i % stepIcons.length];
+                const numBadge = `<div style="flex-shrink:0; width:22px; height:22px; border-radius:50%; background:linear-gradient(135deg,#dbeafe,#bfdbfe); color:#1d4ed8; font-weight:950; font-size:0.6rem; display:flex; align-items:center; justify-content:center; margin-top:1px;">${i + 1}</div>`;
+                const body = parsed
+                    ? `<span style="color:#1d4ed8; font-weight:950;">${escapeHtml(parsed.label)}:</span> <span style="color:#334155; font-weight:700;">${escapeHtml(parsed.detail)}</span>`
+                    : `<span style="color:#334155; font-weight:700;">${escapeHtml(line)}</span>`;
+                return `
+                    <div style="display:flex; gap:10px; align-items:flex-start; padding:10px 16px; ${i < stepLines.length - 1 ? "border-bottom:1px dashed #e2e8f0;" : ""}">
+                        ${numBadge}
+                        <div style="flex:1; font-size:0.66rem; line-height:1.55;">${body}</div>
+                        <div style="flex-shrink:0; font-size:0.85rem; opacity:0.55; margin-top:1px;">${icon}</div>
+                    </div>`;
+            }).join("");
+
+            const totalHtml = totalLine ? `
+                <div style="background:linear-gradient(135deg,#fdf2f8,#fce7f3); border-top:1.5px dashed #f9a8d4; padding:12px 16px;">
+                    <div style="font-size:0.6rem; font-weight:950; color:#9d174d; letter-spacing:0.4px; margin-bottom:3px;">FINAL TOTAL FORMULA</div>
+                    <div style="font-size:0.68rem; font-weight:800; color:#831843; line-height:1.6;">${escapeHtml(totalLine.replace(/^Total\s*/, ""))}</div>
+                </div>` : "";
+
             return `
-                <div style="margin-top:14px; background:#f8fafc; border:1.5px solid #e2e8f0; border-radius:14px; padding:14px;">
-                    <div style="font-size:0.72rem; font-weight:950; color:#1d4ed8; display:flex; align-items:center; gap:6px;">
-                        📖 CALCULATION KAISE HUI? (Step-by-step)
+                <div style="margin-top:16px; border-radius:16px; overflow:hidden; border:1.5px solid #bfdbfe; box-shadow:0 2px 10px rgba(30,64,175,0.10);">
+                    <div style="background:linear-gradient(135deg,#1d4ed8 0%,#1e3a8a 100%); padding:12px 16px; display:flex; align-items:center; gap:8px;">
+                        <span style="font-size:1rem;">📖</span>
+                        <span style="color:#ffffff; font-weight:950; font-size:0.76rem; letter-spacing:0.2px;">CALCULATION KAISE HUI?</span>
+                        <span style="color:#bfdbfe; font-weight:800; font-size:0.58rem; margin-left:auto; background:rgba(255,255,255,0.15); padding:3px 8px; border-radius:999px;">STEP-BY-STEP</span>
                     </div>
-                    <ol style="margin:6px 0 0 16px; padding:0; font-size:0.66rem; font-weight:700; color:#334155; line-height:1.55;">
-                        ${items}
-                    </ol>
+                    <div style="background:#eff6ff; padding:10px 16px; font-size:0.62rem; font-weight:800; color:#1e40af; line-height:1.5; border-bottom:1px solid #bfdbfe; display:flex; gap:6px;">
+                        <span>📘</span><span>${escapeHtml(citationLine)}</span>
+                    </div>
+                    <div style="background:#ffffff;">
+                        ${stepsHtml}
+                    </div>
+                    ${totalHtml}
                 </div>
             `;
         }
