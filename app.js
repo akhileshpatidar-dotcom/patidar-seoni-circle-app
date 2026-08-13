@@ -16872,6 +16872,37 @@
             return totalRupees;
         }
 
+        // ============ "Calculation kaise hui" summary box (user-facing) ============
+        // Har computeBillXxx() function apne result.explain me plain-Hindi lines
+        // deta hai jisme MPERC Tariff Order FY 2026-27 ke exact rate/slab quote
+        // karke, is consumer ke input-numbers substitute karke dikhaya jata hai -
+        // taaki user ko pata chale ki total kaise nikla, bina code padhe.
+        function billFmtRs(v) {
+            const n = Math.round(Number(v || 0) * 100) / 100;
+            return "₹" + n.toLocaleString("en-IN", { maximumFractionDigits: 2 });
+        }
+        function billTelescopicExplain(units, slabs) {
+            let remaining = Math.max(0, Number(units || 0));
+            let prevLimit = 0;
+            let total = 0;
+            const lines = [];
+            for (const [upto, paise] of slabs) {
+                if (remaining <= 0) break;
+                const slabSize = upto - prevLimit;
+                const unitsInSlab = Math.min(remaining, slabSize);
+                const subtotal = unitsInSlab * paise / 100;
+                total += subtotal;
+                const rangeLabel = upto === Infinity ? `${prevLimit}+ units ke slab me` : `${prevLimit === 0 ? 0 : prevLimit + 1}-${upto} units ke slab me`;
+                lines.push(`${(Math.round(unitsInSlab * 100) / 100).toLocaleString("en-IN")} unit ${rangeLabel} × ₹${(paise / 100).toFixed(2)}/unit = ${billFmtRs(subtotal)}`);
+                remaining -= unitsInSlab;
+                prevLimit = upto;
+            }
+            return { total, lines };
+        }
+        function billCiteLine(schedule) {
+            return `MPERC Retail Supply Tariff Order FY 2026-27, Annexure-2, Tariff Schedule ${schedule} ke rates par based.`;
+        }
+
         // NGB_CONSUMER_LEDGER_CHHAPARA1_JUL2026.xlsx (JUL-2026 bill month) se
         // dobara nikala gaya: sabse zyada rows wali bill-date (30-Jul-2026,
         // 1406 rows) par F.C.A./Energy Charge ratio ~1.65% mila, na ki purana
@@ -17095,17 +17126,26 @@
             const days = Number(billingDays || 30) || 30;
             const ratio = days / 30;
             const b1 = 50 * ratio, b2 = 150 * ratio, b3 = 300 * ratio;
-            const energyCharge = billTelescopicSum(units, [[b1, 471], [b2, 567], [b3, 705], [Infinity, 724]]);
+            const explain = [billCiteLine("LV-1.2 (Domestic, Metered)")];
+            if (days !== 30) explain.push(`Billing cycle ${days} din ka hai (30 din se ${days > 30 ? "zyada" : "kam"}), isliye Note-2 ke anusar slab-boundaries prorate ki: 50→${b1.toFixed(1)}, 150→${b2.toFixed(1)}, 300→${b3.toFixed(1)} units.`);
+            const et = billTelescopicExplain(units, [[b1, 471], [b2, 567], [b3, 705], [Infinity, 724]]);
+            const energyCharge = et.total;
+            explain.push(`Energy Charge (telescopic, ${area === "URBAN" ? "Urban" : "Rural"}): ${et.lines.join(" + ")} → Total = ${billFmtRs(energyCharge)}.`);
             let fixedCharge;
-            if (units <= b1) fixedCharge = area === "URBAN" ? 81 : 67;
-            else if (units <= b2) fixedCharge = area === "URBAN" ? 134 : 111;
+            if (units <= b1) { fixedCharge = area === "URBAN" ? 81 : 67; explain.push(`Fixed Charge: ${units} units ≤ ${b1.toFixed(0)}, isliye flat ${billFmtRs(fixedCharge)} per connection (${area === "URBAN" ? "Urban" : "Rural"} slab).`); }
+            else if (units <= b2) { fixedCharge = area === "URBAN" ? 134 : 111; explain.push(`Fixed Charge: ${units} units, ${b1.toFixed(0)}-${b2.toFixed(0)} slab me, isliye flat ${billFmtRs(fixedCharge)} per connection.`); }
             else {
                 const blocksOf0p1kW = Math.ceil(units / 15);
                 fixedCharge = blocksOf0p1kW * (area === "URBAN" ? 30 : 28);
+                explain.push(`Fixed Charge: ${units} units > ${b2.toFixed(0)}, Note-1 ke anusar har 15 unit (ya uska hissa) = 0.1kW: ceil(${units}/15) = ${blocksOf0p1kW} block × ₹${area === "URBAN" ? 30 : 28}/block = ${billFmtRs(fixedCharge)}.`);
             }
             const fca = billCalcFcaAuto(energyCharge);
+            explain.push(`F.C.A. (auto): Tariff Order me F.C.A. nahi hoti, DISCOM har mahine alag notify karta hai - ledger se nikala current ratio Energy Charge ka ${(BILL_FCA_RATIO_OF_ENERGY_CHARGE * 100).toFixed(2)}% = ${billFmtRs(fca)}.`);
             const electricityDuty = billCalcEdAuto(energyCharge, units, "PROGRESSIVE");
+            explain.push(`Electricity Duty: State Govt notification (Tariff Order me nahi) - ${units} units ke progressive slab ke hisaab se Energy Charge ka ${(lookupBillEdRatioLv1(units) * 100).toFixed(2)}% = ${billFmtRs(electricityDuty)}.`);
             const subsidy = subsidyApplicable ? lookupBillLv1Subsidy(units) : 0;
+            if (subsidyApplicable && units <= 150) explain.push(`Griha Jyoti Subsidy: MP Govt circular ke anusar ≤150 units LV1 par milti hai - is consumption par estimated ${billFmtRs(subsidy)}.`);
+            else if (subsidyApplicable) explain.push(`Griha Jyoti Subsidy: ${units} units > 150, MP Govt circular ke anusar subsidy sirf 150 units tak hai, isliye ₹0.`);
             const components = [
                 ["Energy Charge", energyCharge],
                 ["F.C.A. (auto)", fca],
@@ -17114,7 +17154,8 @@
                 ["Subsidy (Griha Jyoti)", -subsidy]
             ];
             const total = energyCharge + fca + fixedCharge + electricityDuty - subsidy;
-            return { components, total: billRoundOff(total) };
+            explain.push(`Total = Energy Charge + F.C.A. + Fixed Charge + Electricity Duty − Subsidy = ${et.lines.length ? billFmtRs(energyCharge) : "₹0"} + ${billFmtRs(fca)} + ${billFmtRs(fixedCharge)} + ${billFmtRs(electricityDuty)} − ${billFmtRs(subsidy)} = ${billFmtRs(total)} ≈ ₹${billRoundOff(total).toLocaleString("en-IN")}.`);
+            return { components, total: billRoundOff(total), explain };
         }
 
         function computeBillLv1Bpl(units, subsidyApplicable) {
@@ -17124,6 +17165,13 @@
             const fca = billCalcFcaAuto(energyCharge);
             const electricityDuty = billCalcEdAuto(energyCharge, cappedUnits, "PROGRESSIVE");
             const subsidy = subsidyApplicable ? lookupBillLv1Subsidy(cappedUnits) : 0;
+            const explain = [
+                billCiteLine("LV-1.1 (BPL / ≤30 units, ≤100W load)"),
+                `Energy Charge: ${cappedUnits} units × ₹3.72/unit = ${billFmtRs(energyCharge)}. Fixed Charge: NIL (tariff order me is slab ke liye ₹0 diya hai).`,
+                `F.C.A. (auto): Energy Charge ka ${(BILL_FCA_RATIO_OF_ENERGY_CHARGE * 100).toFixed(2)}% (ledger-based current rate) = ${billFmtRs(fca)}.`,
+                `Electricity Duty: Energy Charge ka ${(lookupBillEdRatioLv1(cappedUnits) * 100).toFixed(2)}% (progressive LV1 slab) = ${billFmtRs(electricityDuty)}.`
+            ];
+            if (subsidyApplicable) explain.push(`Griha Jyoti Subsidy (≤150u LV1 rule ke andar): ${billFmtRs(subsidy)}.`);
             const components = [
                 ["Energy Charge", energyCharge],
                 ["F.C.A. (auto)", fca],
@@ -17132,7 +17180,8 @@
                 ["Subsidy (Griha Jyoti)", -subsidy]
             ];
             const total = energyCharge + fca + fixedCharge + electricityDuty - subsidy;
-            return { components, total: billRoundOff(total) };
+            explain.push(`Total = ${billFmtRs(energyCharge)} + ${billFmtRs(fca)} + ₹0 + ${billFmtRs(electricityDuty)} − ${billFmtRs(subsidy)} ≈ ₹${billRoundOff(total).toLocaleString("en-IN")}.`);
+            return { components, total: billRoundOff(total), explain };
         }
 
         function computeBillLv1Unmetered(subsidyApplicable) {
@@ -17142,6 +17191,13 @@
             const fca = billCalcFcaAuto(energyCharge);
             const electricityDuty = billCalcEdAuto(energyCharge, units, "PROGRESSIVE");
             const subsidy = subsidyApplicable ? lookupBillLv1Subsidy(units) : 0;
+            const explain = [
+                billCiteLine("LV-1 (iii) Unmetered rural domestic, ≤500W load"),
+                `Tariff order ke anusar aise connection flat 75 units/month par billed hote hain: 75 × ₹5.74/unit = ${billFmtRs(energyCharge)}. Fixed Charge = ₹122 per connection (flat).`,
+                `F.C.A. (auto): Energy Charge ka ${(BILL_FCA_RATIO_OF_ENERGY_CHARGE * 100).toFixed(2)}% = ${billFmtRs(fca)}.`,
+                `Electricity Duty: Energy Charge ka ${(lookupBillEdRatioLv1(units) * 100).toFixed(2)}% = ${billFmtRs(electricityDuty)}.`
+            ];
+            if (subsidyApplicable) explain.push(`Griha Jyoti Subsidy (75 units, ≤150u rule ke andar): ${billFmtRs(subsidy)}.`);
             const components = [
                 ["Assessed Units", units],
                 ["Energy Charge", energyCharge],
@@ -17151,7 +17207,8 @@
                 ["Subsidy (Griha Jyoti)", -subsidy]
             ];
             const total = energyCharge + fca + fixedCharge + electricityDuty - subsidy;
-            return { components, total: billRoundOff(total) };
+            explain.push(`Total ≈ ₹${billRoundOff(total).toLocaleString("en-IN")}.`);
+            return { components, total: billRoundOff(total), explain };
         }
 
         function computeBillLv21(units, area, load) {
@@ -17159,6 +17216,14 @@
             const fixedCharge = billCalcRoundLoad(load) * (area === "URBAN" ? 172 : 141);
             const fca = billCalcFcaAuto(energyCharge);
             const electricityDuty = billCalcEdAuto(energyCharge, units, "EXEMPT");
+            const explain = [
+                billCiteLine("LV-2.1 (Institution/School/Hospital, ≤10kW sanctioned-load-based)"),
+                `Energy Charge: ${units} units × ₹7.00/unit = ${billFmtRs(energyCharge)}.`,
+                `Fixed Charge: ${billCalcRoundLoad(load)} kW (round) × ₹${area === "URBAN" ? 172 : 141}/kW (${area === "URBAN" ? "Urban" : "Rural"}) = ${billFmtRs(fixedCharge)}.`,
+                `F.C.A. (auto): Energy Charge ka ${(BILL_FCA_RATIO_OF_ENERGY_CHARGE * 100).toFixed(2)}% = ${billFmtRs(fca)}.`,
+                `Electricity Duty: LV2.1 par ED poori tarah EXEMPT hai (ledger-verified), isliye ₹0.`,
+                `Total = ${billFmtRs(energyCharge)} + ${billFmtRs(fca)} + ${billFmtRs(fixedCharge)} + ₹0 ≈ ₹${billRoundOff(energyCharge + fca + fixedCharge + electricityDuty).toLocaleString("en-IN")}.`
+            ];
             const components = [
                 ["Energy Charge", energyCharge],
                 ["F.C.A. (auto)", fca],
@@ -17166,7 +17231,7 @@
                 ["Electricity Duty (Exempt)", electricityDuty]
             ];
             const total = energyCharge + fca + fixedCharge + electricityDuty;
-            return { components, total: billRoundOff(total) };
+            return { components, total: billRoundOff(total), explain };
         }
 
         function computeBillLv21Demand(units, area, demand) {
@@ -17174,6 +17239,13 @@
             const fixedCharge = billCalcRoundLoad(demand) * (area === "URBAN" ? 291 : 251);
             const fca = billCalcFcaAuto(energyCharge);
             const electricityDuty = billCalcEdAuto(energyCharge, units, "EXEMPT");
+            const explain = [
+                billCiteLine("LV-2.1 Demand based (Institution, Connected load >10kW)"),
+                `Energy Charge: ${units} units × ₹7.20/unit = ${billFmtRs(energyCharge)}.`,
+                `Fixed Charge (Demand): ${billCalcRoundLoad(demand)} kW (round) × ₹${area === "URBAN" ? 291 : 251}/kW (${area === "URBAN" ? "Urban" : "Rural"}, "per kVA" wala alternate option is calculator me shamil nahi) = ${billFmtRs(fixedCharge)}.`,
+                `F.C.A. (auto): ${(BILL_FCA_RATIO_OF_ENERGY_CHARGE * 100).toFixed(2)}% of Energy Charge = ${billFmtRs(fca)}.`,
+                `Electricity Duty: EXEMPT (LV2.1) = ₹0.`
+            ];
             const components = [
                 ["Energy Charge", energyCharge],
                 ["F.C.A. (auto)", fca],
@@ -17181,7 +17253,8 @@
                 ["Electricity Duty (Exempt)", electricityDuty]
             ];
             const total = energyCharge + fca + fixedCharge + electricityDuty;
-            return { components, total: billRoundOff(total) };
+            explain.push(`Total ≈ ₹${billRoundOff(total).toLocaleString("en-IN")}.`);
+            return { components, total: billRoundOff(total), explain };
         }
 
         function computeBillLv22(units, area, load) {
@@ -17191,6 +17264,13 @@
             const fixedCharge = billCalcRoundLoad(load) * fixedRatePerKw;
             const fca = billCalcFcaAuto(energyCharge);
             const electricityDuty = billCalcEdAuto(energyCharge, units, "FLAT");
+            const explain = [
+                billCiteLine("LV-2.2 (Non-domestic shop/office, ≤10kW sanctioned-load-based)"),
+                `${units} units ${units <= 50 ? "≤ 50" : "> 50"} hai, isliye is slab ka rate lagu: Energy Charge = ${units} × ₹${(energyRatePaise / 100).toFixed(2)}/unit = ${billFmtRs(energyCharge)}.`,
+                `Fixed Charge: ${billCalcRoundLoad(load)} kW × ₹${fixedRatePerKw}/kW (${area === "URBAN" ? "Urban" : "Rural"}, same slab) = ${billFmtRs(fixedCharge)}.`,
+                `F.C.A. (auto): ${(BILL_FCA_RATIO_OF_ENERGY_CHARGE * 100).toFixed(2)}% of Energy Charge = ${billFmtRs(fca)}.`,
+                `Electricity Duty: LV2.2 par ~9.35% flat (ledger-verified) = ${billFmtRs(electricityDuty)}.`
+            ];
             const components = [
                 ["Energy Charge", energyCharge],
                 ["F.C.A. (auto)", fca],
@@ -17198,7 +17278,8 @@
                 ["Electricity Duty", electricityDuty]
             ];
             const total = energyCharge + fca + fixedCharge + electricityDuty;
-            return { components, total: billRoundOff(total) };
+            explain.push(`Total ≈ ₹${billRoundOff(total).toLocaleString("en-IN")}.`);
+            return { components, total: billRoundOff(total), explain };
         }
 
         function computeBillLv22Demand(units, area, demand) {
@@ -17206,6 +17287,13 @@
             const fixedCharge = billCalcRoundLoad(demand) * (area === "URBAN" ? 312 : 230);
             const fca = billCalcFcaAuto(energyCharge);
             const electricityDuty = billCalcEdAuto(energyCharge, units, "FLAT");
+            const explain = [
+                billCiteLine("LV-2.2 Demand based (Connected load >10kW)"),
+                `Energy Charge: ${units} units × ₹7.40/unit = ${billFmtRs(energyCharge)}.`,
+                `Fixed Charge (Demand): ${billCalcRoundLoad(demand)} kW × ₹${area === "URBAN" ? 312 : 230}/kW (${area === "URBAN" ? "Urban" : "Rural"}) = ${billFmtRs(fixedCharge)}.`,
+                `F.C.A. (auto): ${(BILL_FCA_RATIO_OF_ENERGY_CHARGE * 100).toFixed(2)}% of Energy Charge = ${billFmtRs(fca)}.`,
+                `Electricity Duty: ~9.35% flat (LV2.2) = ${billFmtRs(electricityDuty)}.`
+            ];
             const components = [
                 ["Energy Charge", energyCharge],
                 ["F.C.A. (auto)", fca],
@@ -17213,7 +17301,8 @@
                 ["Electricity Duty", electricityDuty]
             ];
             const total = energyCharge + fca + fixedCharge + electricityDuty;
-            return { components, total: billRoundOff(total) };
+            explain.push(`Total ≈ ₹${billRoundOff(total).toLocaleString("en-IN")}.`);
+            return { components, total: billRoundOff(total), explain };
         }
 
         function computeBillLv3(units, load, isMunicipal) {
@@ -17223,6 +17312,13 @@
             const fixedCharge = load * fixedRatePerKw;
             const fca = billCalcFcaAuto(energyCharge);
             const electricityDuty = billCalcEdAuto(energyCharge, units, "EXEMPT");
+            const explain = [
+                billCiteLine(isMunicipal ? "LV-3.1 (Municipal Corp/Council/Cantonment)" : "LV-3.2 (Gram Panchayat water supply/street light)"),
+                `Energy Charge: ${units} units × ₹${(energyRatePaise / 100).toFixed(2)}/unit = ${billFmtRs(energyCharge)}.`,
+                `Fixed Charge: ${load} kW × ₹${fixedRatePerKw}/kW = ${billFmtRs(fixedCharge)}.`,
+                `F.C.A. (auto): ${(BILL_FCA_RATIO_OF_ENERGY_CHARGE * 100).toFixed(2)}% of Energy Charge = ${billFmtRs(fca)}.`,
+                `Electricity Duty: LV3 par poori tarah EXEMPT (ledger-verified) = ₹0.`
+            ];
             const components = [
                 ["Energy Charge", energyCharge],
                 ["F.C.A. (auto)", fca],
@@ -17230,7 +17326,8 @@
                 ["Electricity Duty (Exempt)", electricityDuty]
             ];
             const total = energyCharge + fca + fixedCharge + electricityDuty;
-            return { components, total: billRoundOff(total) };
+            explain.push(`Total ≈ ₹${billRoundOff(total).toLocaleString("en-IN")}.`);
+            return { components, total: billRoundOff(total), explain };
         }
 
         function computeBillLv4(units, area, demand, discounted) {
@@ -17244,9 +17341,17 @@
             // Demand contract se zyada nikle to alag 120%/130% surcharge lagta
             // hai jo is calculator me shamil nahi hai (kyoki future MD pehle
             // se pata nahi hota).
-            const fixedCharge = billCalcFloorLoad(demand) * fixedRatePerKw;
+            const billedDemand = billCalcFloorLoad(demand);
+            const fixedCharge = billedDemand * fixedRatePerKw;
             const fca = billCalcFcaAuto(energyCharge);
             const electricityDuty = billCalcEdAuto(energyCharge, units, "FLAT");
+            const explain = [
+                billCiteLine(`LV-4.1 (LT Industrial, Demand-based - ${discounted ? "≤20HP/15kW, 30% chhoot" : ">20HP, normal rate"})`),
+                `Energy Charge: ${units} units × ₹${(energyRatePaise / 100).toFixed(2)}/unit${discounted ? " (normal ₹7.05 par 30% chhoot ke baad)" : ""} = ${billFmtRs(energyCharge)}.`,
+                `Fixed Charge (Demand): Tariff Order ke anusar LT Industrial me Fixed Charge Contract Demand par based hai, units par nahi (Demand-based tariff mandatory hai) - ${billedDemand} kW × ₹${fixedRatePerKw.toFixed(0)}/kW (${area === "URBAN" ? "Urban" : "Rural"}${discounted ? ", 30% chhoot ke baad" : ""}) = ${billFmtRs(fixedCharge)}. Isliye kam units par bhi ye component bada reh sakta hai.`,
+                `F.C.A. (auto): ${(BILL_FCA_RATIO_OF_ENERGY_CHARGE * 100).toFixed(2)}% of Energy Charge = ${billFmtRs(fca)}.`,
+                `Electricity Duty: LV4 par ~9.3% flat (ledger-verified) = ${billFmtRs(electricityDuty)}.`
+            ];
             const components = [
                 ["Energy Charge", energyCharge],
                 ["F.C.A. (auto)", fca],
@@ -17254,15 +17359,24 @@
                 ["Electricity Duty", electricityDuty]
             ];
             const total = energyCharge + fca + fixedCharge + electricityDuty;
-            return { components, total: billRoundOff(total) };
+            explain.push(`Total = Energy + F.C.A. + Fixed(Demand) + ED = ${billFmtRs(energyCharge)} + ${billFmtRs(fca)} + ${billFmtRs(fixedCharge)} + ${billFmtRs(electricityDuty)} ≈ ₹${billRoundOff(total).toLocaleString("en-IN")}.`);
+            return { components, total: billRoundOff(total), explain };
         }
 
         function computeBillLv51(units, load) {
             const fixedRatePerHp = units <= 300 ? 77 : (units <= 750 ? 93 : 101);
-            const energyCharge = billTelescopicSum(units, [[300, 533], [750, 636], [Infinity, 664]]);
+            const et = billTelescopicExplain(units, [[300, 533], [750, 636], [Infinity, 664]]);
+            const energyCharge = et.total;
             const fixedCharge = load * fixedRatePerHp;
             const fca = billCalcFcaAuto(energyCharge);
             const electricityDuty = billCalcEdAuto(energyCharge, units, "EXEMPT");
+            const explain = [
+                billCiteLine("LV-5.1 (Agriculture pump - Metered)"),
+                `Energy Charge (telescopic): ${et.lines.join(" + ")} → Total = ${billFmtRs(energyCharge)}.`,
+                `Fixed Charge: Total ${units} units ke slab ke hisaab se rate ₹${fixedRatePerHp}/HP tay hoti hai; ${load} HP × ₹${fixedRatePerHp}/HP = ${billFmtRs(fixedCharge)}.`,
+                `F.C.A. (auto): ${(BILL_FCA_RATIO_OF_ENERGY_CHARGE * 100).toFixed(2)}% of Energy Charge = ${billFmtRs(fca)}.`,
+                `Electricity Duty: LV5 par poori tarah EXEMPT = ₹0.`
+            ];
             const components = [
                 ["Energy Charge", energyCharge],
                 ["F.C.A. (auto)", fca],
@@ -17270,7 +17384,8 @@
                 ["Electricity Duty (Exempt)", electricityDuty]
             ];
             const total = energyCharge + fca + fixedCharge + electricityDuty;
-            return { components, total: billRoundOff(total) };
+            explain.push(`Total ≈ ₹${billRoundOff(total).toLocaleString("en-IN")}.`);
+            return { components, total: billRoundOff(total), explain };
         }
 
         function computeBillLv53(units, area, load) {
@@ -17280,6 +17395,13 @@
             const fixedCharge = load * fixedRatePerHp;
             const fca = billCalcFcaAuto(energyCharge);
             const electricityDuty = billCalcEdAuto(energyCharge, units, "EXEMPT");
+            const explain = [
+                billCiteLine("LV-5.3 (Fisheries/Poultry/Dairy, ≤25HP connected load)"),
+                `Energy Charge: ${units} units × ₹${(energyRatePaise / 100).toFixed(2)}/unit (${area === "URBAN" ? "Urban" : "Rural"}) = ${billFmtRs(energyCharge)}.`,
+                `Fixed Charge: ${load} HP × ₹${fixedRatePerHp}/HP = ${billFmtRs(fixedCharge)}.`,
+                `F.C.A. (auto): ${(BILL_FCA_RATIO_OF_ENERGY_CHARGE * 100).toFixed(2)}% of Energy Charge = ${billFmtRs(fca)}.`,
+                `Electricity Duty: EXEMPT (LV5) = ₹0.`
+            ];
             const components = [
                 ["Energy Charge", energyCharge],
                 ["F.C.A. (auto)", fca],
@@ -17287,7 +17409,8 @@
                 ["Electricity Duty (Exempt)", electricityDuty]
             ];
             const total = energyCharge + fca + fixedCharge + electricityDuty;
-            return { components, total: billRoundOff(total) };
+            explain.push(`Total ≈ ₹${billRoundOff(total).toLocaleString("en-IN")}.`);
+            return { components, total: billRoundOff(total), explain };
         }
 
         function computeBillLv54(load, phase, season) {
@@ -17295,6 +17418,7 @@
             const units = load * perHp;
             const result = computeBillLv51(units, load);
             result.components.unshift(["Assessed Units", units]);
+            result.explain.unshift(billCiteLine("LV-5.4 (Flat rate/Unmetered agri pump) - assessment norms para 1.2 ke anusar") + ` Assessed Units = ${load} HP × ${perHp} units/HP (${phase === "1P" ? "Single" : "Three"} Phase, ${season === "OCT_MAR" ? "Oct-March" : "April-Sept"}) = ${units} units. Isके baad LV-5.1 ke rates par bill banta hai:`);
             return result;
         }
 
@@ -17306,6 +17430,13 @@
             const fixedCharge = 0;
             const fca = billCalcFcaAuto(energyCharge);
             const electricityDuty = billCalcEdAuto(energyCharge, units, "EXEMPT");
+            const explain = [
+                billCiteLine("LV-6.0 (EV/E-Rickshaw Charging Station)"),
+                `Base rate ₹7.44/unit ${timing === "SOLAR" ? "par Solar Hours (9AM-5PM) me 20% rebate" : timing === "NONSOLAR" ? "par Non-Solar Hours me 20% surcharge" : "(Mix, average rate)"}: ${units} units × ₹${(energyRatePaise / 100).toFixed(2)}/unit = ${billFmtRs(energyCharge)}.`,
+                `Fixed Charge: NIL (koi minimum charge applicable nahi).`,
+                `F.C.A. (auto): ${(BILL_FCA_RATIO_OF_ENERGY_CHARGE * 100).toFixed(2)}% of Energy Charge = ${billFmtRs(fca)}.`,
+                `Electricity Duty: tariff order me is category ke liye ED explicitly nahi likha, EXEMPT maan kar chala hai (unconfirmed) = ₹0.`
+            ];
             const components = [
                 ["Energy Charge", energyCharge],
                 ["F.C.A. (auto)", fca],
@@ -17313,7 +17444,8 @@
                 ["Electricity Duty (Exempt, unconfirmed)", electricityDuty]
             ];
             const total = energyCharge + fca + fixedCharge + electricityDuty;
-            return { components, total: billRoundOff(total) };
+            explain.push(`Total ≈ ₹${billRoundOff(total).toLocaleString("en-IN")}.`);
+            return { components, total: billRoundOff(total), explain };
         }
 
         function calculateBillEstimate() {
@@ -17460,5 +17592,22 @@
                 <input id="bc-consumer-name" type="text" class="ivrs-input" style="${billCalcInputStyle}" placeholder="e.g. Ramesh Kumar">
                 <button class="dashboard-btn" style="width:100%; margin-top:12px; background:linear-gradient(135deg,#ef4444 0%,#b91c1c 100%); color:#ffffff !important; font-size:0.8rem; padding:14px;" onclick="downloadBillCalculatorPdf()">DOWNLOAD PDF</button>
                 <div style="font-size:0.58rem; font-weight:800; color:#94a3b8; text-align:center; margin-top:10px; line-height:1.5;">Ye ek approximate estimate hai (PF surcharge/seasonal/DTR-metered shamil nahi). Arrear/Surcharge is total me shamil nahi hai.</div>
+                ${renderBillCalcExplainBox(result)}
+            `;
+        }
+
+        function renderBillCalcExplainBox(result) {
+            const lines = result.explain || [];
+            if (!lines.length) return "";
+            const items = lines.map((line) => `<li style="margin-top:8px;">${escapeHtml(line)}</li>`).join("");
+            return `
+                <div style="margin-top:14px; background:#f8fafc; border:1.5px solid #e2e8f0; border-radius:14px; padding:14px;">
+                    <div style="font-size:0.72rem; font-weight:950; color:#1d4ed8; display:flex; align-items:center; gap:6px;">
+                        📖 CALCULATION KAISE HUI? (Step-by-step)
+                    </div>
+                    <ol style="margin:6px 0 0 16px; padding:0; font-size:0.66rem; font-weight:700; color:#334155; line-height:1.55;">
+                        ${items}
+                    </ol>
+                </div>
             `;
         }
