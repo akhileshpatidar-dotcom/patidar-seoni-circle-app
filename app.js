@@ -16818,12 +16818,14 @@
         //         par ED हमेशा 0 mila - poori tarah EXEMPT.
         //   - F.C.A. (Fuel Cost Adjustment) tariff order me nahi hoti (DISCOM
         //     har mahine alag notify karta hai) - ledger se hi khud-ba-khud
-        //     nikala: Energy Charge ka ~2.81% (sabse recent bill-date, 9-Jul,
-        //     jiske sabse zyada rows the, us din ka ratio). Bill-date badalte
-        //     hi ye ratio ledger me 3.9% se 2.7% ke beech ghatta-badhta paya
-        //     gaya - matlab DISCOM ye dar bar-bar update karta hai, isliye
-        //     ye ek approximation hai, aage DISCOM rate badalne par is
-        //     constant ko bhi ledger se dobara nikalna padega.
+        //     nikala: Energy Charge ka ~1.65% (NGB_CONSUMER_LEDGER_CHHAPARA1_
+        //     JUL2026.xlsx me sabse zyada rows wali bill-date, 30-Jul-2026,
+        //     us din ka ratio - [UPDATE Aug-2026: pehle ye 2.81% tha, pichle
+        //     ledger/mahine ka; naye ledger se dobara nikala to 1.65% nikla]).
+        //     Bill-date badalte hi ye ratio ledger me 1.1% se 2.2% ke beech
+        //     ghatta-badhta paya gaya - matlab DISCOM ye dar bar-bar update
+        //     karta hai, isliye ye ek approximation hai, aage DISCOM rate
+        //     badalne par is constant ko bhi ledger se dobara nikalna padega.
         //   - LV3.1 (Municipal) aur kuch LV4 rows me billing-cycle ki exact
         //     lambai (30 din se kam/zyada) ki wajah se chhoti si proration
         //     गैप bhi mili - ye calculator poore-mahine ka maan kar chalta
@@ -16836,11 +16838,11 @@
         //     seedhe Contract/Sanctioned load use kiya hai.
         //   - LV-4 Seasonal (4.2), DTR-metered LV5.1(c) jaise special cases
         //     shamil nahi hain.
-        //   - Griha Jyoti Subsidy (LV1) ki asli eligibility average
-        //     consumption/BPL status par bhi depend karti hai - isliye ye ek
-        //     MANUAL "Subsidy Applicable?" toggle hai (sirf LV1 me dikhta
-        //     hai). Amount ledger ki 8,700+ subsidy>0 wali LV1.2 rows se
-        //     nikala gaya empirical interpolation-table hai.
+        //   - Griha Jyoti Subsidy (LV1) MP Govt circular ke anusar SIRF 150
+        //     units tak hai, aur SIRF LV1 category me - isliye ye ek MANUAL
+        //     "Subsidy Applicable?" toggle hai (sirf LV1 me dikhta hai).
+        //     Amount ledger ki 8,700+ subsidy>0 wali LV1.2 rows se nikala
+        //     gaya empirical interpolation-table hai (0-150 units).
         // =====================================================================
 
         function billRoundOff(value) {
@@ -16870,7 +16872,14 @@
             return totalRupees;
         }
 
-        const BILL_FCA_RATIO_OF_ENERGY_CHARGE = 0.0281;
+        // NGB_CONSUMER_LEDGER_CHHAPARA1_JUL2026.xlsx (JUL-2026 bill month) se
+        // dobara nikala gaya: sabse zyada rows wali bill-date (30-Jul-2026,
+        // 1406 rows) par F.C.A./Energy Charge ratio ~1.65% mila, na ki purana
+        // 2.81% (wo pichle ledger/mahine ka tha). DISCOM ye rate har mahine
+        // badalta hai (1.1% se 2.2% tak ghatta-badhta paya gaya isi ledger me
+        // alag-alag bill-dates par) - isliye ye sirf latest-known approximation
+        // hai, agla mahina aane par ledger se dobara nikalna hoga.
+        const BILL_FCA_RATIO_OF_ENERGY_CHARGE = 0.0165;
         function billCalcFcaAuto(energyCharge) {
             return Number(energyCharge || 0) * BILL_FCA_RATIO_OF_ENERGY_CHARGE;
         }
@@ -16899,6 +16908,13 @@
             return ec * lookupBillEdRatioLv1(units);
         }
 
+        // MP Govt circular ke anusar Griha Jyoti subsidy ka pravdhan SIRF LV1
+        // category me aur SIRF 150 units tak hai (150 se upar koi subsidy
+        // nahi, chahe purane bills me average-consumption-based eligibility
+        // ki wajah se ledger me kabhi 150+ unit wale bill me bhi subsidy
+        // dikhi ho - wo sirf capped/carry-over amount tha, official rule
+        // 150-unit cutoff hi hai). Amount ledger ki 8,700+ subsidy>0 wali
+        // LV1.2 rows se nikala gaya empirical interpolation-table hai.
         const BILL_LV1_SUBSIDY_TABLE = [
             [0, 0], [10, 20], [20, 73], [30, 126], [40, 178], [50, 232],
             [60, 340], [70, 402], [80, 465], [90, 531], [100, 594],
