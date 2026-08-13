@@ -17530,7 +17530,7 @@
             const consumerName = document.getElementById("bc-consumer-name")?.value?.trim() || "";
             doc.setFontSize(7);
             doc.setTextColor(100);
-            doc.text("SEONI CIRCLE APP - BIJLEE BILL CALCULATOR", 14, 10);
+            doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
             doc.setFontSize(15);
             doc.setTextColor(0);
             doc.text("MONTHLY BIJLEE BILL ESTIMATE", 105, 20, { align: "center" });
@@ -17581,9 +17581,11 @@
                     ],
                     foot: totalLine ? [[totalLine.replace(/^Total\s*/, "TOTAL ")]] : undefined,
                     theme: "grid",
+                    tableWidth: 182,
                     headStyles: { fillColor: [29, 78, 216], halign: "left", fontSize: 10 },
-                    styles: { fontSize: 8, cellPadding: 3, halign: "left", textColor: [51, 65, 85] },
-                    footStyles: { fillColor: [253, 242, 248], textColor: [157, 23, 77], fontStyle: "bold", halign: "left", fontSize: 8 }
+                    styles: { fontSize: 8, cellPadding: 3, halign: "left", textColor: [51, 65, 85], overflow: "linebreak", cellWidth: "wrap" },
+                    columnStyles: { 0: { cellWidth: 182 } },
+                    footStyles: { fillColor: [253, 242, 248], textColor: [157, 23, 77], fontStyle: "bold", halign: "left", fontSize: 7.5, cellPadding: 4 }
                 });
             }
             doc.setFontSize(7);
