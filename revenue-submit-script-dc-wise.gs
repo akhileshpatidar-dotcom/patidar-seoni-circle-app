@@ -1157,7 +1157,14 @@ function getUploadedPaidCategoryList_(params) {
         amount_paid: row[2],
         payment_date: formatDateValue_(row[3]),
         source_type: row[5],
-        tariff_category: first ? clean_(first.tariff_category || first.tariffCategory) : ""
+        tariff_category: first ? clean_(first.tariff_category || first.tariffCategory) : "",
+        // User request (2026-08-13): Category Wise / Target vs Achievement /
+        // HQ-Village / Non-Payee reports me ab paid-status "cash list file kis
+        // mahine upload hui" (yeh UPLOADED DATE column) ke hisaab se decide
+        // hota hai, row ki apni payment date se nahi - isliye yeh field bhi
+        // yahan bhejna zaroori hai (pehle sirf getUploadedPaidEntries_ ke
+        // mapPaidMasterRow_ me tha, is lightweight action me nahi tha).
+        uploaded_date: formatDateValue_(row[8])
       });
     });
   });

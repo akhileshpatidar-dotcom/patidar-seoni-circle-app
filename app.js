@@ -1699,35 +1699,44 @@
             return getRevenueMonthKey(raw);
         }
 
-        // NOTE (user request): pehle yahan sirf EXACT month/date match hota tha
-        // (paid date ka month === selected month, ya paid date === selected date) -
-        // isse ek hi cash list upload me agar kuch consumer ka real payment date
-        // pichhle month ka ho (real NGB exports me aksar mix milta hai), to wo
-        // consumer paid hote hue bhi us report me "pending/unpaid" dikhta tha.
-        // User ne explicitly bola ki Category Wise / Target vs Achievement /
-        // HQ-Village / Non-Payee jaisi reports me current + pichhle sabhi
-        // mahino ka paid data bhi count ho (cumulative "as of selected period") -
-        // sirf future (aage ke) month/date ka data ab bhi exclude rahega. Yeh
-        // sirf paid-status MATCHING ko relax karta hai; NORMAL file abhi bhi
-        // sirf LV1-LV4 aur AG file abhi bhi sirf LV5 count karti hai (wo alag
+        // UPDATED LOGIC (user request, 2026-08-13): pehle yahan row ki apni
+        // "payment date" (file ke andar ka date column) se match hota tha -
+        // pehle EXACT month/date match, phir cumulative "<=" match (pichhle
+        // sabhi mahino ka bhi paid count ho). Lekin user ka business rule
+        // clear hai: office me billing cycle 20 tareekh ke baad agle mahine
+        // ka maana jaata hai (naye bill generate ho jaate hain), isliye jab
+        // NORMAL (LV1-LV4) ya AG (LV5) cash list kisi mahine (jaise AUG) me
+        // upload hoti hai, to us poori file ke sabhi consumer USI mahine
+        // (AUG) me hi "paid" maane jaane chahiye - chahe file ke andar kisi
+        // row ki payment date pichhle mahine (JULY) ki kyun na ho. Pichhle
+        // mahine (JULY) ka report select karne par ab yeh consumer paid nahi
+        // dikhenge (0/pending), kyunki wo payment already current upload-
+        // mahine (AUG) me count ho chuka hai.
+        //
+        // Isliye match ab row ki "payment date" se nahi, balki "uploaded_date"
+        // (cash list FILE kis mahine upload hui - backend PAID MASTER sheet
+        // ke UPLOADED DATE column se aata hai) ke EXACT mahine se hota hai -
+        // na cumulative (<=), na future bhi count. Yeh sirf paid-status
+        // MATCHING ko badalta hai; NORMAL file abhi bhi sirf LV1-LV4 aur AG
+        // file abhi bhi sirf LV5 count karti hai (wo alag
         // getRevenueUploadedPaidRowCategory() me handle hota hai, yahan nahi
         // chheda). Pending DO List apni alag paidSet logic use karta hai (date
         // se bilkul independent, wahan pehle se hi koi restriction nahi thi) -
         // isliye is change se wahan koi asar nahi padta.
         function isRevenueUploadedPaidInCategoryPeriod(row, mode, filterValue) {
+            const uploadedRaw = getRevenueUploadedPaidRowUploadedDate(row);
+            if (!uploadedRaw) return false;
+            const uploadedMonthKey = getRevenueMonthKey(uploadedRaw);
+            if (!uploadedMonthKey) return false;
             if (mode === "MONTHLY") {
                 const targetMonthKey = normalizeRevenueMonthFilterKey(filterValue);
                 if (!targetMonthKey) return false;
-                const paidDate = normalizeRevenuePaidDate(getRevenueUploadedPaidRowDate(row), targetMonthKey);
-                if (!paidDate) return false;
-                return getRevenueMonthKey(paidDate) <= targetMonthKey;
+                return uploadedMonthKey === targetMonthKey;
             }
             const targetDate = normalizeRevenueReportDate(filterValue || getCurrentDateDDMMYYYY());
             if (!targetDate) return false;
             const targetMonthKey = getRevenueMonthKey(targetDate);
-            const paidDate = normalizeRevenuePaidDate(getRevenueUploadedPaidRowDate(row), targetMonthKey);
-            if (!paidDate) return false;
-            return revenueDateSortKey_(normalizeRevenueReportDate(paidDate)) <= revenueDateSortKey_(targetDate);
+            return uploadedMonthKey === targetMonthKey;
         }
 
         // DD-MM-YYYY ko YYYY-MM-DD me convert karta hai taaki string "<=" se
@@ -1755,6 +1764,18 @@
             const paidFileType = normalizeLookupValue(sourceType || row?.sourceType || row?.source_type || "");
             if (paidFileType.includes("AG")) return "LV5";
             return normalizeRevenueCategory(row?.tariffCategory || row?.tariff_category || row?.category || row?.["Tariff Category"] || row?.["TARIFF CATEGORY"] || row?.["Category"] || "");
+        }
+
+        // Cash list FILE "kis mahine upload hui" - backend PAID MASTER sheet ke
+        // "UPLOADED DATE" column se aata hai (ya local upload-time stamp se, agar
+        // abhi backend sync nahi hua). Isi field ke aadhar par paid-status ka
+        // mahina decide hota hai, row ki apni "payment date" ke aadhar par nahi.
+        function getRevenueUploadedPaidRowUploadedDate(row) {
+            return row?.uploaded_date ||
+                row?.uploadedDate ||
+                row?.["UPLOADED DATE"] ||
+                row?.uploadDate ||
+                "";
         }
 
         function getRevenueUploadedPaidRowDate(row) {
@@ -1797,7 +1818,13 @@
                     ivrsNo: getRevenueUploadedPaidRowIvrs(payment) || fallbackIvrs,
                     sourceType: payment?.sourceType || payment?.source_type || row?.sourceType || row?.source_type || "",
                     paymentDate: payment?.paymentDate || payment?.payment_date || payment?.paidDate || row?.paymentDate || row?.payment_date || "",
-                    paymentDateRaw: payment?.paymentDateRaw || payment?.payment_date_raw || payment?.["Payment Date Raw"] || getRevenueUploadedPaidRowDate(payment) || getRevenueUploadedPaidRowDate(row)
+                    paymentDateRaw: payment?.paymentDateRaw || payment?.payment_date_raw || payment?.["Payment Date Raw"] || getRevenueUploadedPaidRowDate(payment) || getRevenueUploadedPaidRowDate(row),
+                    // Nested payment_rows JSON (jo cash-list-file-level detail hai) ke paas
+                    // apna "kis mahine file upload hui" wala field nahi hota - wo sirf
+                    // outer (IVRS-level aggregate) row par hota hai. Isliye yahan outer row
+                    // se propagate karte hain, taaki isRevenueUploadedPaidInCategoryPeriod()
+                    // ka upload-month match har jagah sahi kaam kare.
+                    uploaded_date: payment?.uploaded_date || payment?.uploadedDate || getRevenueUploadedPaidRowUploadedDate(row)
                 }));
             }
             return [row];
@@ -12216,11 +12243,21 @@
             const normalizedDc = normalizeDcName(dcName || activeDC || "");
             if (!normalizedDc) return;
             const retainedRows = getRevenueCategoryRawPaymentRows().filter((row) => getRevenueUploadedPaidRowDcName(row) !== normalizedDc);
+            // "uploaded_date" = aaj ki date (jab yeh file upload ho rahi hai) - ise
+            // yahin per-row stamp kar dete hain (local raw cache me). User request
+            // (2026-08-13): paid-status ab row ki apni "payment date" se nahi,
+            // is "uploaded_date" ke mahine se decide hota hai (isRevenueUploaded-
+            // PaidInCategoryPeriod me) - kyunki billing cycle 20 tareek ke baad
+            // agle mahine ka maana jaata hai, isliye poori uploaded file usi
+            // mahine ki maani jaati hai jis mahine woh upload hui, chahe kisi
+            // row ki andar ki payment date pichhle mahine ki ho.
+            const uploadedDateStamp = getCurrentDateDDMMYYYY();
             const compactRows = (rows || []).map((row) => ({
                 dc_name: normalizedDc,
                 ivrs_no: normalizeRevenueIvrs(row.ivrsNo || row.ivrs_no),
                 amount_paid: String(Math.round(Number(row.amount || row.amount_paid || 0))),
                 payment_date: row.paymentDate || normalizeRevenuePaidDate(row.paymentDateRaw || row.payment_date_raw || ""),
+                uploaded_date: row.uploaded_date || row.uploadedDate || uploadedDateStamp,
                 source_type: row.sourceType || row.source_type || "",
                 tariff_category: getRevenueUploadedPaidRowCategory(row, row.sourceType || row.source_type || "")
             })).filter((row) => row.ivrs_no && parseRevenuePaidAmount(row.amount_paid) && row.payment_date);
@@ -13343,26 +13380,12 @@
                 doc.setFontSize(7);
                 doc.setTextColor(100);
                 doc.text(`Generated: ${reportMeta.generatedAt}`, 283, 10, { align: "right" });
-                doc.setFontSize(11);
-                doc.setTextColor(30, 58, 138);
-                doc.text("Report Diagnostics", 14, 40);
-                doc.autoTable({
-                    startY: 44,
-                    head: [["Diagnostic", "Value"]],
-                    body: [
-                        ["Total Records In Report", String(rows.length)],
-                        ["Total Paid Amount", formatRevenueAmount(summaryTotal.amount)],
-                        ["Total Line TD Entries", String(summaryTotal.tdCount)],
-                        ["Report Period", reportMeta.periodLabel],
-                        ["Scope", reportMeta.scopeLabel]
-                    ],
-                    theme: "grid",
-                    headStyles: { fillColor: [15, 118, 110], halign: "center" },
-                    styles: { fontSize: 6, cellPadding: 1.2, halign: "center" },
-                    columnStyles: { 0: { halign: "left" } },
-                    margin: { left: 96, right: 96 }
-                });
-                const summaryTitleY = (doc.lastAutoTable?.finalY || 44) + 8;
+                // NOTE (user request): "Report Diagnostics" table (Total Records/Total
+                // Paid Amount/Total Line TD Entries/Report Period/Scope) yahan se hata
+                // di gayi hai - ab report sirf Summary + Consumer List ke saath bante
+                // hai. Diagnostics table hatne se Summary table seedhe upar (startY 40)
+                // se shuru hoti hai.
+                const summaryTitleY = 40;
                 doc.setFontSize(11);
                 doc.setTextColor(30, 58, 138);
                 doc.text("Summary", 14, summaryTitleY - 2);
@@ -13405,11 +13428,6 @@
                 ["SCOPE", reportMeta.scopeLabel],
                 ["FILTER", reportMeta.filterLabel],
                 ["GENERATED AT", reportMeta.generatedAt],
-                [],
-                ["DIAGNOSTIC", "VALUE"],
-                ["Total Records In Report", String(rows.length)],
-                ["Total Paid Amount", formatRevenueAmount(summaryTotal.amount)],
-                ["Total Line TD Entries", String(summaryTotal.tdCount)],
                 [],
                 ["SUMMARY"],
                 summaryHeaders,
