@@ -10440,11 +10440,24 @@
         // RESTORED (user confirmed root cause was NGB Cash List upload replacing
         // old data, not this caching) - shared 60-second TTL cache wapas ON hai.
         const REVENUE_TD_ENTRIES_SYNC_TTL_MS = 60000;
+        // In-flight fetch dedupe - same reason as revenueLiveEntriesSyncFetchPromise
+        // upar: background warming aur user ka apna report-open ek hi request share
+        // karein, taaki koi extra competing parallel fetch na chale.
+        let revenueTdEntriesSyncFetchPromise = null;
+
         async function syncRevenueTdEntriesFromSheet(attempts = 3, forceRefresh = false) {
             if (!forceRefresh && revenueTdEntriesSyncedAt && Date.now() - revenueTdEntriesSyncedAt < REVENUE_TD_ENTRIES_SYNC_TTL_MS) {
                 return getRevenueTdEntriesLocal();
             }
             if (!revenueCollectionSubmitScriptUrl) return getRevenueTdEntriesLocal();
+            if (!forceRefresh && revenueTdEntriesSyncFetchPromise) return revenueTdEntriesSyncFetchPromise;
+            revenueTdEntriesSyncFetchPromise = syncRevenueTdEntriesFromSheetInner_(attempts).finally(() => {
+                revenueTdEntriesSyncFetchPromise = null;
+            });
+            return revenueTdEntriesSyncFetchPromise;
+        }
+
+        async function syncRevenueTdEntriesFromSheetInner_(attempts) {
             for (let attempt = 1; attempt <= attempts; attempt++) {
                 try {
                     const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getTDEntries&t=${Date.now()}`);
@@ -10482,7 +10495,10 @@
                 mobileNo: currentRevenueRecord.mobileNo || "",
                 arrears: currentRevenueRecord.arrears || "",
                 netBill: currentRevenueRecord.netBill || "",
-                tdDate: getCurrentDateDDMMYYYY(),
+                // Same dash->slash fix as Paid Amount submit (upar) - Line TD ki
+                // date bhi turant-submit hone ke baad screen par slash-format
+                // (DD/MM/YYYY) me dikhni chahiye, backend sync se pehle bhi.
+                tdDate: getCurrentDateDDMMYYYY().replace(/-/g, "/"),
                 tdTime: getCurrentTimeHHMM(),
                 photoName: revenueTdPhotoName || "td-photo.jpg",
                 photoCaptured: true,
@@ -10559,7 +10575,14 @@
                 ...currentRevenueRecord,
                 dcName: activeDC || "",
                 paidAmount: amount,
-                paidDate: getCurrentDateDDMMYYYY(),
+                // BUG FIX: getCurrentDateDDMMYYYY() "DD-MM-YYYY" (dash) return
+                // karta hai - jab tak backend se sync hokar asli "Paid By Staff"
+                // date (slash format, DD/MM/YYYY) wapas nahi aati, tab tak IVRS
+                // search screen par abhi-abhi submit kiya hua payment dash-format
+                // me dikhta tha, jo baaki poore app/NGB Cashlist ke slash-format
+                // se alag/inconsistent tha. .replace() se yahan bhi slash format
+                // consistent kar diya.
+                paidDate: getCurrentDateDDMMYYYY().replace(/-/g, "/"),
                 paidTime: getCurrentTimeHHMM(),
                 paidAt: new Date().toISOString(),
                 paymentId: `revenue-${Date.now()}`
@@ -11916,8 +11939,30 @@
         // replace kar deta tha, is caching me koi dikkat nahi thi) - DC-scoped
         // shared 60-second TTL cache wapas ON hai.
         const REVENUE_UPLOADED_PAID_MASTER_SYNC_TTL_MS = 60000;
+        // In-flight fetch dedupe (per-DC) - same reason as revenueLiveEntriesSyncFetchPromise
+        // upar: DC-select ke background warming aur user ka khud kisi report par
+        // jaana (jo yahi function call karta hai) dono ek hi chal rahi backend
+        // request share karein, dobara alag fetch shuru na ho.
+        const revenueUploadedPaidMasterFetchPromises = {};
+
         async function getRevenueUploadedPaidMasterRows(forceRefresh = false) {
             const dcKey = normalizeLookupValue(activeDC || "");
+            if (!forceRefresh && revenueUploadedPaidMasterFetchPromises[dcKey]) {
+                return revenueUploadedPaidMasterFetchPromises[dcKey];
+            }
+            if (!forceRefresh && revenueUploadedPaidMasterRowsCache
+                && revenueUploadedPaidMasterRowsCache.dcKey === dcKey
+                && revenueUploadedPaidMasterRowsCache.backendSynced
+                && Date.now() - revenueUploadedPaidMasterRowsCache.syncedAt < REVENUE_UPLOADED_PAID_MASTER_SYNC_TTL_MS) {
+                return revenueUploadedPaidMasterRowsCache.rows;
+            }
+            revenueUploadedPaidMasterFetchPromises[dcKey] = getRevenueUploadedPaidMasterRowsInner_(dcKey, forceRefresh).finally(() => {
+                delete revenueUploadedPaidMasterFetchPromises[dcKey];
+            });
+            return revenueUploadedPaidMasterFetchPromises[dcKey];
+        }
+
+        async function getRevenueUploadedPaidMasterRowsInner_(dcKey, forceRefresh) {
             // NOTE (bug fix): pehle yahan har outcome - chahe backend se poora sync
             // safal hua ho ya (bade DC jaise SEONI (T) me) fetch fail/timeout hoke
             // sirf adhura local fallback mila ho - dono ko ek jaisa 60-second "fresh"
@@ -11929,12 +11974,8 @@
             // maante hain; adhura/fallback result cache to hota hai (turant dikhane
             // ke liye) lekin usko fresh nahi maana jaata, isliye agla call turant
             // dobara backend se poora sahi data laane ki koshish karega.
-            if (!forceRefresh && revenueUploadedPaidMasterRowsCache
-                && revenueUploadedPaidMasterRowsCache.dcKey === dcKey
-                && revenueUploadedPaidMasterRowsCache.backendSynced
-                && Date.now() - revenueUploadedPaidMasterRowsCache.syncedAt < REVENUE_UPLOADED_PAID_MASTER_SYNC_TTL_MS) {
-                return revenueUploadedPaidMasterRowsCache.rows;
-            }
+            // (Freshness check outer getRevenueUploadedPaidMasterRows() me already
+            // ho chuki hai, yahan dobara nahi karte.)
             // Upload ke turant baad local cache me entries turant save ho jaati hain
             // (saveRevenueUploadedPaidEntriesLocalBulk), backend fetch se pehle hi -
             // isliye yahan backend call se pehle current local rows capture kar lete
@@ -13012,11 +13053,27 @@
         // replace kar deta tha, is caching me koi dikkat nahi thi) - shared
         // 60-second TTL cache wapas ON hai.
         const REVENUE_LIVE_ENTRIES_SYNC_TTL_MS = 60000;
+        // In-flight fetch dedupe (ensureDcDataLoaded jaisa pattern): agar DC-select
+        // ke turant baad background prefetchRevenueBackgroundDataForDc() ne is sync
+        // ko already shuru kar diya ho, aur usi beech user khud koi report khol de
+        // jo yahi function call kare, to naya alag parallel fetch shuru NAHI hota -
+        // dono ek hi chal rahi request ka result share karte hain. Isse background
+        // warming ki wajah se pehla report kabhi slow nahi hota, sirf fast/same hota hai.
+        let revenueLiveEntriesSyncFetchPromise = null;
+
         async function syncRevenueLiveEntriesFromSheet(attempts = 3, forceRefresh = false) {
             if (!forceRefresh && revenueLiveEntriesSyncedAt && Date.now() - revenueLiveEntriesSyncedAt < REVENUE_LIVE_ENTRIES_SYNC_TTL_MS) {
                 return getRevenueLiveEntries();
             }
             if (!revenueCollectionSubmitScriptUrl) return getRevenueLiveEntries();
+            if (!forceRefresh && revenueLiveEntriesSyncFetchPromise) return revenueLiveEntriesSyncFetchPromise;
+            revenueLiveEntriesSyncFetchPromise = syncRevenueLiveEntriesFromSheetInner_(attempts).finally(() => {
+                revenueLiveEntriesSyncFetchPromise = null;
+            });
+            return revenueLiveEntriesSyncFetchPromise;
+        }
+
+        async function syncRevenueLiveEntriesFromSheetInner_(attempts) {
             for (let attempt = 1; attempt <= attempts; attempt++) {
                 try {
                     const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getEntries&t=${Date.now()}`);
@@ -14046,8 +14103,17 @@
         let revenueHqVillageRenderToken = 0;
         let revenueHqVillageTree = [];
         let revenueHqVillageDrillPath = [];
+        // BUG FIX (user report): pehle DATE WISE/MONTH WISE toggle badalte hi
+        // (setRevenueHqVillageMode -> renderRevenueHqVillageReport) har baar
+        // "SYNCING LATEST REPORT..." dobara chal jaata tha, chahe usi view-visit
+        // me thodi der pehle hi is scope (DC/Division/Circle) ka data poora sync
+        // ho chuka ho. Cash Reconcile/Report Download jaisa hi simple "is scope
+        // ke liye is visit me ek baar load ho chuka" flag - jab tak view se bahar
+        // jaakar dobara na aayein, DATE/MONTH toggle sirf local recompute karega.
+        let revenueHqVillageLoadedScopeKey = null;
 
         function initRevenueHqVillageReport() {
+            revenueHqVillageLoadedScopeKey = null;
             const dateInput = document.getElementById("revenue-hq-village-date");
             const monthInput = document.getElementById("revenue-hq-village-month");
             if (dateInput && !dateInput.value) dateInput.value = getTodayIsoDate();
@@ -14302,15 +14368,20 @@
             else if (activeDiv) activeViewLevel = "DIVISION";
             else activeViewLevel = "CIRCLE";
             const isRenderValid = () => renderToken === revenueHqVillageRenderToken && document.getElementById("revenue-hq-village-view")?.classList.contains("active");
-            const progress = renderSyncingProgress(tableBox, isRenderValid, "SYNCING LATEST REPORT...");
+            const scopeKey = activeDC || activeDiv || "CIRCLE";
+            const alreadyLoaded = revenueHqVillageLoadedScopeKey === scopeKey;
+            const progress = alreadyLoaded ? null : renderSyncingProgress(tableBox, isRenderValid, "SYNCING LATEST REPORT...");
             try {
-                const targetDcs = getRevenueCategoryTargetDcs();
-                await Promise.all([
-                    ensureRevenueCategoryMasterDataLoaded(targetDcs),
-                    ensureRevenueCategoryRawPaymentRowsLoaded(),
-                    warmRevenueCategoryUploadedPaidCache()
-                ]);
-                if (!isRenderValid()) { progress.stop(); return; }
+                if (!alreadyLoaded) {
+                    const targetDcs = getRevenueCategoryTargetDcs();
+                    await Promise.all([
+                        ensureRevenueCategoryMasterDataLoaded(targetDcs),
+                        ensureRevenueCategoryRawPaymentRowsLoaded(),
+                        warmRevenueCategoryUploadedPaidCache()
+                    ]);
+                    if (!isRenderValid()) { progress.stop(); return; }
+                    revenueHqVillageLoadedScopeKey = scopeKey;
+                }
                 const mode = revenueHqVillageMode === "MONTHLY" ? "MONTHLY" : "DAILY";
                 const filterValue = mode === "MONTHLY"
                     ? (document.getElementById("revenue-hq-village-month")?.value || getTodayIsoDate().slice(0, 7))
@@ -14319,14 +14390,14 @@
                 revenueHqVillageTree = summaryData.tree;
                 revenueHqVillageDrillPath = [];
                 revenueHqVillageConsumerRows = buildRevenueHqVillageConsumerRows(mode, filterValue);
-                await progress.finish();
+                if (progress) await progress.finish();
                 if (!isRenderValid()) return;
                 if (summaryBox) summaryBox.innerHTML = renderRevenueHqVillageSummaryCardsHtml(summaryData);
                 tableBox.innerHTML = renderRevenueHqVillageTable();
                 initRevenueHqVillageListDropdowns();
                 if (listSection) listSection.style.display = "block";
             } catch (error) {
-                progress.stop();
+                if (progress) progress.stop();
                 if (statusBox) {
                     statusBox.style.display = "block";
                     statusBox.style.background = "#fff1f2";
@@ -14474,7 +14545,14 @@
             if (tableBox) tableBox.innerHTML = renderRevenueTargetTable();
         }
 
+        // Same "ek baar is scope ke liye is visit me load ho jaaye to DATE/MONTH
+        // toggle sirf local recompute kare" fix jo HQ Village report me kiya -
+        // Target Achievement bhi wahi ensureRevenueCategoryMasterDataLoaded/
+        // warmRevenueCategoryUploadedPaidCache use karta hai, isliye same pattern.
+        let revenueTargetLoadedScopeKey = null;
+
         function initRevenueTargetAchievement() {
+            revenueTargetLoadedScopeKey = null;
             const dateInput = document.getElementById("revenue-target-date");
             const monthInput = document.getElementById("revenue-target-month");
             if (dateInput && !dateInput.value) dateInput.value = getTodayIsoDate();
@@ -14683,15 +14761,20 @@
             else if (activeDiv) activeViewLevel = "DIVISION";
             else activeViewLevel = "CIRCLE";
             const isRenderValid = () => renderToken === revenueTargetRenderToken && document.getElementById("revenue-target-achievement-view")?.classList.contains("active");
-            const progress = renderSyncingProgress(tableBox, isRenderValid, "SYNCING LATEST REPORT...");
+            const scopeKey = activeDC || activeDiv || "CIRCLE";
+            const alreadyLoaded = revenueTargetLoadedScopeKey === scopeKey;
+            const progress = alreadyLoaded ? null : renderSyncingProgress(tableBox, isRenderValid, "SYNCING LATEST REPORT...");
             try {
-                const targetDcs = getRevenueCategoryTargetDcs();
-                await Promise.all([
-                    ensureRevenueCategoryMasterDataLoaded(targetDcs),
-                    ensureRevenueCategoryRawPaymentRowsLoaded(),
-                    warmRevenueCategoryUploadedPaidCache()
-                ]);
-                if (!isRenderValid()) { progress.stop(); return; }
+                if (!alreadyLoaded) {
+                    const targetDcs = getRevenueCategoryTargetDcs();
+                    await Promise.all([
+                        ensureRevenueCategoryMasterDataLoaded(targetDcs),
+                        ensureRevenueCategoryRawPaymentRowsLoaded(),
+                        warmRevenueCategoryUploadedPaidCache()
+                    ]);
+                    if (!isRenderValid()) { progress.stop(); return; }
+                    revenueTargetLoadedScopeKey = scopeKey;
+                }
                 const mode = revenueTargetMode === "MONTHLY" ? "MONTHLY" : "DAILY";
                 const filterValue = mode === "MONTHLY"
                     ? (document.getElementById("revenue-target-month")?.value || getTodayIsoDate().slice(0, 7))
@@ -14705,13 +14788,13 @@
                     acc.unpaidAmountTotal += Number(row.unpaidAmountTotal || 0);
                     return acc;
                 }, { paidAmountTotal: 0, unpaidAmountTotal: 0 });
-                await progress.finish();
+                if (progress) await progress.finish();
                 if (!isRenderValid()) return;
                 refreshRevenueTargetViewByOptions();
                 if (summaryBox) summaryBox.innerHTML = renderRevenueTargetSummaryCardsHtml(totals);
                 tableBox.innerHTML = renderRevenueTargetTable();
             } catch (error) {
-                progress.stop();
+                if (progress) progress.stop();
                 if (statusBox) {
                     statusBox.style.display = "block";
                     statusBox.style.background = "#fff1f2";
@@ -14812,8 +14895,13 @@
         let revenueDefaultersLimit = 20;
         let revenueDefaultersRows = [];
         let revenueDefaultersRenderToken = 0;
+        // Same fix as HQ Village/Target Achievement - Top20/Top50 toggle aur date
+        // change bhi pehle har baar poora "SYNCING..." resync kar dete the, chahe
+        // is scope ka category data isi visit me pehle hi load ho chuka ho.
+        let revenueDefaultersLoadedScopeKey = null;
 
         function initRevenueTopDefaulters() {
+            revenueDefaultersLoadedScopeKey = null;
             const dateInput = document.getElementById("revenue-defaulters-date");
             if (dateInput && !dateInput.value) dateInput.value = getTodayIsoDate();
             setRevenueDefaultersButtonState();
@@ -14895,15 +14983,20 @@
             else if (activeDiv) activeViewLevel = "DIVISION";
             else activeViewLevel = "CIRCLE";
             const isRenderValid = () => renderToken === revenueDefaultersRenderToken && document.getElementById("revenue-top-defaulters-view")?.classList.contains("active");
-            const progress = renderSyncingProgress(tableBox, isRenderValid, "SYNCING LATEST REPORT...");
+            const scopeKey = activeDC || activeDiv || "CIRCLE";
+            const alreadyLoaded = revenueDefaultersLoadedScopeKey === scopeKey;
+            const progress = alreadyLoaded ? null : renderSyncingProgress(tableBox, isRenderValid, "SYNCING LATEST REPORT...");
             try {
-                const targetDcs = getRevenueCategoryTargetDcs();
-                await Promise.all([
-                    ensureRevenueCategoryMasterDataLoaded(targetDcs),
-                    ensureRevenueCategoryRawPaymentRowsLoaded(),
-                    warmRevenueCategoryUploadedPaidCache()
-                ]);
-                if (!isRenderValid()) { progress.stop(); return; }
+                if (!alreadyLoaded) {
+                    const targetDcs = getRevenueCategoryTargetDcs();
+                    await Promise.all([
+                        ensureRevenueCategoryMasterDataLoaded(targetDcs),
+                        ensureRevenueCategoryRawPaymentRowsLoaded(),
+                        warmRevenueCategoryUploadedPaidCache()
+                    ]);
+                    if (!isRenderValid()) { progress.stop(); return; }
+                    revenueDefaultersLoadedScopeKey = scopeKey;
+                }
                 const dateValue = document.getElementById("revenue-defaulters-date")?.value || getTodayIsoDate();
                 // USER REQUEST (2026-08-13): row.pendingAmount (buildRevenueHqVillage-
                 // ConsumerRows me pehle se Net Bill - Paid, sirf positive) use karte
@@ -14912,7 +15005,7 @@
                 // me sahi se dikhein (pehle wo poori tarah list se bahar ho jaate the).
                 const consumerRows = buildRevenueHqVillageConsumerRows("DAILY", dateValue);
                 revenueDefaultersRows = consumerRows.filter((row) => row.pendingAmount > 0);
-                await progress.finish();
+                if (progress) await progress.finish();
                 if (!isRenderValid()) return;
                 const hqSelect = document.getElementById("revenue-defaulters-hq");
                 const villageSelect = document.getElementById("revenue-defaulters-village");
@@ -14924,7 +15017,7 @@
                 if (govtSelect) govtSelect.value = "";
                 renderRevenueDefaultersTable();
             } catch (error) {
-                progress.stop();
+                if (progress) progress.stop();
                 if (statusBox) statusBox.innerText = "Report load nahi ho payi";
             }
         }
@@ -16279,6 +16372,11 @@
         let vrDownloadLogMode = "ALL";
         let vrDownloadLogRawRows = [];
         let vrDownloadLogRenderToken = 0;
+        // Same "ek baar is visit me load ho jaaye to ALL/DATE toggle sirf local
+        // recompute kare" fix jo Revenue reports me kiya - yahan poora data hamesha
+        // ek hi getSummary call se aata hai (division/date sirf local filter hain),
+        // isliye is baar ye sirf ek boolean flag hai.
+        let vrDownloadLogLoaded = false;
 
         function openVrDownloadLog() {
             const dd = document.getElementById("vr-menu-dropdown");
@@ -16287,6 +16385,7 @@
         }
 
         function initVrDownloadLog() {
+            vrDownloadLogLoaded = false;
             const dateInput = document.getElementById("vr-download-log-date");
             if (dateInput && !dateInput.value) dateInput.value = getTodayIsoDate();
             setVrDownloadLogMode(vrDownloadLogMode || "ALL");
@@ -16347,11 +16446,28 @@
             }
             const renderToken = ++vrDownloadLogRenderToken;
             const isRenderValid = () => renderToken === vrDownloadLogRenderToken && document.getElementById("vr-download-log-view")?.classList.contains("active");
+            if (vrDownloadLogLoaded) {
+                const rows = buildVrDownloadLogGroupedRows();
+                const totalDownloads = rows.reduce((sum, row) => sum + row.count, 0);
+                statusBox.innerHTML = `Total Download: <strong>${totalDownloads}</strong> | Groups: ${rows.length}`;
+                if (!rows.length) {
+                    tableBox.innerHTML = `<div style="background:#ecfdf5; border:1.5px solid #86efac; border-radius:14px; padding:14px; color:#047857; font-size:0.8rem; font-weight:900; text-align:center; margin-top:10px;">Is filter me koi download record nahi mila.</div>`;
+                    return;
+                }
+                let cachedHtml = `<div class="summary-wrapper"><div class="summary-table-header" style="grid-template-columns: 1.3fr 1.1fr 0.9fr 0.7fr;"><div>DIVISION</div><div>DC</div><div>DATE</div><div>COUNT</div></div>`;
+                rows.forEach((row) => {
+                    cachedHtml += `<div class="summary-table-row" style="grid-template-columns: 1.3fr 1.1fr 0.9fr 0.7fr;"><div>${escapeHtml(row.division)}</div><div>${escapeHtml(row.dc)}</div><div>${escapeHtml(row.date)}</div><div class="font-black">${row.count}</div></div>`;
+                });
+                cachedHtml += `</div>`;
+                tableBox.innerHTML = cachedHtml;
+                return;
+            }
             const progress = renderSyncingProgress(tableBox, isRenderValid, "SYNCING DOWNLOAD LOG...");
             try {
                 const data = await loadRemoteJson(`${vrDownloadLogScriptUrl}?action=getSummary&t=${Date.now()}`);
                 if (!isRenderValid()) { progress.stop(); return; }
                 vrDownloadLogRawRows = Array.isArray(data) ? data : [];
+                vrDownloadLogLoaded = true;
                 await progress.finish();
                 if (!isRenderValid()) return;
                 const rows = buildVrDownloadLogGroupedRows();
