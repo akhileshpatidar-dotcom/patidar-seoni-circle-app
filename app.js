@@ -1620,6 +1620,15 @@
             return group;
         }
 
+        // USER REQUEST (2026-08-13): Partial payment ko sahi se handle karna hai -
+        // pehle jaise hi consumer cash list me match ho jaata tha, uska POORA net
+        // bill "paid" maan liya jaata tha (chahe cash list me poora amount aaya ho
+        // ya sirf partial). Ab agar match hone ke baad bhi net bill se kam paid
+        // hua hai, to bacha hua (net bill - paid, sirf positive) turant unpaid/
+        // pending bucket me bhi jud jaata hai - taaki wahi consumer "PAID" (jitna
+        // paid hua) aur "PENDING" (jitna bacha hai) dono jagah sahi se dikhe. Agar
+        // paid amount net bill ke barabar ya usse zyada hai, to pending 0/negative
+        // ignore ho jaata hai (consumer poori tarah clear maana jaata hai).
         function addRevenueCategoryConsumer(group, row, paidInfoByIvrs, paidCountedIvrsSet = null) {
             const category = normalizeRevenueCategory(row.tariffCategory || row.category || "");
             if (!revenueCategoryList.includes(category)) return;
@@ -1630,13 +1639,22 @@
             const sourceCategoryPaidInfos = getRevenueCategoryPaidInfosBySourceCategory(paidInfo);
             const dueAmount = parseRevenuePaidAmount(row.netBill || row.arrears || 0);
             if (sourceCategoryPaidInfos.length) {
+                let paidThisConsumer = 0;
                 sourceCategoryPaidInfos.forEach((item) => {
                     group.categories[item.category].paid += item.count;
                     group.categories[item.category].paidAmount += item.amount;
                     group.paidTotal += item.count;
                     group.paidAmountTotal += item.amount;
+                    paidThisConsumer += Number(item.amount || 0);
                 });
                 paidCountedIvrsSet?.add(paidCountKey);
+                const remainingAfterPaid = dueAmount - paidThisConsumer;
+                if (remainingAfterPaid > 0) {
+                    group.categories[category].unpaid += 1;
+                    group.categories[category].unpaidAmount += remainingAfterPaid;
+                    group.unpaidTotal += 1;
+                    group.unpaidAmountTotal += remainingAfterPaid;
+                }
                 return;
             }
 
@@ -1649,6 +1667,13 @@
                 group.paidTotal += paidCount;
                 group.paidAmountTotal += paidAmount;
                 paidCountedIvrsSet?.add(paidCountKey);
+                const remainingAfterPaid = dueAmount - paidAmount;
+                if (remainingAfterPaid > 0) {
+                    group.categories[category].unpaid += 1;
+                    group.categories[category].unpaidAmount += remainingAfterPaid;
+                    group.unpaidTotal += 1;
+                    group.unpaidAmountTotal += remainingAfterPaid;
+                }
                 return;
             }
 
@@ -2466,13 +2491,19 @@
             }
         }
 
+        // USER REQUEST (2026-08-13): pehle yahan "!row.paid" filter se koi bhi
+        // consumer jo cash list me kisi bhi amount se match ho gaya ho (chahe
+        // partial payment hi kyun na ho) poori tarah is list se bahar ho jaata
+        // tha - matlab uska bacha hua bakaya kabhi Defaulters me nahi dikhta tha.
+        // Ab row.pendingAmount (buildRevenueHqVillageConsumerRows me pehle se hi
+        // Net Bill - Paid, sirf positive, nikala hua) use karte hain - partial
+        // payment wale consumer bhi ab apne bache hue bakaya amount ke saath is
+        // list me sahi se dikhenge.
         function getProgressDefaultersFilteredRows(mode, filterValue) {
             const consumerRows = buildRevenueHqVillageConsumerRows(mode, filterValue);
             const govtFilter = progressDefaultersGovtFilter;
             return consumerRows
-                .filter((row) => !row.paid)
                 .filter((row) => !govtFilter || (govtFilter === "GOVT" ? !!row.govtFlag : !row.govtFlag))
-                .map((row) => ({ ...row, pendingAmount: parseRevenuePendingAmount(row.netBill || 0) }))
                 .filter((row) => row.pendingAmount > 0)
                 .sort((a, b) => b.pendingAmount - a.pendingAmount)
                 .slice(0, progressRevenueDefaultersLimit);
@@ -14815,11 +14846,13 @@
                 ]);
                 if (!isRenderValid()) { progress.stop(); return; }
                 const dateValue = document.getElementById("revenue-defaulters-date")?.value || getTodayIsoDate();
+                // USER REQUEST (2026-08-13): row.pendingAmount (buildRevenueHqVillage-
+                // ConsumerRows me pehle se Net Bill - Paid, sirf positive) use karte
+                // hain, "!row.paid" filter hata diya - taaki partial payment wale
+                // consumer bhi apne bache hue bakaya amount ke saath Top Defaulters
+                // me sahi se dikhein (pehle wo poori tarah list se bahar ho jaate the).
                 const consumerRows = buildRevenueHqVillageConsumerRows("DAILY", dateValue);
-                revenueDefaultersRows = consumerRows
-                    .filter((row) => !row.paid)
-                    .map((row) => ({ ...row, pendingAmount: parseRevenuePendingAmount(row.netBill || 0) }))
-                    .filter((row) => row.pendingAmount > 0);
+                revenueDefaultersRows = consumerRows.filter((row) => row.pendingAmount > 0);
                 await progress.finish();
                 if (!isRenderValid()) return;
                 const hqSelect = document.getElementById("revenue-defaulters-hq");
@@ -14929,6 +14962,12 @@
                     if (!ivrs) return;
                     const info = paidInfoForDc[ivrs];
                     const paid = isRevenueMasterConsumerPaid(info);
+                    const paidAmount = paid ? getRevenueMasterConsumerPaidAmount(info) : 0;
+                    // USER REQUEST (2026-08-13): partial payment wale consumer ka bacha
+                    // hua bakaya (Net Bill - Paid, sirf positive) - poora Net Bill nahi.
+                    // Fully/over-paid (paidAmount >= netBill) ho to pendingAmount 0 rahega.
+                    const dueAmountForRow = parseRevenuePaidAmount(row.netBill || 0);
+                    const pendingAmount = paid ? Math.max(0, dueAmountForRow - paidAmount) : dueAmountForRow;
                     rows.push({
                         ivrsNo: row.ivrsNo || "",
                         consumerName: row.consumerName || "",
@@ -14940,7 +14979,8 @@
                         netBill: row.netBill || "",
                         dcName: normalizedDc,
                         paid,
-                        paidAmount: paid ? getRevenueMasterConsumerPaidAmount(info) : 0,
+                        paidAmount,
+                        pendingAmount,
                         govtFlag: !!row.govtFlag,
                         lastPaymentDate: row.lastPaymentDate || "",
                         neverPaid: !!row.neverPaid,
@@ -15043,7 +15083,11 @@
                 (!hqValue || normalizeLookupValue(row.hqName) === normalizeLookupValue(hqValue))
                 && (!villageValue || normalizeLookupValue(row.village) === normalizeLookupValue(villageValue))
                 && (!categoryValue || normalizeLookupValue(row.tariffCategory) === normalizeLookupValue(categoryValue))
-                && (statusValue === "ALL" || (statusValue === "PAID" ? row.paid : !row.paid))
+                // USER REQUEST (2026-08-13): "UNPAID" ab row.pendingAmount > 0 se
+                // decide hota hai (partial payment wale consumer, jinka bakaya kuch
+                // bacha hai, ab UNPAID filter me bhi dikhenge) - "PAID" filter pehle
+                // jaisa hi hai (jisne bhi kuch payment kiya ho, chahe partial ho).
+                && (statusValue === "ALL" || (statusValue === "PAID" ? row.paid : row.pendingAmount > 0))
                 && (!govtValue || (govtValue === "GOVT" ? !!row.govtFlag : !row.govtFlag))
             ));
         }
