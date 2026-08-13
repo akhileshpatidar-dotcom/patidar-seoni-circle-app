@@ -12310,8 +12310,22 @@
             }
         }
 
+        // BUG FIX (2026-08-13): Device ke local IndexedDB "dc-payment-rows" cache
+        // mein PURANE app.js version se save hui rows padi ho sakti hain, jinme
+        // "uploaded_date" field hi nahi hai (yeh field is session ke fix se pehle
+        // stamp hi nahi hoti thi). Aisi rows kabhi bhi isRevenueUploadedPaidIn-
+        // CategoryPeriod() se match nahi hongi (uploaded_date khaali = match
+        // hamesha false) - aur agar yeh purani local list, freshly backend se
+        // aayi hui serverList se LAMBI ho (jaise SEONI (T) jaisi bade DC me,
+        // jinki cash list is fix ke baad dobara upload nahi hui), to neeche wali
+        // "jo zyada complete ho wahi use karo" logic galti se isi purani/kaam-
+        // na-aane-wali list ko choose kar leti thi - Achieved hamesha 0 aata tha.
+        // Fix: aisi untagged (uploaded_date-less) rows ko yahin ignore kar dete
+        // hain, taaki woh DC apne aap sahi-tagged serverList (backend se, jismein
+        // ab uploaded_date hamesha hoga) par fallback ho jaaye - kisi DC ki cash
+        // list dobara upload karne ki zaroorat nahi padegi.
         function getRevenueCategoryPaymentSourceRows() {
-            const rawRows = getRevenueCategoryRawPaymentRows();
+            const rawRows = getRevenueCategoryRawPaymentRows().filter((row) => !!getRevenueUploadedPaidRowUploadedDate(row));
             const rawByDc = {};
             rawRows.forEach((row) => {
                 const dcName = getRevenueUploadedPaidRowDcName(row);
