@@ -129,9 +129,17 @@
         let progressRevenueReportType = "STAFF";
         let progressRevenueDefaultersLimit = 20;
         let progressDefaultersGovtFilter = "";
+        // USER REQUEST (2026-08-13): Daily Progress -> Revenue -> "Target vs
+        // Achievement" dropdown me bhi Govt/Non-Govt filter chahiye (jaisa Top
+        // Defaulters me pehle se hai).
+        let progressTargetGovtFilter = "";
         let progressStaffTypeFilter = "";
         let lastRevenueProgressBoxData = null;
         let lastRevenueProgressStaffData = null;
+        // Target vs Achievement ke liye - jab Govt/Non-Govt filter select ho, tab
+        // us filter ke saath banaya hua tree yahan rakhte hain, taaki download
+        // (Excel/PDF) bhi screen par jo dikh raha hai wahi (filtered) data use kare.
+        let lastRevenueProgressTargetSummaryData = null;
         let suppressHistoryPush = false;
         let progressSummaryDownloadInProgress = false;
         let selectedStockReceiveItem = null, selectedStockIssueItem = null, pendingReceiveItems = [], pendingIssueItems = [];
@@ -2450,11 +2458,12 @@
         }
 
         function downloadProgressRevenueTargetSummary(fmt) {
-            if (!lastRevenueProgressBoxData?.hqVillageSummaryData) return showToast("Report ke liye data nahi hai", false);
+            const summaryData = lastRevenueProgressTargetSummaryData || lastRevenueProgressBoxData?.hqVillageSummaryData;
+            if (!summaryData) return showToast("Report ke liye data nahi hai", false);
             const downloadTypeLabel = fmt === "PDF" ? "PDF" : "Excel";
             setProgressCategoryDownloadState(true, `${downloadTypeLabel} downloading... kripya wait kijiye`);
             try {
-                const tree = lastRevenueProgressBoxData.hqVillageSummaryData.tree || [];
+                const tree = summaryData.tree || [];
                 const colLabel = activeViewLevel === "DC" ? revenueHqLabelUpper() : "DC NAME";
                 const headers = [colLabel, "TARGET", "ACHIEVED", "%"];
                 const rows = tree.map((row) => {
@@ -2465,7 +2474,8 @@
                 const reportTitle = `Target vs Achievement Summary - ${scope}`;
                 const rawVal = document.getElementById("report-date")?.value || "";
                 const parsed = parseSummarySelection(rawVal, summaryMode);
-                const periodLine = `Period: ${parsed.label || getTodayIsoDate()}`;
+                const govtLabel = progressTargetGovtFilter === "GOVT" ? "Govt" : (progressTargetGovtFilter === "NONGOVT" ? "Non Govt" : "All");
+                const periodLine = `Period: ${parsed.label || getTodayIsoDate()}  |  Type: ${govtLabel}`;
                 const fileName = `${reportTitle}-${parsed.label || getTodayIsoDate()}`.replace(/[\\/:*?"<>|]+/g, "_");
                 if (fmt === "PDF") {
                     if (!window.jspdf?.jsPDF) { setProgressCategoryDownloadState(false, "PDF library load nahi hui"); return; }
@@ -2511,6 +2521,12 @@
 
         function setProgressDefaultersGovtFilter(value) {
             progressDefaultersGovtFilter = value || "";
+            const body = document.getElementById("progress-revenue-body");
+            if (body) body.innerHTML = renderProgressRevenueBodyInner();
+        }
+
+        function setProgressTargetGovtFilter(value) {
+            progressTargetGovtFilter = value || "";
             const body = document.getElementById("progress-revenue-body");
             if (body) body.innerHTML = renderProgressRevenueBodyInner();
         }
@@ -2630,6 +2646,11 @@
             const colLabel = activeViewLevel === "DC" ? revenueHqLabelUpper() : "DC NAME";
             return `
                 <div style="font-size:0.75rem; font-weight:950; color:#1d4ed8; text-align:center;">Target vs Achievement (Net Bill vs Paid)</div>
+                <select onchange="setProgressTargetGovtFilter(this.value)" style="width:100%; height:44px; margin:9px auto 0; display:block; border:1.5px solid #93c5fd; border-radius:12px; padding:0 12px; font-size:0.76rem; font-weight:900; color:#0f172a; background:#ffffff;">
+                    <option value="">All (Govt + Non Govt)</option>
+                    <option value="GOVT" ${progressTargetGovtFilter === "GOVT" ? "selected" : ""}>Govt</option>
+                    <option value="NONGOVT" ${progressTargetGovtFilter === "NONGOVT" ? "selected" : ""}>Non Govt</option>
+                </select>
                 <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:8px; width:100%; margin:10px auto 0;">
                     <div style="background:#f1f5f9; border-radius:12px; padding:8px 4px; text-align:center;"><div style="font-size:0.54rem; font-weight:850; color:#64748b; text-transform:uppercase;">Target</div><div style="font-size:0.82rem; font-weight:950; color:#0f172a; margin-top:2px;">${formatProgressReportAmount(target)}</div></div>
                     <div style="background:#ecfdf5; border-radius:12px; padding:8px 4px; text-align:center;"><div style="font-size:0.54rem; font-weight:850; color:#166534; text-transform:uppercase;">Achieved</div><div style="font-size:0.82rem; font-weight:950; color:#166534; margin-top:2px;">${formatProgressReportAmount(data.totals.paidAmountTotal)}</div></div>
@@ -2847,6 +2868,7 @@
             progressRevenueReportType = validValues.includes(value) ? value : "STAFF";
             resetProgressNonPayeeFilterState();
             progressDefaultersGovtFilter = "";
+            progressTargetGovtFilter = "";
             progressStaffTypeFilter = "";
             const body = document.getElementById("progress-revenue-body");
             if (body) body.innerHTML = renderProgressRevenueBodyInner();
@@ -2975,7 +2997,15 @@
             // pehle jaisे hi (bodyHtml ke NEECHE) buttons rakhte hain - wahan list chhoti hoti hai.
             const isNonPayeeType = ["NONPAYEE_3M", "NONPAYEE_6M", "NONPAYEE_SINCE_CONNECTION"].includes(progressRevenueReportType);
             if (progressRevenueReportType === "TARGET") {
-                bodyHtml = data.hqVillageSummaryData ? renderRevenueProgressTargetSummaryHtml(data.hqVillageSummaryData) : `<div style="font-size:0.75rem; font-weight:950; color:#1d4ed8; text-align:center;">Data nahi mila.</div>`;
+                // USER REQUEST (2026-08-13): Govt/Non-Govt filter - jab select ho, tab
+                // hi tree ko us filter ke saath dobara (local, bina naye fetch ke)
+                // banate hain, taaki Category Wise wali shared hqVillageSummaryData
+                // (jo saath me isi box me use hoti hai) chhedni na pade.
+                const targetSummaryData = progressTargetGovtFilter
+                    ? buildRevenueHqVillageSummaryData(data.mode || "DAILY", data.filterValue || "", progressTargetGovtFilter)
+                    : data.hqVillageSummaryData;
+                lastRevenueProgressTargetSummaryData = targetSummaryData;
+                bodyHtml = targetSummaryData ? renderRevenueProgressTargetSummaryHtml(targetSummaryData) : `<div style="font-size:0.75rem; font-weight:950; color:#1d4ed8; text-align:center;">Data nahi mila.</div>`;
             } else if (progressRevenueReportType === "DEFAULTERS") {
                 bodyHtml = renderRevenueProgressDefaultersSummaryHtml(data.mode || "DAILY", data.filterValue || "");
             } else if (progressRevenueReportType === "NONPAYEE_3M") {
@@ -14202,8 +14232,12 @@
             return html;
         }
 
-        function buildRevenueHqVillageSummaryData(mode, filterValue) {
-            const tree = buildRevenueHqVillagePaidUnpaidTree(mode, filterValue);
+        // govtFilter optional param (2026-08-13 addition) - defaults to "" (no
+        // filter, old behaviour unchanged for existing callers like Category Wise
+        // / HQ-Village Report). Progress Report's "Target vs Achievement" dropdown
+        // passes this through when its own Govt/Non-Govt filter is set.
+        function buildRevenueHqVillageSummaryData(mode, filterValue, govtFilter = "") {
+            const tree = buildRevenueHqVillagePaidUnpaidTree(mode, filterValue, govtFilter);
             const totals = (tree || []).filter((row) => row.type !== "SUB_TOTAL" && row.type !== "SUBDN_TOTAL").reduce((acc, row) => {
                 acc.paidTotal += Number(row.paidTotal || 0);
                 acc.unpaidTotal += Number(row.unpaidTotal || 0);
