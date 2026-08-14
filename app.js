@@ -555,6 +555,15 @@
         let mobileUpdateReportTree = null;
         let mobileUpdateReportRenderToken = 0;
 
+        // USER REQUEST (2026-08-14): "Update Mobile No" (daily) screen ke 3-dot
+        // menu me ab ek "List Download" option bhi hai - upar wale "Download
+        // Report" jaisa sirf HQ/Village LEVEL SUMMARY (counts) nahi, balki
+        // Date/Month/All Time wise poori CONSUMER-WISE LIST (IVRS, Naam, Mobile,
+        // Status) taaki DC wala apni poori list PDF/Excel me nikal sake.
+        let mobileUpdateListMode = "ALL";
+        let mobileUpdateListRows = null;
+        let mobileUpdateListRenderToken = 0;
+
         function openMobileUpdateReport() {
             closeHeaderMenu();
             switchView("mobile-update-report");
@@ -789,6 +798,205 @@
             } catch (error) {
                 setMobileUpdateReportDownloadState(false, "Download nahi ho paya", false);
                 showToast(error?.message || "Report download nahi ho payi", false);
+            }
+        }
+
+        function openMobileUpdateList() {
+            closeHeaderMenu();
+            switchView("mobile-update-list");
+        }
+
+        function initMobileUpdateList() {
+            const dateInput = document.getElementById("mobile-update-list-date");
+            const monthInput = document.getElementById("mobile-update-list-month");
+            if (dateInput && !dateInput.value) dateInput.value = getTodayIsoDate();
+            if (monthInput && !monthInput.value) monthInput.value = getTodayIsoDate().slice(0, 7);
+            const scopeLabel = document.getElementById("mobile-update-list-scope-label");
+            if (scopeLabel) scopeLabel.innerText = activeDC ? `DC: ${activeDC} - Sirf UPDATED Consumers (Correct Mobile No)` : "Sirf UPDATED Consumers (Correct Mobile No)";
+            setMobileUpdateListMode(mobileUpdateListMode || "ALL");
+        }
+
+        function setMobileUpdateListMode(mode) {
+            mobileUpdateListMode = ["DAILY", "MONTHLY"].includes(mode) ? mode : "ALL";
+            const dateInput = document.getElementById("mobile-update-list-date");
+            const monthInput = document.getElementById("mobile-update-list-month");
+            const allBtn = document.getElementById("mobile-update-list-all-mode-btn");
+            const dateBtn = document.getElementById("mobile-update-list-date-mode-btn");
+            const monthBtn = document.getElementById("mobile-update-list-month-mode-btn");
+            if (dateInput) dateInput.style.display = mobileUpdateListMode === "DAILY" ? "block" : "none";
+            if (monthInput) monthInput.style.display = mobileUpdateListMode === "MONTHLY" ? "block" : "none";
+            if (allBtn) { allBtn.style.background = mobileUpdateListMode === "ALL" ? "#991b1b" : "#ffe4e6"; allBtn.style.color = mobileUpdateListMode === "ALL" ? "#ffffff" : "#991b1b"; }
+            if (dateBtn) { dateBtn.style.background = mobileUpdateListMode === "DAILY" ? "#991b1b" : "#ffe4e6"; dateBtn.style.color = mobileUpdateListMode === "DAILY" ? "#ffffff" : "#991b1b"; }
+            if (monthBtn) { monthBtn.style.background = mobileUpdateListMode === "MONTHLY" ? "#991b1b" : "#ffe4e6"; monthBtn.style.color = mobileUpdateListMode === "MONTHLY" ? "#ffffff" : "#991b1b"; }
+            renderMobileUpdateList();
+        }
+
+        function getMobileUpdateListPeriod() {
+            if (mobileUpdateListMode === "DAILY") {
+                const raw = document.getElementById("mobile-update-list-date")?.value || getTodayIsoDate();
+                const parsed = parseSummarySelection(raw, "DAILY");
+                return { mode: "DAILY", dStr: parsed.daily, mStr: parsed.monthly, label: parsed.label };
+            }
+            if (mobileUpdateListMode === "MONTHLY") {
+                const raw = document.getElementById("mobile-update-list-month")?.value || getTodayIsoDate().slice(0, 7);
+                const parsed = parseSummarySelection(raw, "MONTHLY");
+                return { mode: "MONTHLY", dStr: parsed.daily, mStr: parsed.monthly, label: parsed.label };
+            }
+            return { mode: "ALL" };
+        }
+
+        // buildMobileUpdateReportData() (upar) sirf HQ/Village LEVEL AGGREGATE counts
+        // banata hai. Yahan wahi matching logic (matchesProgressDate se date/month
+        // filter) reuse karte hain lekin per-consumer detail (mobile no + updated
+        // date) bhi sath rakhte hain. USER REQUEST (2026-08-14): is list me sirf
+        // wahi consumer aane chahiye jinka mobile no APP SE ACTUALLY UPDATE hua ho
+        // (correct_mobile wali entry mili ho) - total/pending consumer is list me
+        // bilkul nahi aane chahiye, isliye yahin filter kar dete hain.
+        function buildMobileUpdateListRows(rows, dcName, cloudData, period) {
+            const normDc = normalizeDcName(dcName);
+            const updatedInfoByIvrs = {};
+            (cloudData || []).forEach((u) => {
+                const uDc = (u.dc || "").trim().toUpperCase();
+                if (uDc !== normDc) return;
+                const mobileVal = u.correct_mobile || "";
+                const hasMobile = mobileVal.toString().trim().length === 10;
+                if (!hasMobile) return;
+                if (period.mode !== "ALL") {
+                    const ts = (u.date || "").trim();
+                    if (!matchesProgressDate(ts, period.mode, period.dStr, period.mStr)) return;
+                }
+                const ivrs = normalizeLookupDigits(u.ivrs || "");
+                if (!ivrs) return;
+                const existing = updatedInfoByIvrs[ivrs];
+                if (!existing || String(u.date || "") > String(existing.date || "")) {
+                    updatedInfoByIvrs[ivrs] = { mobile: mobileVal.toString().trim(), date: (u.date || "").trim() };
+                }
+            });
+
+            return rows
+                .map((row) => {
+                    const ivrs = normalizeLookupDigits(row.ivrsNo);
+                    const info = ivrs ? updatedInfoByIvrs[ivrs] : null;
+                    if (!info) return null;
+                    return {
+                        ivrsNo: row.ivrsNo || "",
+                        consumerName: row.consumerName || "",
+                        hqName: String(row.hqName || "GENERAL").trim().toUpperCase() || "GENERAL",
+                        village: String(row.village || "UNKNOWN").trim().toUpperCase() || "UNKNOWN",
+                        oldMobile: row.mobileNo || "",
+                        updatedMobile: info.mobile,
+                        updatedDate: info.date,
+                        status: "UPDATED"
+                    };
+                })
+                .filter((row) => row && row.ivrsNo);
+        }
+
+        // USER REQUEST (2026-08-14): Screen par ab sirf SUMMARY (kitne consumer ka
+        // mobile no update hua) dikhta hai, poori row-by-row list nahi - poori list
+        // sirf PDF/Excel download me milegi.
+        function renderMobileUpdateListSummaryHtml(updatedRows) {
+            const updated = (updatedRows || []).length;
+            return `
+                <div style="width:100%; max-width:360px; margin:0 auto; background:#ecfdf5; border:1.5px solid #86efac; border-radius:16px; padding:16px 10px; text-align:center;">
+                    <div style="font-size:0.6rem; font-weight:850; color:#166534; text-transform:uppercase;">Total Mobile No Updated (App Se)</div>
+                    <div style="font-size:1.7rem; font-weight:950; color:#166534; margin-top:4px;">${updated}</div>
+                </div>
+                <div style="text-align:center; margin-top:10px; font-size:0.66rem; font-weight:850; color:#64748b;">Poori list (IVRS/Naam/Mobile/Date sahit) niche PDF ya EXCEL button se download kijiye</div>
+            `;
+        }
+
+        async function renderMobileUpdateList() {
+            const summaryBox = document.getElementById("mobile-update-list-summary");
+            const tableBox = document.getElementById("mobile-update-list-table");
+            const statusBox = document.getElementById("mobile-update-list-download-status");
+            if (!summaryBox) return;
+            const renderToken = ++mobileUpdateListRenderToken;
+            if (statusBox) statusBox.style.display = "none";
+            if (summaryBox) summaryBox.innerHTML = "";
+            if (tableBox) tableBox.innerHTML = "";
+            mobileUpdateListRows = null;
+            const dcName = activeDC;
+            const isRenderValid = () => renderToken === mobileUpdateListRenderToken && document.getElementById("mobile-update-list-view")?.classList.contains("active");
+            const progress = renderSyncingProgress(summaryBox, isRenderValid, "SYNCING LATEST DATA...");
+            try {
+                if (!dcName) throw new Error("DC select nahi hai");
+                await ensureConsumerDataLoadedFor([dcName]);
+                const cloudData = await loadRemoteJson(`${scriptURL}?action=getSummary`);
+                if (!isRenderValid()) { progress.stop(); return; }
+                const rows = getConsumerRows(dcName).map(mapRevenueConsumerRow).filter((row) => normalizeLookupDigits(row.ivrsNo));
+                const period = getMobileUpdateListPeriod();
+                mobileUpdateListRows = buildMobileUpdateListRows(rows, dcName, cloudData, period);
+                await progress.finish();
+                if (!isRenderValid()) return;
+                summaryBox.innerHTML = renderMobileUpdateListSummaryHtml(mobileUpdateListRows);
+            } catch (error) {
+                progress.stop();
+                if (statusBox) {
+                    statusBox.style.display = "block";
+                    statusBox.style.background = "#fff1f2";
+                    statusBox.style.borderColor = "#fca5a5";
+                    statusBox.style.color = "#991b1b";
+                    statusBox.innerText = "List load nahi ho payi";
+                }
+            }
+        }
+
+        function setMobileUpdateListDownloadState(isLoading, message = "", ok = true) {
+            const pdfBtn = document.getElementById("mobile-update-list-pdf-btn");
+            const excelBtn = document.getElementById("mobile-update-list-excel-btn");
+            const statusBox = document.getElementById("mobile-update-list-download-status");
+            const statusMessage = normalizeActionStatusMessage(message, isLoading, ok);
+            [pdfBtn, excelBtn].forEach((btn) => {
+                if (!btn) return;
+                btn.disabled = isLoading;
+                btn.style.opacity = isLoading ? "0.65" : "1";
+                btn.style.pointerEvents = isLoading ? "none" : "auto";
+            });
+            if (!statusBox) return;
+            statusBox.style.display = statusMessage ? "block" : "none";
+            statusBox.style.background = ok ? "#ecfdf5" : "#fff1f2";
+            statusBox.style.borderColor = ok ? "#86efac" : "#fca5a5";
+            statusBox.style.color = ok ? "#166534" : "#991b1b";
+            statusBox.innerHTML = escapeHtml(statusMessage);
+        }
+
+        function downloadMobileUpdateList(type) {
+            const rows = mobileUpdateListRows || [];
+            if (!rows.length) return showToast("Is period me kisi bhi consumer ka mobile no update nahi hua", false);
+            setMobileUpdateListDownloadState(true, `${type === "PDF" ? "PDF" : "Excel"} download ho raha hai... kripya wait kijiye`, true);
+            try {
+                const headers = ["STATUS", "IVRS NO", "CONSUMER NAME", "HQ NAME", "VILLAGE", "OLD MOBILE NO", "UPDATED MOBILE NO", "UPDATED DATE"];
+                const bodyRows = rows.map((row) => [row.status, row.ivrsNo, row.consumerName, row.hqName, row.village, row.oldMobile, row.updatedMobile, row.updatedDate]);
+                const period = getMobileUpdateListPeriod();
+                const periodLabel = period.mode === "ALL" ? "All Time" : (period.label || period.dStr || period.mStr || "All Time");
+                const reportTitle = `Mobile No Update List - DC ${activeDC}`;
+                const scopeLine = `Scope: DC - ${activeDC}  |  Status: Updated Only (Correct Mobile No)`;
+                const periodLine = `Period: ${periodLabel}`;
+                const fileName = `Mobile-No-Update-List-${activeDC}-UPDATED-${periodLabel}`.replace(/[\\/:*?"<>|]+/g, "_");
+                if (type === "PDF") {
+                    if (!window.jspdf?.jsPDF) { setMobileUpdateListDownloadState(false, "PDF library load nahi hui", false); return; }
+                    const { jsPDF } = window.jspdf;
+                    const doc = new jsPDF({ orientation: "landscape" });
+                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
+                    doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 12, { align: "center" });
+                    doc.setFontSize(9); doc.text(scopeLine, 148, 19, { align: "center" });
+                    doc.text(periodLine, 148, 25, { align: "center" });
+                    doc.autoTable({ startY: 31, head: [headers], body: bodyRows, theme: "grid", styles: { fontSize: 6.5, cellPadding: 1.5, overflow: "linebreak" }, headStyles: { fillColor: [185, 28, 28] } });
+                    savePdfDocumentForDevice(doc, `${fileName}.pdf`);
+                    setMobileUpdateListDownloadState(false, "PDF download ho chuki hai", true);
+                    return;
+                }
+                const csvSafe = (value) => { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
+                const csv = [[reportTitle], [scopeLine], [periodLine], [], headers, ...bodyRows].map((row) => row.map(csvSafe).join(",")).join("\n");
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+                link.download = `${fileName}.csv`;
+                link.click();
+                setMobileUpdateListDownloadState(false, "Excel download ho chuki hai", true);
+            } catch (error) {
+                setMobileUpdateListDownloadState(false, "Download nahi ho paya", false);
+                showToast(error?.message || "List download nahi ho payi", false);
             }
         }
 
@@ -16607,6 +16815,9 @@
                 if (id === "mobile-update-report") {
                     initMobileUpdateReport();
                 }
+                if (id === "mobile-update-list") {
+                    initMobileUpdateList();
+                }
                 if (id === "revenue-collection") {
                     initRevenueCollection();
                 }
@@ -16712,6 +16923,7 @@
                 if (id === "stock-report") headerTitle = "STOCK REPORT";
                 if (id === "mobile-update") headerTitle = "UPDATE MOBILE NO";
                 if (id === "mobile-update-report") headerTitle = "MOBILE UPDATE REPORT";
+                if (id === "mobile-update-list") headerTitle = "MOBILE UPDATE LIST";
                 if (id === "summary") headerTitle = "PROGRESS REPORT";
                 if (id === "bill-calculator") headerTitle = "BIJLEE BILL CALCULATOR";
                 document.getElementById("main-header-title").innerText = headerTitle;
@@ -16739,7 +16951,7 @@
                     document.documentElement.style.setProperty("--theme-grad", "linear-gradient(135deg, #0d9488 0%, #0f766e 100%)");
                     header.className = "app-header bg-teal-grad";
                     prewarmGpsCameraLocationIfAllowed();
-                } else if (id === "mobile-update" || id === "mobile-update-report") {
+                } else if (id === "mobile-update" || id === "mobile-update-report" || id === "mobile-update-list") {
                     header.className = "app-header bg-red-grad";
                     if (searchBtn) searchBtn.style.background = "linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)";
                 } else if (id === "revenue-collection" || id === "revenue-live-progress" || id === "revenue-report-download" || id === "revenue-hq-village" || id === "revenue-target-achievement" || id === "revenue-top-defaulters" || id === "revenue-cash-reconcile" || id === "revenue-pending-list" || id === "revenue-paid-upload" || id === "revenue-message-login") {
