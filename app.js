@@ -10686,10 +10686,14 @@
             return revenueTdEntriesSyncFetchPromise;
         }
 
+        // BUG FIX (2026-08-20): syncRevenueLiveEntriesFromSheetInner_ jaisa hi
+        // 45-second timeout - dekhein waha wali detailed note.
         async function syncRevenueTdEntriesFromSheetInner_(attempts) {
             for (let attempt = 1; attempt <= attempts; attempt++) {
+                const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+                const timer = setTimeout(() => { try { if (controller) controller.abort(); } catch (_) {} }, 45000);
                 try {
-                    const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getTDEntries&t=${Date.now()}`);
+                    const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getTDEntries&t=${Date.now()}`, controller ? { signal: controller.signal } : {});
                     const parsed = await response.json();
                     const sourceRows = Array.isArray(parsed?.entries)
                         ? parsed.entries
@@ -10700,7 +10704,9 @@
                         revenueTdEntriesSyncedAt = Date.now();
                         return rows;
                     }
-                } catch (_) {}
+                } catch (_) {} finally {
+                    clearTimeout(timer);
+                }
                 if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, 600 * attempt));
             }
             return getRevenueTdEntriesLocal();
@@ -13302,10 +13308,25 @@
             return revenueLiveEntriesSyncFetchPromise;
         }
 
+        // BUG FIX (2026-08-20): is fetch me pehle koi timeout/AbortController nahi
+        // tha - agar Apps Script backend kabhi slow/hang ho jaaye (jaisa baaki
+        // getUploadedPaidXxx fetches me pehle se hota hai, isliye unme timeout hai)
+        // to yeh `await fetch(...)` HAMESHA ke liye latka reh sakta tha. Upar wali
+        // in-flight dedupe (revenueLiveEntriesSyncFetchPromise) ke saath is hang ka
+        // asar aur bhi zyada ho gaya - jab tak yeh EK latka hua fetch settle na ho,
+        // koi bhi dusra caller (Live Progress screen kholna, dobara try karna, koi
+        // bhi report) usi latki hui promise ka wait karta reh jaata - isi wajah se
+        // Live Progress "99%" par hamesha ke liye atak jaati thi jab tak poora app
+        // reload na ho. Ab 45-second timeout hai - agar backend itne me jawab na
+        // de to yeh attempt fail maan kar agla attempt try karta hai (ya khatam
+        // hoke local cache return karta hai), taaki promise kabhi permanently
+        // latki na rahe.
         async function syncRevenueLiveEntriesFromSheetInner_(attempts) {
             for (let attempt = 1; attempt <= attempts; attempt++) {
+                const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+                const timer = setTimeout(() => { try { if (controller) controller.abort(); } catch (_) {} }, 45000);
                 try {
-                    const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getEntries&t=${Date.now()}`);
+                    const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getEntries&t=${Date.now()}`, controller ? { signal: controller.signal } : {});
                     const parsed = await response.json();
                     const sourceRows = Array.isArray(parsed?.entries)
                         ? parsed.entries
@@ -13316,7 +13337,9 @@
                         revenueLiveEntriesSyncedAt = Date.now();
                         return rows;
                     }
-                } catch (_) {}
+                } catch (_) {} finally {
+                    clearTimeout(timer);
+                }
                 if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, 600 * attempt));
             }
             return getRevenueLiveEntries();
@@ -13653,7 +13676,18 @@
                 return;
             }
             const progress = renderSyncingProgress(tableBox, () => myToken === revenueLiveProgressToken, "SYNCING LATEST REPORT...");
-            await Promise.all([syncRevenueLiveEntriesFromSheet(), syncRevenueTdEntriesFromSheet()]);
+            // BUG FIX (2026-08-20): pehle yahan try/catch nahi tha - agar Promise.all
+            // kisi bhi wajah se reject ho jaaye to progress.stop()/finish() kabhi call
+            // hi nahi hota, aur progress bar hamesha ke liye "99%" par atki reh jaati
+            // thi (screen reload kiye bina kabhi khatam na hone wali). Ab error aane
+            // par bhi progress turant stop hoga aur user ko clear status dikhega.
+            try {
+                await Promise.all([syncRevenueLiveEntriesFromSheet(), syncRevenueTdEntriesFromSheet()]);
+            } catch (_) {
+                progress.stop();
+                if (myToken === revenueLiveProgressToken) tableBox.innerHTML = '<p class="text-center text-red-500 py-10 font-black">REPORT LOAD NAHI HO PAYI, DOBARA TRY KIJIYE</p>';
+                return;
+            }
             if (myToken !== revenueLiveProgressToken) { progress.stop(); return; }
             if (activeDC) activeViewLevel = "DC";
             else if (activeDiv) activeViewLevel = "DIVISION";
