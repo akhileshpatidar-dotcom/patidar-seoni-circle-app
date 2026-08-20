@@ -3335,7 +3335,24 @@
             };
         }
 
+        // USER REQUEST (2026-08-19): Progress Report screen ke header ke niche wali
+        // green pill me pehle hardcoded "PROGRESS REPORT" likha rehta tha (jabki
+        // upar header me bhi "PROGRESS REPORT" likha hota hai - do baar same text).
+        // Ab yahan iski jagah current scope (DC/DIVISION/CIRCLE) dikhana hai -
+        // jaise "DC - CHHAPARA-1", "DIVISION LAKHNADON", "CIRCLE - SEONI".
+        function getProgressReportScopeLabel() {
+            if (activeViewLevel === "DC") return `DC - ${activeDC}`;
+            if (activeViewLevel === "DIVISION") return activeDiv || "DIVISION";
+            return "CIRCLE - SEONI";
+        }
+
+        function updateProgressReportScopeTitle() {
+            const titleEl = document.getElementById("summary-title");
+            if (titleEl) titleEl.innerText = getProgressReportScopeLabel();
+        }
+
         async function refreshSummary() {
+            updateProgressReportScopeTitle();
             const refreshToken = ++summaryRefreshToken;
             const moduleAtStart = summaryModule;
             const viewLevelAtStart = activeViewLevel;
