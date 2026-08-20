@@ -1006,6 +1006,13 @@ function uploadPaidMaster_(data) {
 
 function getRevenueEntries_(params) {
   const requestedDc = clean_(params.dc_name);
+  // PERF FIX (2026-08-20): naya optional `date` param - jab client ise bhejta
+  // hai (jaise app.js ki Live Progress fast path), to sirf usi date ki rows
+  // wapas jaati hain, poori history nahi. Param na bheja jaaye to (jaisa
+  // purane sabhi calls karte hain - Report Download, Progress Report, Cash
+  // Reconcile, waghera) behavior BILKUL pehle jaisa hi rehta hai - kuch bhi
+  // nahi tootega, yeh 100% backward compatible hai.
+  const requestedDate = clean_(params.date);
   const ss = getSpreadsheet_();
   const dcList = requestedDc ? [requireDcName_(requestedDc)] : DC_NAMES;
   let entries = [];
@@ -1016,6 +1023,10 @@ function getRevenueEntries_(params) {
     const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, COLLECTION_HEADERS.length).getValues();
     entries = entries.concat(values.map(mapCollectionRow_).filter(hasIvrs_));
   });
+
+  if (requestedDate) {
+    entries = entries.filter(function(row) { return matchesDateFilter_(row.date, requestedDate); });
+  }
 
   return jsonResponse_({ status: "success", entries: entries });
 }
@@ -1190,13 +1201,23 @@ function getLineTdEntries_(params) {
   const ss = getSpreadsheet_();
   const sheet = getOrCreateSheet_(ss, LINE_TD_SHEET_NAME, LINE_TD_HEADERS);
   const dcName = clean_(params.dc_name) ? requireDcName_(params.dc_name) : "";
+  // PERF FIX (2026-08-20): getRevenueEntries_ jaisa hi optional `date` param -
+  // dekhein waha wali detailed note. LINE TD REPORT ek hi shared sheet hai
+  // (sabhi DC ka), isliye yahan sheet-read cost date filter se kam nahi
+  // hoti, lekin response payload chhota ho jaata hai jab dc_name ke saath
+  // combine kiya jaaye - dono milkar Live Progress ko fast banate hain.
+  const requestedDate = clean_(params.date);
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return jsonResponse_({ status: "success", entries: [] });
 
   const values = sheet.getRange(2, 1, lastRow - 1, LINE_TD_HEADERS.length).getValues();
-  const entries = values.filter(function(row) {
+  let entries = values.filter(function(row) {
     return !dcName || safeDcName_(row[0]) === dcName;
   }).map(mapLineTdRow_).filter(hasIvrs_);
+
+  if (requestedDate) {
+    entries = entries.filter(function(row) { return matchesDateFilter_(row.td_date, requestedDate); });
+  }
 
   return jsonResponse_({ status: "success", entries: entries });
 }
@@ -1773,6 +1794,35 @@ function formatDate_(date) {
 function formatDateValue_(value) {
   if (Object.prototype.toString.call(value) === "[object Date]" && !isNaN(value.getTime())) return formatDate_(value);
   return clean_(value);
+}
+
+// PERF FIX (2026-08-20): getRevenueEntries_/getLineTdEntries_ me naye
+// optional `date` filter ke liye helper. Sheet me date kabhi "dd/MM/yyyy"
+// (formatDate_ se) aur kabhi jaisa bhi text originally submit hua ho, alag
+// delimiter/padding ke saath ho sakta hai (jaise app.js "dd-MM-yyyy" bhejta
+// hai). Isliye seedha string-compare risky hai - yahan dono taraf se
+// day/month/year nikal kar, pad karke, phir compare karte hain, taaki
+// "13/08/2026", "13-08-2026", "13/8/2026" sab ek hi date maane jaayein.
+function normalizeDateDigits_(value) {
+  const raw = String(value || "").trim();
+  const match = raw.match(/(\d{1,4})\D+(\d{1,2})\D+(\d{1,4})/);
+  if (!match) return "";
+  let day, month, year;
+  if (match[1].length === 4) {
+    year = match[1]; month = match[2]; day = match[3];
+  } else if (match[3].length === 4) {
+    day = match[1]; month = match[2]; year = match[3];
+  } else {
+    day = match[1]; month = match[2];
+    year = match[3].length === 2 ? "20" + match[3] : match[3];
+  }
+  return String(day).padStart(2, "0") + String(month).padStart(2, "0") + String(year).padStart(4, "0");
+}
+
+function matchesDateFilter_(rawDate, requestedDate) {
+  const a = normalizeDateDigits_(rawDate);
+  const b = normalizeDateDigits_(requestedDate);
+  return !!a && !!b && a === b;
 }
 
 function formatTime_(value) {
