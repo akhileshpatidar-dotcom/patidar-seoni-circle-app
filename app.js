@@ -3335,24 +3335,7 @@
             };
         }
 
-        // USER REQUEST (2026-08-19): Progress Report screen ke header ke niche wali
-        // green pill me pehle hardcoded "PROGRESS REPORT" likha rehta tha (jabki
-        // upar header me bhi "PROGRESS REPORT" likha hota hai - do baar same text).
-        // Ab yahan iski jagah current scope (DC/DIVISION/CIRCLE) dikhana hai -
-        // jaise "DC - CHHAPARA-1", "DIVISION LAKHNADON", "CIRCLE - SEONI".
-        function getProgressReportScopeLabel() {
-            if (activeViewLevel === "DC") return `DC - ${activeDC}`;
-            if (activeViewLevel === "DIVISION") return activeDiv || "DIVISION";
-            return "CIRCLE - SEONI";
-        }
-
-        function updateProgressReportScopeTitle() {
-            const titleEl = document.getElementById("summary-title");
-            if (titleEl) titleEl.innerText = getProgressReportScopeLabel();
-        }
-
         async function refreshSummary() {
-            updateProgressReportScopeTitle();
             const refreshToken = ++summaryRefreshToken;
             const moduleAtStart = summaryModule;
             const viewLevelAtStart = activeViewLevel;
@@ -15351,23 +15334,7 @@
                     // USER REQUEST (2026-08-13): partial payment wale consumer ka bacha
                     // hua bakaya (Net Bill - Paid, sirf positive) - poora Net Bill nahi.
                     // Fully/over-paid (paidAmount >= netBill) ho to pendingAmount 0 rahega.
-                    // BUG FIX (2026-08-20): pehle yahan seedha parseRevenuePaidAmount() use
-                    // hota tha (koi garbage-number cap nahi) - CSV column-misalignment ki
-                    // wajah se kisi ek-do consumer ka netBill kabhi-kabhi 15-20 digit ka
-                    // "garbage" (asambhav bada) number ban jaata hai (jaise IVRS+mobile+bill
-                    // aapas me jud jaana). DC-level scope me aisa ek DC ke thode consumers
-                    // tak simit rehta tha, lekin DIVISION/CIRCLE scope me jab kai DC ka data
-                    // ek sath jud kar sort hota hai, to ye garbage (astronomically bada)
-                    // number descending sort me sabse UPAR aa jaata - Top 20/50 Defaulters
-                    // ki poori list hi in garbage rows se bhar jaati thi. Aur display ke
-                    // waqt formatProgressReportAmount() 1e12 se bade number ko "0" dikhata
-                    // hai - isi wajah se Division/Circle ke Top Defaulters me sab "0"
-                    // dikhte the (garbage rows list top par thi, jinka display 0 tha),
-                    // jabki DC scope me aisa garbage row shayad hi kabhi top tak pahunchta.
-                    // parseRevenuePendingAmount() (jo Non-Payee reports me pehle se use hoti
-                    // hai) yehi garbage (>1 crore) ko 0 maan kar sahi tarah discard kar deti
-                    // hai - ab yahan bhi wahi use karte hain, taaki asli defaulters upar aayein.
-                    const dueAmountForRow = parseRevenuePendingAmount(row.netBill || 0);
+                    const dueAmountForRow = parseRevenuePaidAmount(row.netBill || 0);
                     const pendingAmount = paid ? Math.max(0, dueAmountForRow - paidAmount) : dueAmountForRow;
                     rows.push({
                         ivrsNo: row.ivrsNo || "",
