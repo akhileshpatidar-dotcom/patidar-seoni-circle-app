@@ -1017,18 +1017,66 @@ function getRevenueEntries_(params) {
   const dcList = requestedDc ? [requireDcName_(requestedDc)] : DC_NAMES;
   let entries = [];
 
-  dcList.forEach(function(dcName) {
-    const sheet = getPaidSheet_(ss, dcName, false);
-    if (!sheet || sheet.getLastRow() < 2) return;
-    const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, COLLECTION_HEADERS.length).getValues();
-    entries = entries.concat(values.map(mapCollectionRow_).filter(hasIvrs_));
-  });
+  // PERF FIX (2026-08-20, Point 3): Circle/Division scope me (dc_name nahi
+  // diya gaya, matlab sabhi 24 DC ka data chahiye) - agar Apps Script project
+  // me "Google Sheets API" Advanced Service ON hai, to sabhi 24 sheets EK HI
+  // batchGet call me padh lete hain, 24 alag-alag SpreadsheetApp reads (jinme
+  // se har ek ka apna open/close overhead hai) ki jagah. Agar Advanced Service
+  // abhi ON nahi hai (`typeof Sheets === "undefined"`), ya batchGet kisi bhi
+  // wajah se fail ho jaaye, to turant purane, safe (per-sheet) tarike par
+  // fallback ho jaata hai - isliye kuch bhi TOOTEGA nahi, sirf jab Advanced
+  // Service ON ho tabhi extra speed milegi.
+  let usedBatchGet = false;
+  if (!requestedDc && dcList.length > 1 && typeof Sheets !== "undefined") {
+    try {
+      entries = getRevenueEntriesViaBatchGet_(ss, dcList);
+      usedBatchGet = true;
+    } catch (e) {
+      usedBatchGet = false;
+    }
+  }
+
+  if (!usedBatchGet) {
+    entries = [];
+    dcList.forEach(function(dcName) {
+      const sheet = getPaidSheet_(ss, dcName, false);
+      if (!sheet || sheet.getLastRow() < 2) return;
+      const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, COLLECTION_HEADERS.length).getValues();
+      entries = entries.concat(values.map(mapCollectionRow_).filter(hasIvrs_));
+    });
+  }
 
   if (requestedDate) {
     entries = entries.filter(function(row) { return matchesDateFilter_(row.date, requestedDate); });
   }
 
   return jsonResponse_({ status: "success", entries: entries });
+}
+
+// PERF FIX (2026-08-20, Point 3) helper - sabhi diye gaye DC ki "PAID - {DC}"
+// sheets ka data EK HI Sheets API batchGet call me le aata hai. Sheet naam
+// COLLECTION_SHEET_PREFIX + DC (jaisa getPaidSheet_/getDcSheet_ banata hai)
+// se match karta hai. A2:M isliye kyunki COLLECTION_HEADERS me 13 columns
+// hain (A se M) - range ka end khula rakha hai (last row number nahi diya)
+// taaki har DC ka alag se getLastRow() nikalne ki zaroorat na pade.
+function getRevenueEntriesViaBatchGet_(ss, dcList) {
+  const sheetNames = [];
+  dcList.forEach(function(dcName) {
+    const sheet = getPaidSheet_(ss, dcName, false);
+    if (sheet) sheetNames.push(sheet.getName());
+  });
+  if (!sheetNames.length) return [];
+
+  const ranges = sheetNames.map(function(name) {
+    return "'" + name.replace(/'/g, "''") + "'!A2:M";
+  });
+  const response = Sheets.Spreadsheets.Values.batchGet(ss.getId(), { ranges: ranges });
+  let entries = [];
+  (response.valueRanges || []).forEach(function(vr) {
+    const values = vr.values || [];
+    entries = entries.concat(values.map(mapCollectionRow_).filter(hasIvrs_));
+  });
+  return entries;
 }
 
 function checkPaidEntry_(params) {

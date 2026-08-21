@@ -3518,9 +3518,16 @@
                         await loadRevenueCollectionData(activeDC, forceMasterRefresh);
                         revenueSummaryMasterLoadedDcKey = revenueSummaryDcKey;
                     }
+                    // PERF FIX (2026-08-21): Daily Progress (Revenue tab) DC scope me ho
+                    // to sirf usi DC ka data maango (Point 1 jaisa hi scope-tracking wala
+                    // safe tarika - poori history, date-filter NAHI, kyunki yahan dropdown
+                    // se date/month switch karne par bhi purana hi fetched data reuse hota
+                    // hai). DIVISION/CIRCLE scope me pehle jaisa hi (sabhi DC) fetch hota
+                    // hai, kyunki wahan sach me sabhi DC ka data chahiye.
+                    const revenueSummaryScopeDc = activeViewLevel === "DC" ? activeDC : null;
                     await Promise.all([
-                        syncRevenueLiveEntriesFromSheet(),
-                        syncRevenueTdEntriesFromSheet()
+                        syncRevenueLiveEntriesFromSheet(3, false, revenueSummaryScopeDc),
+                        syncRevenueTdEntriesFromSheet(3, false, revenueSummaryScopeDc)
                     ]);
                     if (isStaleSummaryRefresh()) return;
 
@@ -10672,33 +10679,46 @@
         // In-flight fetch dedupe - same reason as revenueLiveEntriesSyncFetchPromise
         // upar: background warming aur user ka apna report-open ek hi request share
         // karein, taaki koi extra competing parallel fetch na chale.
-        let revenueTdEntriesSyncFetchPromise = null;
+        let revenueTdEntriesSyncFetchPromises = {};
+        // syncRevenueLiveEntriesFromSheet Point-1 fix jaisa hi scope-tracking -
+        // dekhein waha wali detailed note.
+        let revenueTdEntriesCachedScopeDc = null;
 
-        async function syncRevenueTdEntriesFromSheet(attempts = 3, forceRefresh = false) {
-            if (!forceRefresh && revenueTdEntriesSyncedAt && Date.now() - revenueTdEntriesSyncedAt < REVENUE_TD_ENTRIES_SYNC_TTL_MS) {
+        async function syncRevenueTdEntriesFromSheet(attempts = 3, forceRefresh = false, scopeDc = null) {
+            const cacheSatisfiesScope = revenueTdEntriesCachedScopeDc === null || (scopeDc && revenueTdEntriesCachedScopeDc === scopeDc);
+            if (!forceRefresh && cacheSatisfiesScope && revenueTdEntriesSyncedAt && Date.now() - revenueTdEntriesSyncedAt < REVENUE_TD_ENTRIES_SYNC_TTL_MS) {
                 return getRevenueTdEntriesLocal();
             }
             if (!revenueCollectionSubmitScriptUrl) return getRevenueTdEntriesLocal();
-            if (!forceRefresh && revenueTdEntriesSyncFetchPromise) return revenueTdEntriesSyncFetchPromise;
-            revenueTdEntriesSyncFetchPromise = syncRevenueTdEntriesFromSheetInner_(attempts).finally(() => {
-                revenueTdEntriesSyncFetchPromise = null;
+            const dedupeKey = scopeDc || "__ALL__";
+            if (!forceRefresh && revenueTdEntriesSyncFetchPromises[dedupeKey]) return revenueTdEntriesSyncFetchPromises[dedupeKey];
+            revenueTdEntriesSyncFetchPromises[dedupeKey] = syncRevenueTdEntriesFromSheetInner_(attempts, scopeDc).finally(() => {
+                delete revenueTdEntriesSyncFetchPromises[dedupeKey];
             });
-            return revenueTdEntriesSyncFetchPromise;
+            return revenueTdEntriesSyncFetchPromises[dedupeKey];
         }
 
-        async function syncRevenueTdEntriesFromSheetInner_(attempts) {
+        async function syncRevenueTdEntriesFromSheetInner_(attempts, scopeDc = null) {
+            const scopeParam = scopeDc ? `&dc_name=${encodeURIComponent(scopeDc)}` : "";
             for (let attempt = 1; attempt <= attempts; attempt++) {
                 try {
-                    const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getTDEntries&t=${Date.now()}`);
+                    const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getTDEntries${scopeParam}&t=${Date.now()}`);
                     const parsed = await response.json();
                     const sourceRows = Array.isArray(parsed?.entries)
                         ? parsed.entries
                         : (Array.isArray(parsed?.rows) ? parsed.rows : (Array.isArray(parsed?.data) ? parsed.data : []));
                     if (parsed && parsed.status === "success" && Array.isArray(sourceRows)) {
-                        const rows = sourceRows.map(mapRevenueTdSheetEntry).filter((row) => normalizeRevenueIvrs(row.ivrsNo));
-                        setRevenueTdEntriesLocal(rows);
+                        const freshRows = sourceRows.map(mapRevenueTdSheetEntry).filter((row) => normalizeRevenueIvrs(row.ivrsNo));
+                        if (scopeDc) {
+                            const others = getRevenueTdEntriesLocal().filter((row) => normalizeDcName(row.dcName || "") !== normalizeDcName(scopeDc));
+                            setRevenueTdEntriesLocal([...others, ...freshRows]);
+                            revenueTdEntriesCachedScopeDc = scopeDc;
+                        } else {
+                            setRevenueTdEntriesLocal(freshRows);
+                            revenueTdEntriesCachedScopeDc = null;
+                        }
                         revenueTdEntriesSyncedAt = Date.now();
-                        return rows;
+                        return getRevenueTdEntriesLocal();
                     }
                 } catch (_) {}
                 if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, 600 * attempt));
@@ -12262,11 +12282,23 @@
         // shuru ho chuka) sync mil jaata hai - report khulne me kam ya bilkul
         // time nahi lagta, kyunki shared 60-second TTL cache (upar dekhein) usi
         // pehle se warm data ko reuse kar leta hai.
+        // PERF FIX (2026-08-20, Point 1): pehle yahan hamesha SABHI 24 DC ka poora
+        // data background me fetch hota tha (chahe user ek hi DC dekhne wala ho) -
+        // isliye "background syncing" se bhi actual load time me zyada fark nahi
+        // padta tha, kyunki background wala fetch bhi utna hi bhaari/slow tha.
+        // Ab agar hum sach me ek DC ke context me hain (activeDC set hai aur
+        // dcName wahi DC hai, "CIRCLE"/"DIVISION" jaisa scope-level string nahi),
+        // to sirf usi DC ka data maangte hain (poori history, date-filter nahi -
+        // kyunki Report Download/Progress Report ko purane mahino ka data bhi
+        // chahiye hota hai) - 24 DC ki jagah 1 DC, isliye bahut fast. Circle/
+        // Division level warm-up abhi bhi purane (sabhi DC) tarike se hi hota
+        // hai kyunki wahan sach me sabhi DC ka data chahiye hota hai.
         function prefetchRevenueBackgroundDataForDc(dcName) {
             if (!dcName || !revenueCollectionSubmitScriptUrl) return;
+            const scopeDc = (activeDC && normalizeDcName(dcName) === normalizeDcName(activeDC)) ? activeDC : null;
             Promise.all([
-                syncRevenueLiveEntriesFromSheet(),
-                syncRevenueTdEntriesFromSheet(),
+                syncRevenueLiveEntriesFromSheet(3, false, scopeDc),
+                syncRevenueTdEntriesFromSheet(3, false, scopeDc),
                 getRevenueUploadedPaidMasterRows()
             ]).catch(() => {});
         }
@@ -13288,33 +13320,59 @@
         // jo yahi function call kare, to naya alag parallel fetch shuru NAHI hota -
         // dono ek hi chal rahi request ka result share karte hain. Isse background
         // warming ki wajah se pehla report kabhi slow nahi hota, sirf fast/same hota hai.
-        let revenueLiveEntriesSyncFetchPromise = null;
+        let revenueLiveEntriesSyncFetchPromises = {};
+        // PERF FIX (2026-08-20, Point 1): cache abhi kis scope ka data rakhti hai -
+        // null/undefined = SABHI DC ka poora data (kisi bhi scope ke liye safe hai).
+        // "<DC NAME>" = sirf usi ek DC ka poora data (sirf usi DC ke liye safe hai,
+        // Circle/Division ke liye NAHI). Isse background prefetch DC-scoped fetch
+        // kar sakta hai bina Circle/Division report ko galat/adhoora data dikhaye -
+        // scope match na ho to neeche wala function khud fresh (sahi scope wali)
+        // fetch kar leta hai.
+        let revenueLiveEntriesCachedScopeDc = null;
 
-        async function syncRevenueLiveEntriesFromSheet(attempts = 3, forceRefresh = false) {
-            if (!forceRefresh && revenueLiveEntriesSyncedAt && Date.now() - revenueLiveEntriesSyncedAt < REVENUE_LIVE_ENTRIES_SYNC_TTL_MS) {
+        async function syncRevenueLiveEntriesFromSheet(attempts = 3, forceRefresh = false, scopeDc = null) {
+            const cacheSatisfiesScope = revenueLiveEntriesCachedScopeDc === null || (scopeDc && revenueLiveEntriesCachedScopeDc === scopeDc);
+            if (!forceRefresh && cacheSatisfiesScope && revenueLiveEntriesSyncedAt && Date.now() - revenueLiveEntriesSyncedAt < REVENUE_LIVE_ENTRIES_SYNC_TTL_MS) {
                 return getRevenueLiveEntries();
             }
             if (!revenueCollectionSubmitScriptUrl) return getRevenueLiveEntries();
-            if (!forceRefresh && revenueLiveEntriesSyncFetchPromise) return revenueLiveEntriesSyncFetchPromise;
-            revenueLiveEntriesSyncFetchPromise = syncRevenueLiveEntriesFromSheetInner_(attempts).finally(() => {
-                revenueLiveEntriesSyncFetchPromise = null;
+            const dedupeKey = scopeDc || "__ALL__";
+            if (!forceRefresh && revenueLiveEntriesSyncFetchPromises[dedupeKey]) return revenueLiveEntriesSyncFetchPromises[dedupeKey];
+            revenueLiveEntriesSyncFetchPromises[dedupeKey] = syncRevenueLiveEntriesFromSheetInner_(attempts, scopeDc).finally(() => {
+                delete revenueLiveEntriesSyncFetchPromises[dedupeKey];
             });
-            return revenueLiveEntriesSyncFetchPromise;
+            return revenueLiveEntriesSyncFetchPromises[dedupeKey];
         }
 
-        async function syncRevenueLiveEntriesFromSheetInner_(attempts) {
+        async function syncRevenueLiveEntriesFromSheetInner_(attempts, scopeDc = null) {
+            const scopeParam = scopeDc ? `&dc_name=${encodeURIComponent(scopeDc)}` : "";
             for (let attempt = 1; attempt <= attempts; attempt++) {
                 try {
-                    const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getEntries&t=${Date.now()}`);
+                    const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getEntries${scopeParam}&t=${Date.now()}`);
                     const parsed = await response.json();
                     const sourceRows = Array.isArray(parsed?.entries)
                         ? parsed.entries
                         : (Array.isArray(parsed?.rows) ? parsed.rows : (Array.isArray(parsed?.data) ? parsed.data : []));
                     if (parsed && parsed.status === "success" && Array.isArray(sourceRows)) {
-                        const rows = sourceRows.map(mapRevenueSheetEntry).filter((row) => normalizeRevenueIvrs(row.ivrsNo));
-                        setRevenueLiveEntries(rows);
+                        // Agar yeh DC-scoped fetch tha, to shared cache me sirf usi DC ka
+                        // purana data replace karo (baaki DC ka jo pehle se cache me tha
+                        // wahi rehne do) - warna Circle/Division scope ka data corrupt ho
+                        // jaata. Full (unscoped) fetch me poori cache replace hoti hai jaisa
+                        // pehle hota tha.
+                        const freshRows = sourceRows.map(mapRevenueSheetEntry).filter((row) => normalizeRevenueIvrs(row.ivrsNo));
+                        if (scopeDc) {
+                            const others = getRevenueLiveEntries().filter((row) => normalizeDcName(row.dcName || "") !== normalizeDcName(scopeDc));
+                            setRevenueLiveEntries([...others, ...freshRows]);
+                            // Poori (sabhi-DC) cache abhi bhi COMPLETE nahi hai - agla koi
+                            // Circle/Division wala caller isi variable ko dekh kar fresh
+                            // full-fetch khud kar lega.
+                            revenueLiveEntriesCachedScopeDc = scopeDc;
+                        } else {
+                            setRevenueLiveEntries(freshRows);
+                            revenueLiveEntriesCachedScopeDc = null;
+                        }
                         revenueLiveEntriesSyncedAt = Date.now();
-                        return rows;
+                        return getRevenueLiveEntries();
                     }
                 } catch (_) {}
                 if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, 600 * attempt));
