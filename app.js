@@ -5118,13 +5118,36 @@
                 if (modal) modal.style.display = "none";
                 return;
             }
-            const link = document.createElement("a");
-            link.href = gpsCameraPhotoDataUrl;
-            link.download = fileName;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            showToast("Browser download start hua, mobile me Save to Photos/Gallery support na mile to share panel use kijiye", true);
+            // BUG FIX (2026-08-22): pehle yahan seedha `data:` URI (poora base64
+            // photo data) ko <a href> me daal kar download trigger karte the.
+            // Camera photo ka base64 data: URI bahut lamba (kai MB tak) ho sakta
+            // hai - kai Android/Chrome versions par itna bada `data:` URI href se
+            // download reliably start nahi hota (kabhi photo bas naye tab me khul
+            // jaati hai, kabhi kuch bhi nahi hota) - isi wajah se "image download
+            // nahi ho rahi" jaisa mehsoos hota tha. Ab pehle photo ko Blob me
+            // convert karke `blob:` URL banate hain - yeh mobile browsers par
+            // bade images/files download karne ka standard, zyada bharosemand
+            // tarika hai. Agar kisi wajah se yeh bhi fail ho jaaye, to purana
+            // `data:` URI tarika hi fallback ke roop me chalta hai.
+            try {
+                const file = dataUrlToFile(gpsCameraPhotoDataUrl, fileName);
+                const blobUrl = URL.createObjectURL(file);
+                const link = document.createElement("a");
+                link.href = blobUrl;
+                link.download = fileName;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                setTimeout(() => URL.revokeObjectURL(blobUrl), 4000);
+            } catch (_) {
+                const link = document.createElement("a");
+                link.href = gpsCameraPhotoDataUrl;
+                link.download = fileName;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }
+            showToast("Download start hua, mobile me Save to Photos/Gallery support na mile to share panel use kijiye", true);
         }
 
         function retakeGpsCameraPhoto() {
