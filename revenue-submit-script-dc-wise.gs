@@ -771,9 +771,18 @@ function submitRevenuePayment_(data) {
     const ss = getSpreadsheet_();
     const sheet = getPaidSheet_(ss, dcName, true);
     const existingPayments = findCollectionPayments_(sheet, ivrsNo, dcName);
+    // BUG FIX (2026-08-22): "2 baar Paid Amount" wala limit pehle HAMESHA KE
+    // LIYE (lifetime) tha - ek baar 2 payment ho jaane par woh IVRS agle
+    // mahine bhi permanently block reh jaata tha. Ab yeh limit sirf CURRENT
+    // MONTH ke liye hai - naye mahine me phir se 2 payment allow hote hain
+    // (jaisa monthly bijli bill collection cycle ke liye sahi hai).
+    const currentMonthKey = normalizeDateDigits_(formatDate_(new Date())).substring(2);
+    const existingPaymentsThisMonth = existingPayments.filter(function(p) {
+      return normalizeDateDigits_(p.date).substring(2) === currentMonthKey;
+    });
 
-    if (existingPayments.length >= 2) {
-      throw new Error("Already submitted 2 times");
+    if (existingPaymentsThisMonth.length >= 2) {
+      throw new Error("Already submitted 2 times is month");
     }
 
     const now = new Date();
@@ -801,7 +810,7 @@ function submitRevenuePayment_(data) {
     return jsonResponse_({
       status: "success",
       message: "Revenue paid amount submit ho gaya",
-      payment_count: existingPayments.length + 1,
+      payment_count: existingPaymentsThisMonth.length + 1,
       sheet_name: sheet.getName()
     });
   } finally {

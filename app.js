@@ -307,6 +307,12 @@
             Object.keys(revenueCollectionCsvUrls).forEach((dcKey) => {
                 loadRevenueCollectionData(dcKey).catch(() => {});
             });
+            // AUTO-RETRY (2026-08-21): app open hote hi bhi pending offline submit
+            // (agar koi ho) ko silently retry kar dete hain - agar us waqt signal
+            // theek mile to woh khud submit ho jaayega aur "pending" dialog box khud
+            // hi hat jaayega, user ko RETRY PENDING DATA button dabane ki zaroorat
+            // nahi padegi.
+            retryRevenueOfflineQueue(true).catch(() => {});
             loadCourtCaseData();
             loadStockMaterialsData();
             preloadDuplicateTrackingData();
@@ -10565,6 +10571,19 @@
             return item;
         }
 
+        // BUG FIX (2026-08-21): "Paid Amount" submit par backend me ek IVRS par max 2
+        // baar hi payment allow hai (submitRevenuePayment_ me "Already submitted 2
+        // times" error) - agar pehli submit dobara asal me backend tak pahunch chuki
+        // thi (bas response app tak time par nahi aaya, isliye app ne "fail" maan liya
+        // aur local pending-queue me daal diya), to har retry hamesha yahi error dobara
+        // dega, kyunki data already sahi se save ho chuka hai. Aisi permanent error ko
+        // "fail" na maan kar "already done, safe hai" maan kar queue se hata dete hain -
+        // warna yeh "1 pending" box KABHI nahi hatega, chahe kitni baar retry karo.
+        function isRevenueOfflineQueuePermanentError_(error) {
+            const message = String(error?.message || "").toLowerCase();
+            return message.includes("already submitted");
+        }
+
         async function syncRevenueQueueItemInBackground(item) {
             if (!item || !item.body || !revenueCollectionSubmitScriptUrl) return;
             try {
@@ -10577,7 +10596,13 @@
                     syncedTdEntry.paidStatus = parsed.paid_status || syncedTdEntry.paidStatus || "";
                     saveRevenueTdEntryLocal(syncedTdEntry);
                 }
-            } catch (_) {
+            } catch (error) {
+                if (isRevenueOfflineQueuePermanentError_(error)) {
+                    const itemKey = getRevenueOfflineItemKey(item);
+                    setRevenueOfflineQueue(getRevenueOfflineQueue().filter((row) => getRevenueOfflineItemKey(row) !== itemKey));
+                    renderRevenueOfflineRetryBox();
+                    return;
+                }
                 renderRevenueOfflineRetryBox();
             }
         }
@@ -10612,13 +10637,24 @@
             return parsed || {};
         }
 
-        async function retryRevenueOfflineQueue() {
+        // AUTO-RETRY FEATURE (2026-08-21): pehle pending offline submit sirf tabhi
+        // dobara try hota tha jab user khud "RETRY PENDING DATA" button dabata tha.
+        // Ab yeh function app khulte hi (DOMContentLoaded) aur jab bhi internet
+        // wapas aata hai (window "online" event) khud-b-khud (silently, background
+        // me) bhi chal jaata hai - agar us waqt signal strong mila aur submit ho
+        // gaya, to "pending" wala dialog box khud hi hat jaata hai, user ko kuch
+        // bhi manually karne ki zaroorat nahi. `silent = true` par koi toast/UI
+        // disturbance nahi hota (kyunki yeh background me, bina user action ke,
+        // chal raha hota hai) - sirf queue clear hoti hai aur box update hota hai.
+        async function retryRevenueOfflineQueue(silent = false) {
             const retryBtn = document.getElementById("revenue-offline-retry-btn");
             const text = document.getElementById("revenue-offline-retry-text");
             const queue = getRevenueOfflineQueue();
             if (!queue.length) return renderRevenueOfflineRetryBox();
-            setActionButtonState(retryBtn, "processing", "Retry Pending Data");
-            if (text) text.innerText = getActionStatusText("processing");
+            if (!silent) {
+                setActionButtonState(retryBtn, "processing", "Retry Pending Data");
+                if (text) text.innerText = getActionStatusText("processing");
+            }
 
             const failed = [];
             let successCount = 0;
@@ -10635,18 +10671,42 @@
                         saveRevenueTdEntryLocal(tdEntry);
                     }
                     successCount += 1;
-                } catch (_) {
-                    failed.push(item);
+                } catch (error) {
+                    // "Already submitted 2 times" jaisi permanent error ka matlab hai
+                    // data pehle se hi safely server par maujood hai - isko baar-baar
+                    // retry karna kabhi safal nahi hoga, isliye ise bhi "resolved" maan
+                    // kar queue se hata dete hain (dekhein isRevenueOfflineQueuePermanentError_
+                    // ka detailed comment upar).
+                    if (isRevenueOfflineQueuePermanentError_(error)) {
+                        successCount += 1;
+                    } else {
+                        failed.push(item);
+                    }
                 }
             }
 
             setRevenueOfflineQueue(failed);
-            setActionButtonState(retryBtn, failed.length ? "failed" : "done", "Retry Pending Data");
-            if (text) text.innerText = failed.length ? getActionStatusText("failed") : getActionStatusText("done");
-            if (currentRevenueRecord) renderRevenueConsumer(currentRevenueRecord, currentRevenueRecord.ivrsNo);
-            showToast(failed.length ? `${successCount} submit ho gaya, ${failed.length} pending hai` : "Pending data submit ho gaya", !failed.length);
+            if (!silent) {
+                setActionButtonState(retryBtn, failed.length ? "failed" : "done", "Retry Pending Data");
+                if (text) text.innerText = failed.length ? getActionStatusText("failed") : getActionStatusText("done");
+                if (currentRevenueRecord) renderRevenueConsumer(currentRevenueRecord, currentRevenueRecord.ivrsNo);
+                showToast(failed.length ? `${successCount} submit ho gaya, ${failed.length} pending hai` : "Pending data submit ho gaya", !failed.length);
+            } else if (successCount) {
+                // Silent/background retry me bhi agar kuch submit ho gaya ho, to ek
+                // halka sa toast dikha dete hain - taaki user ko pata chale ki uska
+                // pending data ab safaltapoorvak submit ho gaya, bina unhe kuch kiye.
+                showToast(`${successCount} pending data automatic submit ho gaya`, true);
+            }
             setTimeout(() => renderRevenueOfflineRetryBox(), 900);
         }
+
+        // App khulte hi ek baar silently try karo (agar us waqt hi acha signal
+        // mile), aur jab bhi browser "online" event fire kare (internet wapas aane
+        // par) dobara try karo - is tarah user ko manually retry button dabane ki
+        // zaroorat kam se kam padegi.
+        window.addEventListener("online", () => {
+            retryRevenueOfflineQueue(true).catch(() => {});
+        });
 
         function mapRevenueTdSheetEntry(row) {
             return {
@@ -13266,15 +13326,23 @@
             setRevenueLiveEntries(filteredRows);
         }
 
+        // BUG FIX (2026-08-22): "2 baar Paid Amount" wala limit pehle HAMESHA KE
+        // LIYE (lifetime) count hota tha - ab backend (submitRevenuePayment_) me
+        // yeh limit sirf CURRENT MONTH ke liye hai, isliye yahan bhi wahi current-
+        // month filter lagaya hai, taaki app ka "X/2" display aur submit-cap check
+        // dono backend ke naye (monthly) rule se match karein.
         function getRevenuePaidEntries(ivrsNo) {
             const entryKey = normalizeRevenueIvrs(ivrsNo);
             const dcKey = normalizeLookupValue(activeDC || "");
+            const currentMonthKey = getRevenueMonthKey(getCurrentDateDDMMYYYY());
             const seenPayments = new Set();
             return getRevenueLiveEntries().filter((row) => {
                 const paymentKey = `${normalizeRevenueIvrs(row.ivrsNo)}|${normalizeLookupValue(row.dcName || "")}|${row.paidAmount || ""}|${row.paidDate || ""}|${row.paidTime || ""}`;
                 if (seenPayments.has(paymentKey)) return false;
                 seenPayments.add(paymentKey);
-                return normalizeRevenueIvrs(row.ivrsNo) === entryKey && normalizeLookupValue(row.dcName || "") === dcKey;
+                return normalizeRevenueIvrs(row.ivrsNo) === entryKey
+                    && normalizeLookupValue(row.dcName || "") === dcKey
+                    && getRevenueMonthKey(row.paidDate) === currentMonthKey;
             }).sort((a, b) => String(b.paidAt || "").localeCompare(String(a.paidAt || "")));
         }
 
