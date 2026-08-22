@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="hi" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Consumer Ledger Pro Studio</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Hind:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+        body { font-family: 'Inter', 'Hind', sans-serif; background-color: #0b1329; color: #f1f5f9; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col bg-slate-950 text-slate-100 antialiased">
+    <header class="bg-slate-900 border-b border-slate-800 sticky top-0 z-50 shadow-lg">
+        <div class="max-w-7xl mx-auto px-4 py-3 sm:px-6 lg:px-8 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <div class="p-2.5 bg-emerald-600 rounded-xl text-white shadow-lg">
+                    <i class="fa-solid fa-file-excel text-2xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold text-white tracking-wide">Consumer Ledger Pro Studio</h1>
+                    <p class="text-xs text-slate-400">Default Row 1 Header • AutoFit Column Widths • Solid Headers</p>
+                </div>
+            </div>
+            <button id="exportExcelBtn" onclick="processAndExportExcel()" disabled class="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 text-white font-bold py-2.5 px-5 rounded-xl shadow-lg transition duration-150 flex items-center gap-2">
+                <i class="fa-solid fa-download text-lg"></i>
+                <span>Download Processed Excel (.xlsx)</span>
+            </button>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8 flex-grow grid grid-cols-1 lg:grid-cols-12 gap-6 w-full">
+        <div class="lg:col-span-4 space-y-5">
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-xl">
+                <h2 class="text-sm font-bold text-emerald-400 flex items-center gap-2">
+                    <i class="fa-solid fa-cloud-arrow-up text-lg"></i> Step 1: Upload Excel File
+                </h2>
+                <div id="dropZone" onclick="document.getElementById('fileInput').click()" class="border-2 border-dashed border-slate-700 hover:border-emerald-500 bg-slate-950/60 transition-all rounded-xl p-5 text-center cursor-pointer space-y-2">
+                    <input type="file" id="fileInput" accept=".xlsx, .xls, .csv" class="hidden" onchange="handleFileSelect(event)">
+                    <div class="inline-flex p-3 bg-slate-800 text-emerald-400 rounded-full">
+                        <i class="fa-solid fa-file-invoice text-2xl"></i>
+                    </div>
+                    <p class="text-xs font-semibold text-slate-200" id="fileNameDisplay">यहाँ क्लिक करें या Excel फ़ाइल ड्रैग करें</p>
+                    <p class="text-[11px] text-slate-400">Supports .XLSX, .XLS, .CSV</p>
+                </div>
+                <div id="sheetSelectContainer" class="hidden space-y-1.5">
+                    <label class="block text-xs font-semibold text-slate-400">Select Worksheet</label>
+                    <select id="sheetSelect" onchange="loadSelectedSheet()" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-xs text-slate-200 focus:outline-none"></select>
+                </div>
+                <div id="headerRowContainer" class="hidden space-y-1.5">
+                    <label class="block text-xs font-semibold text-amber-400 flex items-center justify-between">
+                        <span>Header Row (हेडर किस पंक्ति में है?)</span>
+                        <span class="text-[10px] text-slate-400">(Default: Row 1)</span>
+                    </label>
+                    <input type="number" id="headerRowInput" value="1" min="1" max="50" onchange="reprocessData()" class="w-full bg-slate-950 border border-amber-500/50 rounded-lg p-2 text-xs text-slate-200 font-bold text-center">
+                </div>
+            </div>
+
+            <div class="bg-slate-900 border border-amber-500/50 rounded-2xl p-5 space-y-3 shadow-xl">
+                <h2 class="text-sm font-bold text-amber-400 flex items-center gap-2">
+                    <i class="fa-solid fa-bolt text-lg"></i> 1-Click Master Pivot Presets
+                </h2>
+                <div class="grid grid-cols-1 gap-2 text-xs">
+                    <button onclick="applySmartPreset('TARIFF')" class="w-full text-left bg-slate-950 hover:bg-slate-800 border border-slate-800 p-2.5 rounded-xl transition flex items-center justify-between">
+                        <div>
+                            <p class="font-semibold text-slate-200">1. Tariff Category Summary</p>
+                            <p class="text-[10px] text-slate-400">Tariff ➔ Consumers & Net Bill Amount</p>
+                        </div>
+                        <i class="fa-solid fa-chevron-right text-slate-600 text-xs"></i>
+                    </button>
+                    <button onclick="applySmartPreset('GROUP_PURPOSE')" class="w-full text-left bg-slate-950 hover:bg-slate-800 border border-slate-800 p-2.5 rounded-xl transition flex items-center justify-between">
+                        <div>
+                            <p class="font-semibold text-slate-200">2. Group No & Purpose Summary</p>
+                            <p class="text-[10px] text-slate-400">Group No ➔ Purpose ➔ Amount</p>
+                        </div>
+                        <i class="fa-solid fa-chevron-right text-slate-600 text-xs"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3.5 shadow-xl">
+                <h2 class="text-sm font-bold text-blue-400 flex items-center gap-2">
+                    <i class="fa-solid fa-sliders text-lg"></i> Data Cleaning & Style
+                </h2>
+                <div class="space-y-2.5 text-xs">
+                    <label class="flex items-center space-x-2.5 cursor-pointer bg-slate-950/60 p-2 rounded-xl border border-slate-800">
+                        <input type="checkbox" id="optTrim" checked onchange="reprocessData()" class="w-4 h-4 text-emerald-500 rounded bg-slate-900 border-slate-700">
+                        <span class="text-slate-200 font-medium">Remove Extra Spaces (TRIM)</span>
+                    </label>
+                    <label class="flex items-center space-x-2.5 cursor-pointer bg-slate-950/60 p-2 rounded-xl border border-slate-800">
+                        <input type="checkbox" id="optFormatDates" checked onchange="reprocessData()" class="w-4 h-4 text-emerald-500 rounded bg-slate-900 border-slate-700">
+                        <span class="text-slate-200 font-medium">Standardize Dates (DD-MMM-YYYY)</span>
+                    </label>
+                    <div>
+                        <label class="block text-slate-400 font-semibold mb-1">Header Theme Color</label>
+                        <select id="headerColorStyle" onchange="reprocessData()" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-xs text-slate-200">
+                            <option value="EMERALD" selected>Emerald Dark Green (#107C41)</option>
+                            <option value="NAVY">Classic Navy Blue (#1F4E78)</option>
+                            <option value="CHARCOAL">Charcoal Dark (#2D3748)</option>
+                            <option value="MAROON">Deep Maroon (#800020)</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="lg:col-span-8 flex flex-col space-y-4">
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 text-center shadow">
+                    <p class="text-[10px] text-slate-400 uppercase font-semibold">Total Consumers</p>
+                    <p id="statTotalRows" class="text-lg font-bold text-white mt-1">0</p>
+                </div>
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 text-center shadow">
+                    <p class="text-[10px] text-slate-400 uppercase font-semibold">Total Amount (₹)</p>
+                    <p id="statTotalDues" class="text-lg font-bold text-emerald-400 mt-1">₹0</p>
+                </div>
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 text-center shadow">
+                    <p class="text-[10px] text-slate-400 uppercase font-semibold">Dupes Removed</p>
+                    <p id="statDupesRemoved" class="text-lg font-bold text-amber-400 mt-1">0</p>
+                </div>
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 text-center shadow">
+                    <p class="text-[10px] text-slate-400 uppercase font-semibold">Data Health</p>
+                    <p id="statHealthScore" class="text-lg font-bold text-blue-400 mt-1">100%</p>
+                </div>
+            </div>
+
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl flex-grow flex flex-col shadow-2xl overflow-hidden min-h-[500px]">
+                <div class="bg-slate-950 border-b border-slate-800 px-4 pt-3 flex justify-between items-center">
+                    <div class="flex space-x-2">
+                        <button id="tabBtnPivot" onclick="switchTab('pivot')" class="px-4 py-2 text-xs font-bold rounded-t-xl bg-slate-900 text-amber-400 border-t-2 border-amber-500">Auto Pivot Summary</button>
+                        <button id="tabBtnData" onclick="switchTab('data')" class="px-4 py-2 text-xs font-bold rounded-t-xl bg-slate-950 text-slate-400">Cleaned Data</button>
+                    </div>
+                    <span id="previewRecordCount" class="text-[11px] text-slate-400 pb-2">No file loaded</span>
+                </div>
+                <div id="tabContentPivot" class="flex-grow p-4 overflow-auto">
+                    <div id="emptyPivotState" class="h-full flex flex-col items-center justify-center text-slate-500 py-20">
+                        <p class="text-sm">यहाँ Auto Pivot Summary का Live Preview दिखेगा</p>
+                    </div>
+                    <div id="pivotPreviewTableWrapper" class="hidden overflow-x-auto">
+                        <table id="pivotPreviewTable" class="w-full text-left text-xs border-collapse"></table>
+                    </div>
+                </div>
+                <div id="tabContentData" class="hidden flex-grow p-4 overflow-auto">
+                    <div id="dataPreviewTableWrapper" class="overflow-x-auto">
+                        <table id="dataPreviewTable" class="w-full text-left text-xs border-collapse"></table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        let workbook = null, rawSheetData = [], detectedHeaders = [], rawDataRows = [], cleanedDataRows = [], generatedPivotData = { headers: [], rows: [] };
+        const THEME_PALETTES = {
+            EMERALD: { hex: "107C41", textHex: "FFFFFF", bgClass: "bg-[#107C41]" },
+            NAVY: { hex: "1F4E78", textHex: "FFFFFF", bgClass: "bg-[#1F4E78]" },
+            CHARCOAL: { hex: "2D3748", textHex: "FFFFFF", bgClass: "bg-[#2D3748]" },
+            MAROON: { hex: "800020", textHex: "FFFFFF", bgClass: "bg-[#800020]" }
+        };
+
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            document.getElementById('fileNameDisplay').textContent = file.name;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const data = new Uint8Array(e.target.result);
+                workbook = XLSX.read(data, { type: 'array', cellDates: true, cellText: false });
+                const sheetSelect = document.getElementById('sheetSelect');
+                sheetSelect.innerHTML = "";
+                workbook.SheetNames.forEach(name => {
+                    const opt = document.createElement('option');
+                    opt.value = name; opt.textContent = name;
+                    sheetSelect.appendChild(opt);
+                });
+                document.getElementById('sheetSelectContainer').classList.remove('hidden');
+                document.getElementById('headerRowContainer').classList.remove('hidden');
+                loadSelectedSheet();
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function loadSelectedSheet() {
+            if (!workbook) return;
+            const sheetName = document.getElementById('sheetSelect').value;
+            rawSheetData = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: "" });
+            document.getElementById('headerRowInput').value = 1;
+            reprocessData();
+        }
+
+        function reprocessData() {
+            if (!rawSheetData || rawSheetData.length === 0) return;
+            const headerRowNumber = parseInt(document.getElementById('headerRowInput').value) || 1;
+            const headerRowIdx = Math.max(0, headerRowNumber - 1);
+            detectedHeaders = (rawSheetData[headerRowIdx] || []).map((h, idx) => String(h).trim() || `Col_${idx + 1}`);
+            rawDataRows = rawSheetData.slice(headerRowIdx + 1);
+
+            const doTrim = document.getElementById('optTrim').checked;
+            const doFormatDates = document.getElementById('optFormatDates').checked;
+
+            cleanedDataRows = rawDataRows.filter(r => r && r.some(c => String(c).trim() !== "")).map(row => {
+                return row.map(val => {
+                    if (doTrim && typeof val === 'string') val = val.trim();
+                    if (doFormatDates && val instanceof Date) {
+                        val = `${String(val.getDate()).padStart(2, '0')}-${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][val.getMonth()]}-${val.getFullYear()}`;
+                    }
+                    return val;
+                });
+            });
+
+            document.getElementById('statTotalRows').textContent = cleanedDataRows.length.toLocaleString('en-IN');
+            document.getElementById('previewRecordCount').textContent = `${cleanedDataRows.length.toLocaleString('en-IN')} Consumers Loaded`;
+
+            applySmartPreset('TARIFF');
+            renderDataPreview();
+            document.getElementById('exportExcelBtn').disabled = false;
+        }
+
+        function applySmartPreset(presetType) {
+            let rowIdx = detectedHeaders.findIndex(h => String(h).toUpperCase().includes("TARIFF"));
+            if (rowIdx === -1) rowIdx = 0;
+            let dueIdx = detectedHeaders.findIndex(h => String(h).toUpperCase().includes("BILL") || String(h).toUpperCase().includes("DUE") || String(h).toUpperCase().includes("AMOUNT"));
+
+            let pivotMap = {};
+            cleanedDataRows.forEach(r => {
+                let key = String(r[rowIdx] || "BLANK").trim();
+                if (!pivotMap[key]) pivotMap[key] = { count: 0, sum: 0 };
+                pivotMap[key].count += 1;
+                let val = parseFloat(r[dueIdx]);
+                if (!isNaN(val)) pivotMap[key].sum += val;
+            });
+
+            let headers = [detectedHeaders[rowIdx], "COUNT of Consumers", "SUM of Net Bill Amount"];
+            let rows = Object.keys(pivotMap).map(k => [k, pivotMap[k].count, Math.round(pivotMap[k].sum * 100) / 100]);
+            generatedPivotData = { headers, rows };
+            renderPivotPreview();
+        }
+
+        function renderPivotPreview() {
+            const table = document.getElementById('pivotPreviewTable');
+            document.getElementById('emptyPivotState').classList.add('hidden');
+            document.getElementById('pivotPreviewTableWrapper').classList.remove('hidden');
+
+            let html = `<thead><tr class="bg-slate-950 text-amber-400 border-b border-slate-800">` +
+                generatedPivotData.headers.map(h => `<th class="p-2.5 font-bold">${h}</th>`).join('') + `</tr></thead><tbody>` +
+                generatedPivotData.rows.map((row, idx) => `<tr class="${idx % 2 === 0 ? 'bg-slate-900/40' : 'bg-slate-900/80'} border-b border-slate-800/40">` +
+                row.map((c, i) => `<td class="p-2 ${i > 0 ? 'text-right font-mono text-emerald-300' : 'font-semibold'}">${typeof c === 'number' ? c.toLocaleString('en-IN') : c}</td>`).join('') + `</tr>`).join('') + `</tbody>`;
+            table.innerHTML = html;
+        }
+
+        function renderDataPreview() {
+            const table = document.getElementById('dataPreviewTable');
+            const themeKey = document.getElementById('headerColorStyle').value;
+            const themeObj = THEME_PALETTES[themeKey] || THEME_PALETTES.EMERALD;
+
+            let html = `<thead><tr class="${themeObj.bgClass} text-white font-bold">` +
+                detectedHeaders.map(h => `<th class="p-2.5 whitespace-nowrap">${h}</th>`).join('') + `</tr></thead><tbody>` +
+                cleanedDataRows.slice(0, 50).map((r, idx) => `<tr class="${idx % 2 === 0 ? 'bg-slate-900/50' : 'bg-slate-900/90'} border-b border-slate-800/60">` +
+                r.map(c => `<td class="p-2 whitespace-nowrap">${c || ''}</td>`).join('') + `</tr>`).join('') + `</tbody>`;
+            table.innerHTML = html;
+        }
+
+        function switchTab(tab) {
+            document.getElementById('tabContentPivot').classList.toggle('hidden', tab !== 'pivot');
+            document.getElementById('tabContentData').classList.toggle('hidden', tab !== 'data');
+            document.getElementById('tabBtnPivot').className = tab === 'pivot' ? "px-4 py-2 text-xs font-bold rounded-t-xl bg-slate-900 text-amber-400 border-t-2 border-amber-500" : "px-4 py-2 text-xs font-bold rounded-t-xl bg-slate-950 text-slate-400";
+            document.getElementById('tabBtnData').className = tab === 'data' ? "px-4 py-2 text-xs font-bold rounded-t-xl bg-slate-900 text-emerald-400 border-t-2 border-emerald-500" : "px-4 py-2 text-xs font-bold rounded-t-xl bg-slate-950 text-slate-400";
+        }
+
+        function processAndExportExcel() {
+            const wb = XLSX.utils.book_new();
+            const themeKey = document.getElementById('headerColorStyle').value;
+            const themeObj = THEME_PALETTES[themeKey] || THEME_PALETTES.EMERALD;
+
+            const fullDataMatrix = [detectedHeaders, ...cleanedDataRows];
+            const totalRowIdx = fullDataMatrix.length + 1;
+            let formulaRow = new Array(detectedHeaders.length).fill("");
+            formulaRow[0] = "GRAND TOTAL";
+            detectedHeaders.forEach((h, idx) => {
+                if (String(h).toUpperCase().includes("DUE") || String(h).toUpperCase().includes("BILL") || String(h).toUpperCase().includes("AMOUNT")) {
+                    formulaRow[idx] = { f: `SUM(${XLSX.utils.encode_col(idx)}2:${XLSX.utils.encode_col(idx)}${totalRowIdx - 1})` };
+                }
+            });
+            fullDataMatrix.push(formulaRow);
+
+            const wsData = XLSX.utils.aoa_to_sheet(fullDataMatrix);
+
+            const colWidths = detectedHeaders.map((headerText, colIdx) => {
+                let maxLen = String(headerText || '').length;
+                const sampleRows = cleanedDataRows.slice(0, 100);
+                sampleRows.forEach(row => {
+                    const cellLen = String(row[colIdx] || '').length;
+                    if (cellLen > maxLen) maxLen = cellLen;
+                });
+                return { wch: Math.min(Math.max(maxLen + 5, 14), 50) };
+            });
+            wsData['!cols'] = colWidths;
+
+            const range = XLSX.utils.decode_range(wsData['!ref']);
+            wsData['!autofilter'] = { ref: `A1:${XLSX.utils.encode_col(range.e.c)}1` };
+            wsData['!views'] = [{ state: 'frozen', xSplit: 0, ySplit: 1 }];
+
+            for (let R = range.s.r; R <= range.e.r; ++R) {
+                for (let C = range.s.c; C <= range.e.c; ++C) {
+                    const addr = XLSX.utils.encode_cell({ r: R, c: C });
+                    if (!wsData[addr]) wsData[addr] = { t: 's', v: '' };
+                    const cell = wsData[addr];
+                    cell.s = cell.s || {};
+                    if (R === 0) {
+                        cell.s.fill = { patternType: "solid", fgColor: { rgb: themeObj.hex } };
+                        cell.s.font = { name: "Calibri", sz: 11, bold: true, color: { rgb: "FFFFFF" } };
+                        cell.s.alignment = { horizontal: "center", vertical: "center" };
+                    } else if (R === range.e.r) {
+                        cell.s.fill = { patternType: "solid", fgColor: { rgb: "E2E8F0" } };
+                        cell.s.font = { name: "Calibri", sz: 11, bold: true, color: { rgb: "0F172A" } };
+                    } else {
+                        cell.s.font = { name: "Calibri", sz: 10 };
+                        if (R % 2 === 0) cell.s.fill = { patternType: "solid", fgColor: { rgb: "F8FAFC" } };
+                    }
+                    cell.s.border = { top: { style: "thin", color: { rgb: "CBD5E1" } }, bottom: { style: "thin", color: { rgb: "CBD5E1" } }, left: { style: "thin", color: { rgb: "CBD5E1" } }, right: { style: "thin", color: { rgb: "CBD5E1" } } };
+                }
+            }
+            XLSX.utils.book_append_sheet(wb, wsData, "CONSUMER LEDGER");
+
+            if (generatedPivotData.rows.length > 0) {
+                const pMatrix = [generatedPivotData.headers, ...generatedPivotData.rows];
+                const pTotalIdx = pMatrix.length + 1;
+                let pFormula = new Array(generatedPivotData.headers.length).fill("");
+                pFormula[0] = "GRAND TOTAL";
+                for (let c = 1; c < generatedPivotData.headers.length; c++) {
+                    pFormula[c] = { f: `SUM(${XLSX.utils.encode_col(c)}2:${XLSX.utils.encode_col(c)}${pTotalIdx - 1})` };
+                }
+                pMatrix.push(pFormula);
+
+                const wsPivot = XLSX.utils.aoa_to_sheet(pMatrix);
+
+                const pColWidths = generatedPivotData.headers.map((h, colIdx) => {
+                    let maxLen = String(h || '').length;
+                    generatedPivotData.rows.forEach(row => {
+                        const cellLen = String(row[colIdx] || '').length;
+                        if (cellLen > maxLen) maxLen = cellLen;
+                    });
+                    return { wch: Math.max(maxLen + 6, 20) };
+                });
+                wsPivot['!cols'] = pColWidths;
+
+                const pRange = XLSX.utils.decode_range(wsPivot['!ref']);
+                for (let R = pRange.s.r; R <= pRange.e.r; ++R) {
+                    for (let C = pRange.s.c; C <= pRange.e.c; ++C) {
+                        const addr = XLSX.utils.encode_cell({ r: R, c: C });
+                        if (!wsPivot[addr]) wsPivot[addr] = { t: 's', v: '' };
+                        const cell = wsPivot[addr];
+                        cell.s = cell.s || {};
+                        if (R === 0) {
+                            cell.s.fill = { patternType: "solid", fgColor: { rgb: themeObj.hex } };
+                            cell.s.font = { name: "Calibri", sz: 11, bold: true, color: { rgb: "FFFFFF" } };
+                        } else if (R === pRange.e.r) {
+                            cell.s.fill = { patternType: "solid", fgColor: { rgb: "FEF3C7" } };
+                            cell.s.font = { name: "Calibri", sz: 11, bold: true, color: { rgb: "78350F" } };
+                        }
+                        cell.s.border = { top: { style: "thin", color: { rgb: "CBD5E1" } }, bottom: { style: "thin", color: { rgb: "CBD5E1" } }, left: { style: "thin", color: { rgb: "CBD5E1" } }, right: { style: "thin", color: { rgb: "CBD5E1" } } };
+                    }
+                }
+                XLSX.utils.book_append_sheet(wb, wsPivot, "Summary_Pivot");
+            }
+
+            XLSX.writeFile(wb, `Processed_Consumer_Ledger_${new Date().toISOString().slice(0,10)}.xlsx`);
+        }
+    </script>
+</body>
+</html>
