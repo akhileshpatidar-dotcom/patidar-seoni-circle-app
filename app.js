@@ -1086,7 +1086,7 @@
         }
 
         function verifyPassword() {
-            const pws = { STOCK: "AE123", EXCEL_TOOL_ADMIN: "AE123", PANCHNAMA_TOOL_ADMIN: "AE123", ARRANGE_EXCEL_TOOL_ADMIN: "AE123" };
+            const pws = { STOCK: "AE123", EXCEL_TOOL_ADMIN: "AE123", PANCHNAMA_TOOL_ADMIN: "AE123", ARRANGE_EXCEL_TOOL_ADMIN: "AE123", IMAGE_TO_EXCEL_TOOL_ADMIN: "AE123" };
             if (document.getElementById("pwd-input").value === pws[pendingLevel]) {
                 activeViewLevel = pendingLevel;
                 closePwdModal();
@@ -1107,6 +1107,11 @@
                 if (pendingLevel === "ARRANGE_EXCEL_TOOL_ADMIN") {
                     initArrangeExcelToolAdminUpload();
                     switchView("arrange-excel-tool-admin");
+                    return;
+                }
+                if (pendingLevel === "IMAGE_TO_EXCEL_TOOL_ADMIN") {
+                    initImageToExcelToolAdminUpload();
+                    switchView("image-to-excel-tool-admin");
                     return;
                 }
                 switchView("summary");
@@ -1414,6 +1419,102 @@
                     }
                 } catch (error) {
                     console.log("ARRANGE EXCEL TOOL UPLOAD: failed -", error);
+                    if (statusBox) {
+                        statusBox.style.background = "#fff1f2";
+                        statusBox.style.color = "#991b1b";
+                        statusBox.innerText = "Upload nahi ho paya: " + (error?.message || "network/unknown error");
+                    }
+                    showToast("Upload nahi ho paya", false);
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        // NEW FEATURE (2026-08-25): "Image To Excel Converter" tool - Arrange Excel
+        // File jaisa hi same flow (password-protected admin upload, generic backend
+        // action=uploadExternalToolHtml/getExternalToolHtml ko sirf
+        // tool_key="IMAGE_TO_EXCEL" se reuse kiya hai - koi naya .gs backend change
+        // nahi chahiye, isliye baaki koi bhi purana flow bilkul touch nahi hua).
+        function openImageToExcelToolAdminUpload() {
+            closeHeaderMenu();
+            askPassword("IMAGE_TO_EXCEL_TOOL_ADMIN");
+        }
+
+        function initImageToExcelToolAdminUpload() {
+            const fileInput = document.getElementById("image-to-excel-tool-html-input");
+            const filenameBox = document.getElementById("image-to-excel-tool-upload-filename");
+            const statusBox = document.getElementById("image-to-excel-tool-upload-status");
+            if (fileInput) fileInput.value = "";
+            if (filenameBox) filenameBox.innerText = "";
+            if (statusBox) statusBox.style.display = "none";
+        }
+
+        function handleImageToExcelToolHtmlUpload(event) {
+            const file = event?.target?.files?.[0];
+            if (!file) return;
+            const filenameBox = document.getElementById("image-to-excel-tool-upload-filename");
+            const statusBox = document.getElementById("image-to-excel-tool-upload-status");
+            if (filenameBox) filenameBox.innerText = file.name;
+            if (!file.name.toLowerCase().endsWith(".html")) {
+                if (statusBox) {
+                    statusBox.style.display = "block";
+                    statusBox.style.background = "#fff1f2";
+                    statusBox.style.color = "#991b1b";
+                    statusBox.innerText = "Sirf .html file hi upload kijiye";
+                }
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                const htmlContent = String(e.target?.result || "");
+                if (!htmlContent.trim()) {
+                    if (statusBox) {
+                        statusBox.style.display = "block";
+                        statusBox.style.background = "#fff1f2";
+                        statusBox.style.color = "#991b1b";
+                        statusBox.innerText = "File khali hai ya padhi nahi ja saki";
+                    }
+                    return;
+                }
+                if (statusBox) {
+                    statusBox.style.display = "block";
+                    statusBox.style.background = "#eff6ff";
+                    statusBox.style.color = "#1d4ed8";
+                    statusBox.innerText = "Upload ho raha hai...";
+                }
+                try {
+                    const payload = JSON.stringify({
+                        action: "uploadExternalToolHtml",
+                        tool_key: "IMAGE_TO_EXCEL",
+                        html: htmlContent,
+                        file_name: file.name
+                    });
+                    console.log("IMAGE TO EXCEL TOOL UPLOAD: starting, html length =", htmlContent.length, "payload length =", payload.length, "file =", file.name);
+                    const response = await fetchWithTimeout(revenueCollectionSubmitScriptUrl, {
+                        method: "POST",
+                        headers: { "Content-Type": "text/plain;charset=UTF-8" },
+                        body: payload
+                    }, 40000);
+                    const responseText = await response.text();
+                    console.log("IMAGE TO EXCEL TOOL UPLOAD: http status =", response.status, "body (first 300 chars) =", responseText.slice(0, 300));
+                    let parsed = {};
+                    let parseFailed = false;
+                    try { parsed = JSON.parse(responseText || "{}"); } catch (_) { parseFailed = true; }
+                    if (response.ok && parsed.status !== "error") {
+                        if (statusBox) {
+                            statusBox.style.background = "#ecfdf5";
+                            statusBox.style.color = "#047857";
+                            statusBox.innerText = "Image To Excel Converter tool update ho gaya - sabhi DC me turant reflect hoga";
+                        }
+                        showToast("Tool update ho gaya", true);
+                    } else {
+                        const detail = parsed.message
+                            ? parsed.message
+                            : (parseFailed ? `Server se JSON nahi mila (HTTP ${response.status}): ${responseText.slice(0, 150)}` : `HTTP ${response.status}`);
+                        throw new Error(detail);
+                    }
+                } catch (error) {
+                    console.log("IMAGE TO EXCEL TOOL UPLOAD: failed -", error);
                     if (statusBox) {
                         statusBox.style.background = "#fff1f2";
                         statusBox.style.color = "#991b1b";
@@ -10448,6 +10549,67 @@
             }
         }
 
+        let imageToExcelToolOpening = false;
+        async function openImageToExcelTool() {
+            if (imageToExcelToolOpening) return;
+            imageToExcelToolOpening = true;
+            const btn = document.getElementById("image-to-excel-tool-open-btn");
+            const originalBtnText = btn ? btn.innerText : "Image To Excel Converter";
+            if (btn) {
+                btn.disabled = true;
+                btn.style.opacity = "0.65";
+                btn.style.pointerEvents = "none";
+                btn.innerText = "Opening...";
+            }
+            const restoreBtn = () => {
+                imageToExcelToolOpening = false;
+                if (!btn) return;
+                btn.disabled = false;
+                btn.style.opacity = "1";
+                btn.style.pointerEvents = "auto";
+                btn.innerText = originalBtnText;
+            };
+            try {
+                const newTab = window.open("", "_blank");
+                if (newTab) {
+                    try {
+                        newTab.document.write("<!DOCTYPE html><html><head><title>Image To Excel Converter - Loading...</title></head><body style=\"background:#0f172a; color:#e2e8f0; font-family:Arial,sans-serif; display:flex; align-items:center; justify-content:center; height:100vh; margin:0;\"><div style=\"text-align:center;\"><div style=\"font-size:1rem; font-weight:700;\">Image To Excel Converter Tool load ho raha hai...</div></div></body></html>");
+                        newTab.document.close();
+                    } catch (_) {}
+                } else {
+                    showToast("Naya tab nahi khul paya - browser me popup allow kijiye", false);
+                }
+                const baseUrl = window.location.href.split("#")[0].split("?")[0];
+                const toolUrl = baseUrl.replace(/[^/]*$/, "") + "image-to-excel.html";
+                try {
+                    const fetchUrl = `${revenueCollectionSubmitScriptUrl}?action=getExternalToolHtml&tool_key=IMAGE_TO_EXCEL&t=${Date.now()}`;
+                    const response = await fetchWithTimeout(fetchUrl, {}, 40000);
+                    const parsed = await response.json();
+                    if (parsed && parsed.status === "success" && parsed.html) {
+                        if (newTab && !newTab.closed) {
+                            newTab.document.open();
+                            newTab.document.write(parsed.html);
+                            newTab.document.close();
+                        } else {
+                            const blob = new Blob([parsed.html], { type: "text/html" });
+                            window.open(URL.createObjectURL(blob), "_blank", "noopener");
+                        }
+                        return;
+                    }
+                    showToast("Latest tool fetch nahi ho paya, purani file khul rahi hai", false);
+                } catch (_) {
+                    showToast("Latest tool fetch nahi ho paya, purani file khul rahi hai", false);
+                }
+                if (newTab && !newTab.closed) {
+                    newTab.location.href = toolUrl;
+                } else {
+                    window.open(toolUrl, "_blank", "noopener");
+                }
+            } finally {
+                restoreBtn();
+            }
+        }
+
         function openCurrentRevenueBill() {
             const ivrsNo = normalizeRevenueIvrs(currentRevenueRecord?.ivrsNo || "");
             if (!ivrsNo) return showToast("IVRS No available nahi hai", false);
@@ -17312,6 +17474,7 @@
                 if (id === "panchnama-tool") headerTitle = "PANCHNAMA";
                 if (id === "panchnama-tool-admin") headerTitle = "PANCHNAMA TEMPLATE";
                 if (id === "arrange-excel-tool-admin") headerTitle = "ARRANGE EXCEL FILE";
+                if (id === "image-to-excel-tool-admin") headerTitle = "IMAGE TO EXCEL CONVERTER";
                 if (id === "vr-download-log") headerTitle = "VR DOWNLOAD LOG";
                 if (id === "stock-material") headerTitle = "STOCK MATERIAL";
                 if (id === "shms-entry") headerTitle = "SHMS ENTRY";
@@ -17359,6 +17522,8 @@
                 if (panchnamaToolAdminMenuItem) panchnamaToolAdminMenuItem.style.display = id === "subdn-chhapara" ? "block" : "none";
                 const arrangeExcelToolAdminMenuItem = document.getElementById("arrange-excel-tool-admin-header-menu-item");
                 if (arrangeExcelToolAdminMenuItem) arrangeExcelToolAdminMenuItem.style.display = id === "subdn-chhapara" ? "block" : "none";
+                const imageToExcelToolAdminMenuItem = document.getElementById("image-to-excel-tool-admin-header-menu-item");
+                if (imageToExcelToolAdminMenuItem) imageToExcelToolAdminMenuItem.style.display = id === "subdn-chhapara" ? "block" : "none";
                 closeHeaderMenu();
                 const searchBtn = document.getElementById("search-btn");
                 if (id === "home") {

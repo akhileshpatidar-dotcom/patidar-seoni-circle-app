@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="hi" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image To Excel Converter</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.4/dist/tesseract.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Hind:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+        body { font-family: 'Inter', 'Hind', sans-serif; background-color: #0b1329; color: #f1f5f9; }
+        [contenteditable="true"]:focus { outline: 2px solid #fb7185; outline-offset: -2px; background: rgba(251,113,133,0.08); }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col bg-slate-950 text-slate-100 antialiased">
+    <header class="bg-slate-900 border-b border-slate-800 sticky top-0 z-50 shadow-lg">
+        <div class="max-w-7xl mx-auto px-4 py-3 sm:px-6 lg:px-8 flex items-center justify-between flex-wrap gap-2">
+            <div class="flex items-center space-x-3">
+                <div class="p-2.5 bg-rose-500 rounded-xl text-white shadow-lg">
+                    <span class="text-2xl leading-none">📷</span>
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold text-white tracking-wide">Image To Excel Converter</h1>
+                    <p class="text-xs text-slate-400">Photo/Screenshot se Table Scan • Header Color • Column Remove • Colored Excel Export</p>
+                </div>
+            </div>
+            <button id="exportExcelBtn" onclick="exportScannedExcel()" disabled class="bg-rose-500 hover:bg-rose-400 disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 text-white font-bold py-2.5 px-5 rounded-xl shadow-lg transition duration-150 flex items-center gap-2">
+                <span class="text-lg leading-none">⬇️</span>
+                <span>Download Excel (.xlsx)</span>
+            </button>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8 flex-grow grid grid-cols-1 lg:grid-cols-12 gap-6 w-full">
+        <div class="lg:col-span-4 space-y-5">
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-xl">
+                <h2 class="text-sm font-bold text-rose-400 flex items-center gap-2">
+                    <span class="text-lg leading-none">🖼️</span> Step 1: Upload Image
+                </h2>
+                <div id="dropZone" onclick="document.getElementById('imageInput').click()" class="border-2 border-dashed border-slate-700 hover:border-rose-500 bg-slate-950/60 transition-all rounded-xl p-5 text-center cursor-pointer space-y-2">
+                    <input type="file" id="imageInput" accept="image/*" class="hidden" onchange="handleImageSelect(event)">
+                    <div class="inline-flex p-3 bg-slate-800 text-rose-400 rounded-full">
+                        <span class="text-2xl leading-none">📷</span>
+                    </div>
+                    <p class="text-xs font-semibold text-slate-200" id="imageNameDisplay">यहाँ क्लिक करें - Excel/Table का Photo या Screenshot चुनें</p>
+                    <p class="text-[11px] text-slate-400">Digital screenshot par best result milta hai. Kagaz/register ki photo bhi chalegi, lekin usme kuch data galat/idhar-udhar aa sakta hai - scan hone ke baad table me sudhaar (edit) kar sakte hain.</p>
+                </div>
+                <img id="imagePreviewThumb" class="hidden w-full rounded-xl border border-slate-800 max-h-40 object-contain bg-slate-950" alt="Preview">
+                <button id="scanBtn" onclick="startOcrScan()" disabled class="w-full bg-rose-500 hover:bg-rose-400 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold py-2.5 rounded-xl shadow flex items-center justify-center gap-2 text-xs">
+                    <span class="leading-none">🔍</span> Scan Image (OCR)
+                </button>
+                <div id="ocrProgressWrap" class="hidden space-y-1.5">
+                    <div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                        <div id="ocrProgressFill" class="h-full bg-rose-500 transition-all duration-200" style="width:2%"></div>
+                    </div>
+                    <p id="ocrProgressText" class="text-[10px] font-semibold text-slate-400 text-center">Scanning...</p>
+                </div>
+            </div>
+
+            <div id="headerRowCard" class="hidden bg-slate-900 border border-amber-500/50 rounded-2xl p-5 space-y-3 shadow-xl">
+                <h2 class="text-sm font-bold text-amber-400 flex items-center gap-2">
+                    <span class="text-lg leading-none">📋</span> Step 2: Header Row
+                </h2>
+                <label class="block text-xs font-semibold text-slate-400">Header kis row me hai? (Default: Row 1)</label>
+                <input type="number" id="headerRowInput" value="1" min="1" max="50" onchange="reprocessScannedRows()" class="w-full bg-slate-950 border border-amber-500/50 rounded-lg p-2 text-xs text-slate-200 font-bold text-center">
+            </div>
+
+            <div id="columnsCard" class="hidden bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3 shadow-xl">
+                <h2 class="text-sm font-bold text-blue-400 flex items-center gap-2">
+                    <span class="text-lg leading-none">🚫</span> Step 3: Column Remove
+                </h2>
+                <p class="text-[10px] text-slate-400">Jo column export me NAHI chahiye, uska check hataiye.</p>
+                <div id="columnCheckboxList" class="space-y-1.5 text-xs max-h-52 overflow-y-auto pr-1"></div>
+            </div>
+
+            <div id="styleCard" class="hidden bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3.5 shadow-xl">
+                <h2 class="text-sm font-bold text-rose-400 flex items-center gap-2">
+                    <span class="text-lg leading-none">🎨</span> Step 4: Header Color
+                </h2>
+                <select id="headerColorStyle" onchange="renderScannedPreview()" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-xs text-slate-200">
+                    <option value="ROSE" selected>Light Red / Rose (#F43F5E)</option>
+                    <option value="EMERALD">Emerald Dark Green (#107C41)</option>
+                    <option value="NAVY">Classic Navy Blue (#1F4E78)</option>
+                    <option value="CHARCOAL">Charcoal Dark (#2D3748)</option>
+                    <option value="MAROON">Deep Maroon (#800020)</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="lg:col-span-8 flex flex-col space-y-4">
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 text-center shadow">
+                    <p class="text-[10px] text-slate-400 uppercase font-semibold">Rows Detected</p>
+                    <p id="statTotalRows" class="text-lg font-bold text-white mt-1">0</p>
+                </div>
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 text-center shadow">
+                    <p class="text-[10px] text-slate-400 uppercase font-semibold">Columns Detected</p>
+                    <p id="statTotalCols" class="text-lg font-bold text-rose-400 mt-1">0</p>
+                </div>
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 text-center shadow col-span-2 sm:col-span-1">
+                    <p class="text-[10px] text-slate-400 uppercase font-semibold">OCR Confidence</p>
+                    <p id="statConfidence" class="text-lg font-bold text-blue-400 mt-1">-</p>
+                </div>
+            </div>
+
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl flex-grow flex flex-col shadow-2xl overflow-hidden min-h-[500px]">
+                <div class="bg-slate-950 border-b border-slate-800 px-4 py-3 flex justify-between items-center flex-wrap gap-2">
+                    <span class="text-xs font-bold text-rose-400">Scanned Preview (galat text ho to seedhe cell par click karke edit kar sakte hain)</span>
+                    <span id="previewRecordCount" class="text-[11px] text-slate-400">Koi image scan nahi hui</span>
+                </div>
+                <div id="tabContentData" class="flex-grow p-4 overflow-auto">
+                    <div id="emptyState" class="h-full flex flex-col items-center justify-center text-slate-500 py-20 text-center px-6">
+                        <span class="text-4xl mb-3 opacity-40 leading-none block">🖼️</span>
+                        <p class="text-sm">Image upload karke "Scan Image" dabaiye - yahan Live Preview dikhega</p>
+                    </div>
+                    <div id="dataPreviewTableWrapper" class="hidden overflow-x-auto">
+                        <table id="dataPreviewTable" class="w-full text-left text-xs border-collapse"></table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        let selectedImageFile = null;
+        let rawScannedRows = [];      // sab OCR se mile rows (row 0 = jo bhi image me sabse upar tha)
+        let detectedHeaders = [];
+        let cleanedDataRows = [];
+        let includedColumnIdx = [];   // kaunse column index export me shaamil rahenge
+
+        const THEME_PALETTES = {
+            ROSE: { hex: "F43F5E" },
+            EMERALD: { hex: "107C41" },
+            NAVY: { hex: "1F4E78" },
+            CHARCOAL: { hex: "2D3748" },
+            MAROON: { hex: "800020" }
+        };
+
+        function handleImageSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            selectedImageFile = file;
+            document.getElementById('imageNameDisplay').textContent = file.name;
+            const thumb = document.getElementById('imagePreviewThumb');
+            thumb.src = URL.createObjectURL(file);
+            thumb.classList.remove('hidden');
+            document.getElementById('scanBtn').disabled = false;
+        }
+
+        async function startOcrScan() {
+            if (!selectedImageFile || !window.Tesseract) return;
+            const scanBtn = document.getElementById('scanBtn');
+            const progressWrap = document.getElementById('ocrProgressWrap');
+            const progressFill = document.getElementById('ocrProgressFill');
+            const progressText = document.getElementById('ocrProgressText');
+            scanBtn.disabled = true;
+            progressWrap.classList.remove('hidden');
+            progressFill.style.width = '2%';
+            progressText.textContent = 'OCR worker load ho raha hai...';
+
+            try {
+                const worker = await Tesseract.createWorker('eng', 1, {
+                    logger: (m) => {
+                        if (m.status && typeof m.progress === 'number') {
+                            const pct = Math.round(m.progress * 100);
+                            progressFill.style.width = Math.max(2, pct) + '%';
+                            progressText.textContent = `${m.status.replace(/_/g, ' ')} (${pct}%)`;
+                        }
+                    }
+                });
+                const { data } = await worker.recognize(selectedImageFile, {}, { blocks: true });
+                await worker.terminate();
+
+                document.getElementById('statConfidence').textContent = (data.confidence ? Math.round(data.confidence) : '-') + '%';
+
+                const words = flattenWords(data);
+                if (words.length) {
+                    const rows = groupWordsIntoRows(words);
+                    rawScannedRows = rows.map(wordsToColumns).filter((r) => r.some((c) => String(c).trim() !== ""));
+                } else {
+                    // Fallback (kabhi bbox data na mile) - seedha plain text ko lines/spaces se todo
+                    rawScannedRows = String(data.text || "").split("\n")
+                        .map((line) => line.trim())
+                        .filter(Boolean)
+                        .map((line) => line.split(/\s{2,}|\t/).map((c) => c.trim()).filter((c) => c !== ""));
+                }
+
+                if (!rawScannedRows.length) {
+                    progressText.textContent = 'Koi text nahi mila - saaf/bright image try kijiye';
+                    return;
+                }
+
+                document.getElementById('headerRowCard').classList.remove('hidden');
+                document.getElementById('headerRowInput').value = 1;
+                reprocessScannedRows();
+                progressText.textContent = 'Scan complete!';
+            } catch (error) {
+                progressText.textContent = 'Scan fail ho gaya: ' + (error?.message || 'unknown error');
+            } finally {
+                scanBtn.disabled = false;
+            }
+        }
+
+        // Tesseract "blocks" output ko flatten karke ek flat words[] array banate hain -
+        // har word: { text, bbox:{x0,y0,x1,y1} }
+        function flattenWords(data) {
+            const words = [];
+            const pushWord = (w) => {
+                if (!w || !w.text || !w.text.trim() || !w.bbox) return;
+                words.push({ text: w.text.trim(), bbox: w.bbox });
+            };
+            if (Array.isArray(data.words) && data.words.length) {
+                data.words.forEach(pushWord);
+                return words;
+            }
+            (data.blocks || []).forEach((block) => {
+                (block.paragraphs || []).forEach((para) => {
+                    (para.lines || []).forEach((line) => {
+                        (line.words || []).forEach(pushWord);
+                    });
+                });
+            });
+            return words;
+        }
+
+        // Words ko unki vertical (y) position ke hisab se rows me group karte hain -
+        // jo words lagbhag ek hi height par hain woh ek hi row (line) maane jaate hain.
+        function groupWordsIntoRows(allWords) {
+            const withCenter = allWords.map((w) => ({
+                ...w,
+                yc: (w.bbox.y0 + w.bbox.y1) / 2,
+                h: w.bbox.y1 - w.bbox.y0
+            }));
+            const avgHeight = withCenter.reduce((s, w) => s + w.h, 0) / (withCenter.length || 1) || 10;
+            const rowTolerance = Math.max(avgHeight * 0.6, 8);
+            const rows = [];
+            withCenter.forEach((w) => {
+                let row = rows.find((r) => Math.abs(r.yc - w.yc) < rowTolerance);
+                if (!row) {
+                    row = { yc: w.yc, words: [] };
+                    rows.push(row);
+                }
+                row.words.push(w);
+                row.yc = row.words.reduce((s, x) => s + x.yc, 0) / row.words.length;
+            });
+            rows.sort((a, b) => a.yc - b.yc);
+            return rows.map((r) => r.words);
+        }
+
+        // Ek row ke words ko columns me todte hain - do words ke beech agar gap
+        // "normal word-spacing" se kaafi zyada ho, to woh ek nayi column maani jaati hai
+        // (table me columns ke beech aam taur par zyada khaali jagah hoti hai).
+        function wordsToColumns(rowWords) {
+            const sorted = [...rowWords].sort((a, b) => a.bbox.x0 - b.bbox.x0);
+            if (!sorted.length) return [];
+            const avgCharWidth = sorted.reduce((s, w) => s + (w.bbox.x1 - w.bbox.x0) / (w.text.length || 1), 0) / sorted.length;
+            const threshold = Math.max(avgCharWidth * 2.4, 16);
+            const cols = [];
+            let current = sorted[0].text;
+            for (let i = 1; i < sorted.length; i++) {
+                const gap = sorted[i].bbox.x0 - sorted[i - 1].bbox.x1;
+                if (gap > threshold) {
+                    cols.push(current.trim());
+                    current = sorted[i].text;
+                } else {
+                    current += " " + sorted[i].text;
+                }
+            }
+            cols.push(current.trim());
+            return cols;
+        }
+
+        function reprocessScannedRows() {
+            if (!rawScannedRows.length) return;
+            const headerRowNumber = parseInt(document.getElementById('headerRowInput').value) || 1;
+            const headerRowIdx = Math.max(0, headerRowNumber - 1);
+            const maxCols = rawScannedRows.reduce((max, r) => Math.max(max, r.length), 0);
+            const padRow = (r) => {
+                const copy = r.slice(0, maxCols);
+                while (copy.length < maxCols) copy.push("");
+                return copy;
+            };
+            const paddedRows = rawScannedRows.map(padRow);
+
+            detectedHeaders = (paddedRows[headerRowIdx] || []).map((h, idx) => String(h).trim() || `Col_${idx + 1}`);
+            cleanedDataRows = paddedRows.slice(headerRowIdx + 1);
+
+            if (!includedColumnIdx.length || includedColumnIdx.length !== detectedHeaders.length) {
+                includedColumnIdx = detectedHeaders.map((_, idx) => idx);
+            }
+
+            document.getElementById('statTotalRows').textContent = cleanedDataRows.length.toLocaleString('en-IN');
+            document.getElementById('statTotalCols').textContent = detectedHeaders.length;
+            document.getElementById('previewRecordCount').textContent = `${cleanedDataRows.length.toLocaleString('en-IN')} Rows Scanned`;
+
+            renderColumnCheckboxes();
+            renderScannedPreview();
+            document.getElementById('columnsCard').classList.remove('hidden');
+            document.getElementById('styleCard').classList.remove('hidden');
+            document.getElementById('exportExcelBtn').disabled = false;
+        }
+
+        function renderColumnCheckboxes() {
+            const box = document.getElementById('columnCheckboxList');
+            box.innerHTML = detectedHeaders.map((h, idx) => `
+                <label class="flex items-center space-x-2 cursor-pointer bg-slate-950/60 p-1.5 rounded-lg border border-slate-800">
+                    <input type="checkbox" ${includedColumnIdx.includes(idx) ? 'checked' : ''} onchange="toggleColumn(${idx}, this.checked)" class="w-3.5 h-3.5 text-rose-500 rounded bg-slate-900 border-slate-700">
+                    <span class="text-slate-200 font-medium truncate">${escapeHtmlLocal(h)}</span>
+                </label>
+            `).join("");
+        }
+
+        function toggleColumn(idx, checked) {
+            if (checked) {
+                if (!includedColumnIdx.includes(idx)) includedColumnIdx.push(idx);
+            } else {
+                includedColumnIdx = includedColumnIdx.filter((i) => i !== idx);
+            }
+            includedColumnIdx.sort((a, b) => a - b);
+            renderScannedPreview();
+        }
+
+        function escapeHtmlLocal(value) {
+            return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+        }
+
+        function renderScannedPreview() {
+            const table = document.getElementById('dataPreviewTable');
+            document.getElementById('emptyState').classList.add('hidden');
+            document.getElementById('dataPreviewTableWrapper').classList.remove('hidden');
+
+            const visibleHeaders = includedColumnIdx.map((idx) => detectedHeaders[idx]);
+            let html = `<thead><tr class="bg-rose-500 text-white font-bold">` +
+                visibleHeaders.map((h) => `<th class="p-2.5 whitespace-nowrap">${escapeHtmlLocal(h)}</th>`).join('') + `</tr></thead><tbody>` +
+                cleanedDataRows.slice(0, 200).map((r, rIdx) => `<tr class="${rIdx % 2 === 0 ? 'bg-slate-900/50' : 'bg-slate-900/90'} border-b border-slate-800/60">` +
+                    includedColumnIdx.map((cIdx) => `<td class="p-2 whitespace-nowrap" contenteditable="true" onblur="editScannedCell(${rIdx}, ${cIdx}, this.innerText)">${escapeHtmlLocal(r[cIdx] ?? '')}</td>`).join('') + `</tr>`).join('') + `</tbody>`;
+            table.innerHTML = html;
+        }
+
+        function editScannedCell(rowIdx, colIdx, newValue) {
+            if (!cleanedDataRows[rowIdx]) return;
+            cleanedDataRows[rowIdx][colIdx] = String(newValue || "").trim();
+        }
+
+        function exportScannedExcel() {
+            if (!cleanedDataRows.length) return;
+            const themeKey = document.getElementById('headerColorStyle').value;
+            const themeObj = THEME_PALETTES[themeKey] || THEME_PALETTES.ROSE;
+
+            const visibleHeaders = includedColumnIdx.map((idx) => detectedHeaders[idx]);
+            const visibleRows = cleanedDataRows.map((r) => includedColumnIdx.map((idx) => r[idx] ?? ""));
+            const fullDataMatrix = [visibleHeaders, ...visibleRows];
+
+            const wsData = XLSX.utils.aoa_to_sheet(fullDataMatrix);
+
+            const colWidths = visibleHeaders.map((headerText, colIdx) => {
+                let maxLen = String(headerText || '').length;
+                visibleRows.slice(0, 200).forEach((row) => {
+                    const cellLen = String(row[colIdx] || '').length;
+                    if (cellLen > maxLen) maxLen = cellLen;
+                });
+                return { wch: Math.min(Math.max(maxLen + 5, 14), 50) };
+            });
+            wsData['!cols'] = colWidths;
+
+            const range = XLSX.utils.decode_range(wsData['!ref']);
+            wsData['!autofilter'] = { ref: `A1:${XLSX.utils.encode_col(range.e.c)}1` };
+            wsData['!views'] = [{ state: 'frozen', xSplit: 0, ySplit: 1 }];
+
+            for (let R = range.s.r; R <= range.e.r; ++R) {
+                for (let C = range.s.c; C <= range.e.c; ++C) {
+                    const addr = XLSX.utils.encode_cell({ r: R, c: C });
+                    if (!wsData[addr]) wsData[addr] = { t: 's', v: '' };
+                    const cell = wsData[addr];
+                    cell.s = cell.s || {};
+                    if (R === 0) {
+                        cell.s.fill = { patternType: "solid", fgColor: { rgb: themeObj.hex } };
+                        cell.s.font = { name: "Calibri", sz: 11, bold: true, color: { rgb: "FFFFFF" } };
+                        cell.s.alignment = { horizontal: "center", vertical: "center" };
+                    } else {
+                        cell.s.font = { name: "Calibri", sz: 10 };
+                        if (R % 2 === 0) cell.s.fill = { patternType: "solid", fgColor: { rgb: "F8FAFC" } };
+                    }
+                    cell.s.border = { top: { style: "thin", color: { rgb: "CBD5E1" } }, bottom: { style: "thin", color: { rgb: "CBD5E1" } }, left: { style: "thin", color: { rgb: "CBD5E1" } }, right: { style: "thin", color: { rgb: "CBD5E1" } } };
+                }
+            }
+
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, wsData, "Scanned Data");
+            XLSX.writeFile(wb, `Image_To_Excel_${new Date().toISOString().slice(0,10)}.xlsx`);
+        }
+    </script>
+</body>
+</html>

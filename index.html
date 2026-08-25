@@ -107,6 +107,7 @@
                     <button id="excel-tool-admin-header-menu-item" type="button" class="header-menu-item" onclick="openExcelToolAdminUpload()" style="display:none; background:#f0fdf4; color:#14532d; border:1.5px solid #86efac;">🔒 ADMIN EXCEL AUTOMATION</button>
                     <button id="panchnama-tool-admin-header-menu-item" type="button" class="header-menu-item" onclick="openPanchnamaToolAdminUpload()" style="display:none; background:#fff7ed; color:#9a3412; border:1.5px solid #fdba74;">🔒 ADMIN PANCHNAMA TEMPLATE</button>
                     <button id="arrange-excel-tool-admin-header-menu-item" type="button" class="header-menu-item" onclick="openArrangeExcelToolAdminUpload()" style="display:none; background:#f0fdf4; color:#14532d; border:1.5px solid #86efac;">🔒 ADMIN ARRANGE EXCEL FILE</button>
+                    <button id="image-to-excel-tool-admin-header-menu-item" type="button" class="header-menu-item" onclick="openImageToExcelToolAdminUpload()" style="display:none; background:#fff1f2; color:#9f1239; border:1.5px solid #fda4af;">🔒 ADMIN IMAGE TO EXCEL CONVERTER</button>
                     <button type="button" class="header-menu-item vr-header-menu-item" onclick="openVrSavedMapsMenu()" style="display:none;">🗺️ Saved Feeder Maps</button>
                     <button id="vr-menu-toggle-ref-btn" type="button" class="header-menu-item vr-header-menu-item" onclick="openVrReferenceInfoMenu()" style="display:none;">Show Limits &amp; CC Reference Table</button>
                 </div>
@@ -174,6 +175,7 @@
                 </div>
                 <button id="excel-automation-open-btn" class="dashboard-btn btn-excel-automation" style="max-width:360px;" onclick="openExcelAutomationTool()">Compare Two Excel File</button>
                 <button id="arrange-excel-tool-open-btn" class="dashboard-btn btn-arrange-excel" style="max-width:360px; margin-top:10px;" onclick="openArrangeExcelTool()">Proper Arrange Excel File</button>
+                <button id="image-to-excel-tool-open-btn" class="dashboard-btn btn-image-to-excel" style="max-width:360px; margin-top:10px;" onclick="openImageToExcelTool()">Image To Excel Converter</button>
             </div>
         </main>
 
@@ -204,6 +206,21 @@
                 </label>
                 <div id="arrange-excel-tool-upload-filename" style="font-size:0.62rem; font-weight:800; color:#1d4ed8; text-align:center; margin-top:10px;"></div>
                 <div id="arrange-excel-tool-upload-status" style="display:none; margin-top:12px; max-width:360px; margin-left:auto; margin-right:auto; border-radius:14px; padding:10px 14px; font-size:0.68rem; font-weight:850; text-align:center;"></div>
+            </div>
+        </main>
+
+        <main id="image-to-excel-tool-admin-view" class="view">
+            <div class="search-panel" style="padding-top:18px;">
+                <div style="width:100%; max-width:360px; background:#fff1f2; border:1.5px solid #fda4af; border-radius:18px; padding:16px; text-align:center; margin-bottom:16px;">
+                    <div style="font-size:0.85rem; font-weight:950; color:#9f1239;">IMAGE TO EXCEL CONVERTER</div>
+                    <div style="font-size:0.62rem; font-weight:800; color:#be123c; margin-top:6px; line-height:1.6;">Uploading a new .html file here will instantly update the Image To Excel Converter tool on the "Image To Excel Converter" button for all DCs - no need to re-upload to GitHub.</div>
+                </div>
+                <label style="display:block; width:100%; max-width:360px; margin:0 auto; border:2px dashed #fda4af; border-radius:16px; padding:18px; text-align:center; cursor:pointer; background:#f8fafc;">
+                    <span style="font-size:0.72rem; font-weight:900; color:#9f1239;">Click to select a new .html file</span>
+                    <input type="file" id="image-to-excel-tool-html-input" accept=".html" style="display:none;" onchange="handleImageToExcelToolHtmlUpload(event)">
+                </label>
+                <div id="image-to-excel-tool-upload-filename" style="font-size:0.62rem; font-weight:800; color:#1d4ed8; text-align:center; margin-top:10px;"></div>
+                <div id="image-to-excel-tool-upload-status" style="display:none; margin-top:12px; max-width:360px; margin-left:auto; margin-right:auto; border-radius:14px; padding:10px 14px; font-size:0.68rem; font-weight:850; text-align:center;"></div>
             </div>
         </main>
 
