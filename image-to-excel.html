@@ -353,12 +353,25 @@
                         cell.s.font = { name: "Calibri", sz: 10 };
                         if (R % 2 === 0) cell.s.fill = { patternType: "solid", fgColor: { rgb: "F8FAFC" } };
                     }
-                    cell.s.border = { top: { style: "thin", color: { rgb: "CBD5E1" } }, bottom: { style: "thin", color: { rgb: "CBD5E1" } }, left: { style: "thin", color: { rgb: "CBD5E1" } }, right: { style: "thin", color: { rgb: "CBD5E1" } } };
+                    cell.s.border = { top: { style: "thin", color: { rgb: "000000" } }, bottom: { style: "thin", color: { rgb: "000000" } }, left: { style: "thin", color: { rgb: "000000" } }, right: { style: "thin", color: { rgb: "000000" } } };
                 }
             }
 
+            // PRINT SETUP - landscape, saare columns ek page ki width me fit ho jaayen
+            // (fitToWidth:1), lekin rows jitni bhi hon utne bhi pages ban sakte hain
+            // (fitToHeight:0 = height par koi limit nahi). Header row (row 1) har
+            // printed page ke top par repeat hoga (Print Titles), taaki 2nd/3rd page
+            // par bhi column headers dikhein.
+            wsData['!margins'] = { left: 0.3, right: 0.3, top: 0.4, bottom: 0.4, header: 0.2, footer: 0.2 };
+            wsData['!pageSetup'] = { orientation: "landscape", fitToWidth: 1, fitToHeight: 0, scale: 100 };
+
             const wb = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wb, wsData, "Scanned Data");
+            const sheetName = "Scanned Data";
+            XLSX.utils.book_append_sheet(wb, wsData, sheetName);
+            wb.Workbook = wb.Workbook || {};
+            wb.Workbook.Names = wb.Workbook.Names || [];
+            wb.Workbook.Names.push({ Name: "_xlnm.Print_Titles", Sheet: 0, Ref: `'${sheetName}'!$1:$1` });
+
             XLSX.writeFile(wb, `Image_To_Excel_${new Date().toISOString().slice(0,10)}.xlsx`);
         }
     </script>
