@@ -6,6 +6,7 @@
     <title>Image To Excel Converter</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Hind:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
         body { font-family: 'Inter', 'Hind', sans-serif; background-color: #0b1329; color: #f1f5f9; }
@@ -314,7 +315,7 @@
             cleanedDataRows[rowIdx][colIdx] = String(newValue || "").trim();
         }
 
-        function exportScannedExcel() {
+        async function exportScannedExcel() {
             if (!cleanedDataRows.length) return;
             const themeKey = document.getElementById('headerColorStyle').value;
             const themeObj = THEME_PALETTES[themeKey] || THEME_PALETTES.ROSE;
@@ -363,7 +364,6 @@
             // printed page ke top par repeat hoga (Print Titles), taaki 2nd/3rd page
             // par bhi column headers dikhein.
             wsData['!margins'] = { left: 0.3, right: 0.3, top: 0.4, bottom: 0.4, header: 0.2, footer: 0.2 };
-            wsData['!pageSetup'] = { orientation: "landscape", fitToWidth: 1, fitToHeight: 0, scale: 100 };
 
             const wb = XLSX.utils.book_new();
             const sheetName = "Scanned Data";
@@ -372,7 +372,49 @@
             wb.Workbook.Names = wb.Workbook.Names || [];
             wb.Workbook.Names.push({ Name: "_xlnm.Print_Titles", Sheet: 0, Ref: `'${sheetName}'!$1:$1` });
 
-            XLSX.writeFile(wb, `Image_To_Excel_${new Date().toISOString().slice(0,10)}.xlsx`);
+            const fileName = `Image_To_Excel_${new Date().toISOString().slice(0,10)}.xlsx`;
+
+            // xlsx-js-style library khud "page setup" (orientation/fit-to-width) aur
+            // "freeze panes" ko file me likhta nahi hai (library ki hi limitation hai),
+            // isliye XLSX se pehle ek normal file banwa kar, uske andar ki XML ko
+            // seedhe patch karte hain (JSZip se) taaki Excel me landscape + "fit to 1
+            // page wide" + header-row-freeze sab reliably kaam karein.
+            try {
+                const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+                const zip = await JSZip.loadAsync(wbout);
+                const sheetPath = "xl/worksheets/sheet1.xml";
+                const sheetFile = zip.file(sheetPath);
+                if (sheetFile) {
+                    let sheetXml = await sheetFile.async("string");
+                    // fitToPage flag (sheetPr) - "worksheet" opening tag ke turant baad
+                    sheetXml = sheetXml.replace(/(<worksheet[^>]*>)/, '$1<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>');
+                    // header row freeze - pehli sheetView ke andar ek "pane" daal dete hain
+                    sheetXml = sheetXml.replace(
+                        /<sheetView([^>]*)\/>/,
+                        '<sheetView$1><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A2" sqref="A2"/></sheetView>'
+                    );
+                    // landscape + fit-to-width print setup - pageMargins ke turant baad
+                    if (sheetXml.indexOf("<pageMargins") > -1) {
+                        sheetXml = sheetXml.replace(/(<pageMargins[^>]*\/>)/, '$1<pageSetup orientation="landscape" fitToWidth="1" fitToHeight="0"/>');
+                    } else {
+                        sheetXml = sheetXml.replace(/(<\/sheetData>)/, '$1<pageSetup orientation="landscape" fitToWidth="1" fitToHeight="0"/>');
+                    }
+                    zip.file(sheetPath, sheetXml);
+                }
+                const outBlob = await zip.generateAsync({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+                const downloadUrl = URL.createObjectURL(outBlob);
+                const link = document.createElement("a");
+                link.href = downloadUrl;
+                link.download = fileName;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                setTimeout(() => URL.revokeObjectURL(downloadUrl), 4000);
+            } catch (error) {
+                // Kuch bhi galat ho jaaye to bhi user khaali haath na rahe - purane
+                // (bina patch wale) tarike se hi file de dete hain.
+                XLSX.writeFile(wb, fileName);
+            }
         }
     </script>
 </body>
