@@ -10345,7 +10345,7 @@
             if (excelAutomationToolOpening) return;
             excelAutomationToolOpening = true;
             const btn = document.getElementById("excel-automation-open-btn");
-            const originalBtnText = btn ? btn.innerText : "Compare Two Excel File";
+            const originalBtnText = btn ? btn.innerText : "Compare 2 Excel File (V-LOOKUP)";
             if (btn) {
                 btn.disabled = true;
                 btn.style.opacity = "0.65";
