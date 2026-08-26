@@ -6,7 +6,6 @@
     <title>Image To Excel Converter</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.4/dist/tesseract.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Hind:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
         body { font-family: 'Inter', 'Hind', sans-serif; background-color: #0b1329; color: #f1f5f9; }
@@ -45,7 +44,7 @@
                     </div>
                     <p class="text-xs font-semibold text-slate-200" id="imageNameDisplay">यहाँ क्लिक करें - Excel/Table का Photo या Screenshot चुनें</p>
                     <p class="text-[11px] text-slate-400">Digital screenshot par best result milta hai. Kagaz/register ki photo bhi chalegi, lekin usme kuch data galat/idhar-udhar aa sakta hai - scan hone ke baad table me sudhaar (edit) kar sakte hain.</p>
-                    <p class="text-[11px] text-amber-400 font-semibold">Tip: Photo/screenshot me sirf table (headers + rows) hi rakhiye - upar ka toolbar/ribbon/menu bar image me na aaye to result kaafi behtar milega.</p>
+                    <p class="text-[11px] text-amber-400 font-semibold">AI Vision se scan hota hai (jaise ChatGPT/Gemini karta hai) - toolbar/ribbon apne aap ignore ho jaata hai. Fir bhi, sirf table wala hissa rakhein to result aur behtar milega.</p>
                 </div>
                 <img id="imagePreviewThumb" class="hidden w-full rounded-xl border border-slate-800 max-h-40 object-contain bg-slate-950" alt="Preview">
                 <button id="scanBtn" onclick="startOcrScan()" disabled class="w-full bg-rose-500 hover:bg-rose-400 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold py-2.5 rounded-xl shadow flex items-center justify-center gap-2 text-xs">
@@ -124,8 +123,15 @@
     </main>
 
     <script>
+        // Backend (Google Apps Script) URL - same backend jo baaki poori app use karti
+        // hai. Yahan par ek naya action "scanTableImage" call hota hai jo Google
+        // Gemini Vision AI se image seedhe "padhta" hai (jaise GPT/ChatGPT karta hai) -
+        // isliye ab pixel-level OCR guessing ki jagah AI khud table samajh kar
+        // structured rows/columns deta hai, jo kaafi zyada accurate hai.
+        const IMAGE_TO_EXCEL_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzaimPwzUYELgmujpaBbfByy0BcjOERA8e0mslNdbH5uUw2L6L24785obmdcpcDOc53Ww/exec";
+
         let selectedImageFile = null;
-        let rawScannedRows = [];      // sab OCR se mile rows (row 0 = jo bhi image me sabse upar tha)
+        let rawScannedRows = [];      // row 0 = headers, baaki data rows (jo bhi Vision AI ne diya)
         let detectedHeaders = [];
         let cleanedDataRows = [];
         let includedColumnIdx = [];   // kaunse column index export me shaamil rahenge
@@ -149,200 +155,91 @@
             document.getElementById('scanBtn').disabled = false;
         }
 
+        // Bade photo (jaise mobile camera se 4-5 MB ki photo) ko chhote/compressed
+        // JPEG me convert karte hain - isse upload fast hota hai aur backend/Vision AI
+        // ko bhejna bhi asaan rehta hai. Original file jaisi hi dikhti hai, bas size
+        // kam ho jaati hai.
+        function resizeImageToJpegDataUrl(file, maxDim) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => {
+                    let { width, height } = img;
+                    if (width > maxDim || height > maxDim) {
+                        const scale = maxDim / Math.max(width, height);
+                        width = Math.round(width * scale);
+                        height = Math.round(height * scale);
+                    }
+                    const canvas = document.createElement('canvas');
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(0, 0, width, height);
+                    ctx.drawImage(img, 0, 0, width, height);
+                    resolve(canvas.toDataURL('image/jpeg', 0.88));
+                };
+                img.onerror = () => reject(new Error('Image load nahi ho payi'));
+                img.src = URL.createObjectURL(file);
+            });
+        }
+
         async function startOcrScan() {
-            if (!selectedImageFile || !window.Tesseract) return;
+            if (!selectedImageFile) return;
             const scanBtn = document.getElementById('scanBtn');
             const progressWrap = document.getElementById('ocrProgressWrap');
             const progressFill = document.getElementById('ocrProgressFill');
             const progressText = document.getElementById('ocrProgressText');
             scanBtn.disabled = true;
             progressWrap.classList.remove('hidden');
-            progressFill.style.width = '2%';
-            progressText.textContent = 'OCR worker load ho raha hai...';
+            progressFill.style.width = '15%';
+            progressText.textContent = 'Image taiyaar ho rahi hai...';
 
             try {
-                const worker = await Tesseract.createWorker('eng', 1, {
-                    logger: (m) => {
-                        if (m.status && typeof m.progress === 'number') {
-                            const pct = Math.round(m.progress * 100);
-                            progressFill.style.width = Math.max(2, pct) + '%';
-                            progressText.textContent = `${m.status.replace(/_/g, ' ')} (${pct}%)`;
-                        }
-                    }
+                const dataUrl = await resizeImageToJpegDataUrl(selectedImageFile, 1800);
+                const base64Image = dataUrl.split(',')[1];
+
+                progressFill.style.width = '35%';
+                progressText.textContent = 'AI table padh raha hai (thoda time lagega)...';
+
+                const response = await fetch(IMAGE_TO_EXCEL_SCRIPT_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+                    body: JSON.stringify({
+                        action: 'scanTableImage',
+                        image_base64: base64Image,
+                        mime_type: 'image/jpeg'
+                    })
                 });
-                const { data } = await worker.recognize(selectedImageFile, {}, { blocks: true });
-                await worker.terminate();
+                progressFill.style.width = '85%';
+                const responseText = await response.text();
+                let parsed = {};
+                try { parsed = JSON.parse(responseText || '{}'); } catch (_) { parsed = {}; }
 
-                document.getElementById('statConfidence').textContent = (data.confidence ? Math.round(data.confidence) : '-') + '%';
-
-                const words = flattenWords(data);
-                if (words.length) {
-                    const rows = groupWordsIntoRows(words);
-                    const columnBounds = computeGlobalColumns(rows);
-                    rawScannedRows = (columnBounds.length > 1
-                        ? rows.map((rowWords) => assignRowToGlobalColumns(rowWords, columnBounds))
-                        : rows.map(wordsToColumns)
-                    ).filter((r) => r.some((c) => String(c).trim() !== ""));
-                } else {
-                    // Fallback (kabhi bbox data na mile) - seedha plain text ko lines/spaces se todo
-                    rawScannedRows = String(data.text || "").split("\n")
-                        .map((line) => line.trim())
-                        .filter(Boolean)
-                        .map((line) => line.split(/\s{2,}|\t/).map((c) => c.trim()).filter((c) => c !== ""));
+                if (!parsed || parsed.status !== 'success') {
+                    throw new Error(parsed && parsed.message ? parsed.message : ('Server error (HTTP ' + response.status + ')'));
                 }
 
+                const headers = Array.isArray(parsed.headers) ? parsed.headers : [];
+                const rows = Array.isArray(parsed.rows) ? parsed.rows : [];
+                rawScannedRows = [headers, ...rows].filter((r) => Array.isArray(r) && r.some((c) => String(c ?? '').trim() !== ''));
+
+                document.getElementById('statConfidence').textContent = 'AI Vision';
+
                 if (!rawScannedRows.length) {
-                    progressText.textContent = 'Koi text nahi mila - saaf/bright image try kijiye';
+                    progressText.textContent = 'Koi table data nahi mila - saaf image try kijiye';
                     return;
                 }
 
                 document.getElementById('headerRowCard').classList.remove('hidden');
                 document.getElementById('headerRowInput').value = 1;
                 reprocessScannedRows();
+                progressFill.style.width = '100%';
                 progressText.textContent = 'Scan complete!';
             } catch (error) {
-                progressText.textContent = 'Scan fail ho gaya: ' + (error?.message || 'unknown error');
+                progressText.textContent = 'Scan fail ho gaya: ' + (error && error.message ? error.message : 'unknown error');
             } finally {
                 scanBtn.disabled = false;
             }
-        }
-
-        // Tesseract "blocks" output ko flatten karke ek flat words[] array banate hain -
-        // har word: { text, bbox:{x0,y0,x1,y1} }
-        function flattenWords(data) {
-            const words = [];
-            const pushWord = (w) => {
-                if (!w || !w.text || !w.text.trim() || !w.bbox) return;
-                words.push({ text: w.text.trim(), bbox: w.bbox });
-            };
-            if (Array.isArray(data.words) && data.words.length) {
-                data.words.forEach(pushWord);
-                return words;
-            }
-            (data.blocks || []).forEach((block) => {
-                (block.paragraphs || []).forEach((para) => {
-                    (para.lines || []).forEach((line) => {
-                        (line.words || []).forEach(pushWord);
-                    });
-                });
-            });
-            return words;
-        }
-
-        // Words ko unki vertical (y) position ke hisab se rows me group karte hain -
-        // jo words lagbhag ek hi height par hain woh ek hi row (line) maane jaate hain.
-        function groupWordsIntoRows(allWords) {
-            const withCenter = allWords.map((w) => ({
-                ...w,
-                yc: (w.bbox.y0 + w.bbox.y1) / 2,
-                h: w.bbox.y1 - w.bbox.y0
-            }));
-            const avgHeight = withCenter.reduce((s, w) => s + w.h, 0) / (withCenter.length || 1) || 10;
-            const rowTolerance = Math.max(avgHeight * 0.6, 8);
-            const rows = [];
-            withCenter.forEach((w) => {
-                let row = rows.find((r) => Math.abs(r.yc - w.yc) < rowTolerance);
-                if (!row) {
-                    row = { yc: w.yc, words: [] };
-                    rows.push(row);
-                }
-                row.words.push(w);
-                row.yc = row.words.reduce((s, x) => s + x.yc, 0) / row.words.length;
-            });
-            rows.sort((a, b) => a.yc - b.yc);
-            return rows.map((r) => r.words);
-        }
-
-        // GLOBAL column detection - Excel/table screenshots me columns lagbhag har
-        // row me ek hi vertical jagah par align hote hain, isliye poori image ke
-        // saare words ka x-axis coverage dekh kar "gaps" (jahan koi bhi word nahi
-        // hai) dhoondte hain - yeh gaps hi column ke beech ki asli boundary hoti
-        // hai. Isse har row alag-alag threshold guess karne se kaafi zyada
-        // accurate/consistent columns milte hain, khaas kar tightly-packed table
-        // screenshots me (jaise Excel/DC report screenshots).
-        function computeGlobalColumns(rows) {
-            const allWords = rows.flat();
-            if (allWords.length < 4) return [];
-            const minX = Math.min(...allWords.map((w) => w.bbox.x0));
-            const maxX = Math.max(...allWords.map((w) => w.bbox.x1));
-            const binSize = 2;
-            const numBins = Math.max(1, Math.ceil((maxX - minX) / binSize) + 1);
-            const coverage = new Array(numBins).fill(0);
-            allWords.forEach((w) => {
-                const startBin = Math.max(0, Math.floor((w.bbox.x0 - minX) / binSize));
-                const endBin = Math.min(numBins - 1, Math.floor((w.bbox.x1 - minX) / binSize));
-                for (let b = startBin; b <= endBin; b++) coverage[b]++;
-            });
-            const minGapPx = 12;
-            const minGapBins = Math.max(1, Math.round(minGapPx / binSize));
-            const bounds = [];
-            let colStart = 0;
-            let i = 0;
-            while (i < numBins) {
-                if (coverage[i] === 0) {
-                    const gapStart = i;
-                    while (i < numBins && coverage[i] === 0) i++;
-                    if (i - gapStart >= minGapBins) {
-                        bounds.push([colStart, gapStart]);
-                        colStart = i;
-                    }
-                } else {
-                    i++;
-                }
-            }
-            bounds.push([colStart, numBins]);
-            return bounds
-                .map(([s, e]) => [minX + s * binSize, minX + e * binSize])
-                .filter(([s, e]) => e > s);
-        }
-
-        // Ek row ke words ko upar se mile hue GLOBAL column-bands me daalte hain
-        // (har word apne center-x ke hisab se sabse nazdeek wale column me jaata
-        // hai), taaki saari rows me columns hamesha same jagah align rahein.
-        function assignRowToGlobalColumns(rowWords, columnBounds) {
-            const cols = columnBounds.map(() => []);
-            rowWords.forEach((w) => {
-                const xc = (w.bbox.x0 + w.bbox.x1) / 2;
-                let idx = columnBounds.findIndex(([s, e]) => xc >= s && xc < e);
-                if (idx === -1) {
-                    let bestIdx = 0;
-                    let bestDist = Infinity;
-                    columnBounds.forEach(([s, e], ci) => {
-                        const d = Math.abs(xc - (s + e) / 2);
-                        if (d < bestDist) { bestDist = d; bestIdx = ci; }
-                    });
-                    idx = bestIdx;
-                }
-                cols[idx].push(w);
-            });
-            return cols.map((colWords) =>
-                colWords.sort((a, b) => a.bbox.x0 - b.bbox.x0).map((w) => w.text).join(" ").trim()
-            );
-        }
-
-        // Ek row ke words ko columns me todte hain - do words ke beech agar gap
-        // "normal word-spacing" se kaafi zyada ho, to woh ek nayi column maani jaati hai
-        // (table me columns ke beech aam taur par zyada khaali jagah hoti hai).
-        // Yeh sirf FALLBACK ke roop me use hota hai jab global column detection ke
-        // liye kaafi data na ho (bahut kam words).
-        function wordsToColumns(rowWords) {
-            const sorted = [...rowWords].sort((a, b) => a.bbox.x0 - b.bbox.x0);
-            if (!sorted.length) return [];
-            const avgCharWidth = sorted.reduce((s, w) => s + (w.bbox.x1 - w.bbox.x0) / (w.text.length || 1), 0) / sorted.length;
-            const threshold = Math.max(avgCharWidth * 2.4, 16);
-            const cols = [];
-            let current = sorted[0].text;
-            for (let i = 1; i < sorted.length; i++) {
-                const gap = sorted[i].bbox.x0 - sorted[i - 1].bbox.x1;
-                if (gap > threshold) {
-                    cols.push(current.trim());
-                    current = sorted[i].text;
-                } else {
-                    current += " " + sorted[i].text;
-                }
-            }
-            cols.push(current.trim());
-            return cols;
         }
 
         function reprocessScannedRows() {

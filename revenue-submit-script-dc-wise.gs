@@ -1,5 +1,22 @@
 const SPREADSHEET_ID = "1y0oYJYI5xpmylo9rVaMr3813PtEv1IMzKcwkwYvd3zE";
 
+// ============================================================
+// IMAGE TO EXCEL CONVERTER - Google Gemini Vision AI (free tier)
+// "Image To Excel Converter" tool ke liye - yeh table image (screenshot ya
+// register/kagaz ki photo) ko seedhe AI Vision se "padhta" hai (jaise
+// ChatGPT/Gemini chat me hota hai), OCR pixel-guessing se kaafi zyada
+// accurate hai. FREE Gemini API key khud banani hai (koi cost nahi):
+//   1. https://aistudio.google.com/apikey par jaake "Create API Key" dabaiye
+//   2. Neeche wali line me PASTE_YOUR_FREE_GEMINI_API_KEY_HERE ki jagah
+//      apni key paste kar dijiye (quotes ke andar hi)
+//   3. File Save karke phir se Deploy > Manage Deployments > Edit > naya
+//      version banaiye (jaisa har baar .gs change ke baad karte hain)
+// Bina key ke sirf yeh naya "Image To Excel Converter" feature kaam nahi
+// karega - baaki koi bhi purana flow (Revenue, Excel Automation, Arrange
+// Excel File, Panchnama, waghera) is se bilkul touch nahi hota.
+const GEMINI_API_KEY = "AQ.Ab8RN6JjvXUHi_3W57K23sQoh8OYJw63vhKA159Vi7lh1U8TDQ";
+const GEMINI_MODEL = "gemini-2.0-flash";
+
 // Old common sheets are retained as backup. New paid data is stored DC-wise.
 const LEGACY_COLLECTION_SHEET_NAME = "REVENUE COLLECTION";
 const LEGACY_PAID_MASTER_SHEET_NAME = "REVENUE PAID MASTER";
@@ -131,6 +148,7 @@ function doPost(e) {
     if (action === "verifyAdminPassword") return verifyAdminPassword_(data);
     if (action === "submitTD") return submitLineTd_(data);
     if (action === "uploadExternalToolHtml") return uploadExternalToolHtml_(data);
+    if (action === "scanTableImage") return scanTableImageWithGemini_(data);
     return submitRevenuePayment_(data);
   } catch (error) {
     return jsonResponse_({
@@ -1666,6 +1684,93 @@ function saveTdPhotoIfProvided_(data) {
 const EXTERNAL_TOOL_SHEET_NAME = "EXTERNAL TOOL HTML";
 const EXTERNAL_TOOL_HEADERS = ["TOOL KEY", "FILE NAME", "UPDATED AT", "DRIVE FILE ID"];
 const EXTERNAL_TOOL_MAX_CHARS = 5000000; // ~5 MB sanity limit, sirf garbage upload rokne ke liye
+
+// "Image To Excel Converter" tool ke liye - Google Gemini Vision AI ko image
+// bhejte hain, wo poori table ko samajh kar structured {headers, rows} JSON
+// wapas deta hai. Client (image-to-excel.html) isse hi seedha table preview/
+// export banata hai. Koi bhi purana action/flow is function se touch nahi
+// hota - yeh sirf naya "scanTableImage" action hai.
+function scanTableImageWithGemini_(data) {
+  if (!GEMINI_API_KEY || GEMINI_API_KEY.indexOf("PASTE_YOUR") === 0) {
+    throw new Error("Gemini API key set nahi hai - .gs file me GEMINI_API_KEY set kijiye (free key: aistudio.google.com/apikey)");
+  }
+  const base64Image = String(data.image_base64 || "");
+  const mimeType = clean_(data.mime_type) || "image/jpeg";
+  if (!base64Image) throw new Error("Image data nahi mili");
+
+  const prompt = "You are reading a table (from a spreadsheet screenshot or a photo of a printed/handwritten register) inside an image. " +
+    "Extract EVERY row and column exactly as shown, preserving the original row order and column order, left to right, top to bottom. " +
+    "The first clear header row of the actual data table is the header row - use it as 'headers'. If no clear header row exists, invent short column labels like Col_1, Col_2. " +
+    "Keep dates, times, and numbers exactly as written (do not reformat them). Do not skip any data row. Do not invent any row/column that is not in the image. " +
+    "Completely IGNORE any toolbar, ribbon, menu bar, scrollbar, or software UI chrome that is not part of the actual table data - only extract the real table content. " +
+    "Return ONLY the table data, no explanation.";
+
+  const payload = {
+    contents: [{
+      parts: [
+        { text: prompt },
+        { inline_data: { mime_type: mimeType, data: base64Image } }
+      ]
+    }],
+    generationConfig: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: "OBJECT",
+        properties: {
+          headers: { type: "ARRAY", items: { type: "STRING" } },
+          rows: { type: "ARRAY", items: { type: "ARRAY", items: { type: "STRING" } } }
+        },
+        required: ["headers", "rows"]
+      }
+    }
+  };
+
+  const url = "https://generativelanguage.googleapis.com/v1beta/models/" + GEMINI_MODEL + ":generateContent?key=" + encodeURIComponent(GEMINI_API_KEY);
+  const response = UrlFetchApp.fetch(url, {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  });
+  const responseCode = response.getResponseCode();
+  const responseText = response.getContentText();
+  if (responseCode < 200 || responseCode >= 300) {
+    let detail = responseText;
+    try {
+      const errParsed = JSON.parse(responseText);
+      if (errParsed && errParsed.error && errParsed.error.message) detail = errParsed.error.message;
+    } catch (_) {}
+    throw new Error("Gemini API error (HTTP " + responseCode + "): " + String(detail).slice(0, 300));
+  }
+
+  const parsed = JSON.parse(responseText);
+  const textPart = parsed && parsed.candidates && parsed.candidates[0] &&
+    parsed.candidates[0].content && parsed.candidates[0].content.parts &&
+    parsed.candidates[0].content.parts[0] && parsed.candidates[0].content.parts[0].text;
+  if (!textPart) throw new Error("Gemini se table data nahi mila - image saaf/clear try kijiye");
+
+  let tableData;
+  try {
+    tableData = JSON.parse(textPart);
+  } catch (error) {
+    throw new Error("Gemini response JSON parse nahi ho paya");
+  }
+
+  const headers = Array.isArray(tableData.headers)
+    ? tableData.headers.map(function(h) { return String(h === null || h === undefined ? "" : h); })
+    : [];
+  const rows = Array.isArray(tableData.rows)
+    ? tableData.rows.map(function(r) {
+        return Array.isArray(r) ? r.map(function(c) { return String(c === null || c === undefined ? "" : c); }) : [];
+      })
+    : [];
+
+  if (!headers.length && !rows.length) {
+    throw new Error("Table me koi data nahi mila - image me table clearly dikhni chahiye");
+  }
+
+  return jsonResponse_({ status: "success", headers: headers, rows: rows });
+}
 
 function uploadExternalToolHtml_(data) {
   const toolKey = clean_(data.tool_key) || "EXCEL_AUTOMATION";
