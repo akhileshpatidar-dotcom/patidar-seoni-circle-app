@@ -122,7 +122,7 @@
             { type: "ISSUE", material: "LT Pin Insulator", qty: 20, date: "22/04/2026", note: "Village feeder replacement" }
         ];
 
-        let activeDiv = "", activeDC = "", activeGrad = "bg-teal-grad", summaryMode = "DAILY", summaryModule = "MOBILE", activeViewLevel = "", currentData = null, pendingLevel = "", dcCacheRaw = {}, dcCacheRows = {}, uiListSummary = [], grandTC = 0, grandTU = 0, courtCaseRaw = "", courtCaseCacheByDc = {}, courtCaseLines = [], courtCaseRecords = [], lokDistributedRows = [], lokDistributedLoaded = false, currentCourtRecord = null, receiverGeoData = null;
+        let activeDiv = "", activeDC = "", activeGrad = "bg-teal-grad", summaryMode = "DAILY", summaryModule = "MOBILE", activeViewLevel = "", currentData = null, pendingLevel = "", dcCacheRaw = {}, dcCacheRows = {}, uiListSummary = [], grandTC = 0, grandTU = 0, grandTW = 0, courtCaseRaw = "", courtCaseCacheByDc = {}, courtCaseLines = [], courtCaseRecords = [], lokDistributedRows = [], lokDistributedLoaded = false, currentCourtRecord = null, receiverGeoData = null;
         // Progress Report (Daily Progress) ke Revenue tab me Category Wise ke saath-saath
         // Target vs Achievement aur Top 20/50 Defaulters bhi dropdown se select ho sakein -
         // teeno DC/Division/Circle scope automatically activeViewLevel se hi follow karte
@@ -4119,12 +4119,42 @@
                 uiListSummary = [];
                 grandTC = 0;
                 grandTU = 0;
+                grandTW = 0;
+
+                // "Wrong Mobile No" (tw) - date-independent hai (jaisa TOTAL CONS. bhi
+                // hai): consumer master me jiska number invalid/khaali hai AUR jiske
+                // liye kabhi bhi (kisi bhi date par) Update Mobile No se sahi number
+                // submit nahi hua - "Wrong Mobile No List" screen wali hi definition,
+                // bas yahan DC/HQ-wise summary-count ke roop me.
+                const getFixedIvrsSetForDc = (dcName) => {
+                    const normDc = normalizeDcName(dcName);
+                    const set = new Set();
+                    cloudData.forEach((u) => {
+                        const uDc = (u.dc || "").trim().toUpperCase();
+                        if (uDc !== normDc) return;
+                        if (!normalizeRevenueMessageMobile(u.correct_mobile || "")) return;
+                        const ivrs = normalizeLookupDigits(u.ivrs || "");
+                        if (ivrs) set.add(ivrs);
+                    });
+                    return set;
+                };
+                const isRowStillWrong = (row, fixedSet) => {
+                    const ivrs = normalizeLookupDigits(getConsumerField(row, ["IVRS", "IVRS NO", "IVRS NUMBER", "IVRSNO"]));
+                    if (normalizeRevenueMessageMobile(getConsumerField(row, ["MOBILE NO", "MOBILE NUMBER", "MOBILE"]))) return false;
+                    return !(ivrs && fixedSet.has(ivrs));
+                };
 
                 const getStats = (dcName) => {
                     let tc = 0;
                     let tu = 0;
+                    let tw = 0;
                     const normDc = normalizeDcName(dcName);
-                    tc = getConsumerRows(normDc).length;
+                    const rows = getConsumerRows(normDc);
+                    tc = rows.length;
+                    const fixedSet = getFixedIvrsSetForDc(dcName);
+                    rows.forEach((row) => {
+                        if (isRowStillWrong(row, fixedSet)) tw++;
+                    });
                     cloudData.forEach((u) => {
                         const ts = (u.date || "").trim();
                         const uDc = (u.dc || "").trim().toUpperCase();
@@ -4133,15 +4163,17 @@
                         const matchesDate = matchesProgressDate(ts, summaryMode, dStr, mStr);
                         if (uDc === normDc && hasMobile && matchesDate) tu++;
                     });
-                    return { tc, tu };
+                    return { tc, tu, tw };
                 };
 
                 if (activeViewLevel === "DC") {
                     const stats = {};
+                    const fixedSet = getFixedIvrsSetForDc(activeDC);
                     getConsumerRows(activeDC).forEach((row) => {
                         const h = getConsumerField(row, ["HQ", "HQ NAME", "HEADQUARTER", "HEAD QUARTER", "H.Q."], "GENERAL").trim().toUpperCase() || "GENERAL";
-                        stats[h] = stats[h] || { tc: 0, tu: 0 };
+                        stats[h] = stats[h] || { tc: 0, tu: 0, tw: 0 };
                         stats[h].tc++;
+                        if (isRowStillWrong(row, fixedSet)) stats[h].tw++;
                     });
                     cloudData.forEach((u) => {
                         const ts = (u.date || "").trim();
@@ -4151,47 +4183,54 @@
                         const hasMobile = mobileVal.toString().trim().length === 10;
                         const matchesDate = matchesProgressDate(ts, summaryMode, dStr, mStr);
                         if (uDc === normalizeDcName(activeDC) && hasMobile && matchesDate) {
-                            if (!stats[uHq]) stats[uHq] = { tc: 0, tu: 0 };
+                            if (!stats[uHq]) stats[uHq] = { tc: 0, tu: 0, tw: 0 };
                             stats[uHq].tu++;
                         }
                     });
                     Object.keys(stats).sort().forEach((h) => {
-                        uiListSummary.push({ name: h, tc: stats[h].tc, tu: stats[h].tu });
+                        uiListSummary.push({ name: h, tc: stats[h].tc, tu: stats[h].tu, tw: stats[h].tw });
                         grandTC += stats[h].tc;
                         grandTU += stats[h].tu;
+                        grandTW += stats[h].tw;
                     });
                 } else {
                     const targetDivs = activeViewLevel === "DIVISION" ? [activeDiv] : Object.keys(divisionConfigs);
                     targetDivs.forEach((div) => {
                         let divTC = 0;
                         let divTU = 0;
+                        let divTW = 0;
                         getDivisionSubDnGroups(div).forEach((group) => {
                             let subTC = 0;
                             let subTU = 0;
+                            let subTW = 0;
                             group.dcs.forEach((dc) => {
                                 const s = getStats(dc);
-                                uiListSummary.push({ name: dc, tc: s.tc, tu: s.tu });
+                                uiListSummary.push({ name: dc, tc: s.tc, tu: s.tu, tw: s.tw });
                                 subTC += s.tc;
                                 subTU += s.tu;
+                                subTW += s.tw;
                             });
-                            uiListSummary.push({ name: `SUB DN ${group.subDn} TOTAL`, tc: subTC, tu: subTU, type: "SUBDN_TOTAL" });
+                            uiListSummary.push({ name: `SUB DN ${group.subDn} TOTAL`, tc: subTC, tu: subTU, tw: subTW, type: "SUBDN_TOTAL" });
                             divTC += subTC;
                             divTU += subTU;
+                            divTW += subTW;
                         });
-                        if (activeViewLevel === "CIRCLE") uiListSummary.push({ name: `${div} TOTAL`, tc: divTC, tu: divTU, type: "DIV_TOTAL" });
+                        if (activeViewLevel === "CIRCLE") uiListSummary.push({ name: `${div} TOTAL`, tc: divTC, tu: divTU, tw: divTW, type: "DIV_TOTAL" });
                         grandTC += divTC;
                         grandTU += divTU;
+                        grandTW += divTW;
                     });
                 }
 
                 const colLabel = activeViewLevel === "DC" ? "HQ NAME" : "DC NAME";
-                let html = `<div class="summary-wrapper"><div class="summary-table-header"><div>${colLabel}</div><div>TOTAL CONS.</div><div>UPDATED MOBILE NO</div></div>`;
+                const mobileGridCols = "1.4fr 0.85fr 0.85fr 0.85fr";
+                let html = `<div class="summary-wrapper"><div class="summary-table-header" style="grid-template-columns: ${mobileGridCols};"><div>${colLabel}</div><div>TOTAL CONS.</div><div>WRONG MOBILE NO</div><div>UPDATED MOBILE NO</div></div>`;
                 uiListSummary.forEach((r) => {
                     const rowClass = r.type === "DIV_TOTAL" ? "blue-bold" : (r.type === "SUBDN_TOTAL" ? "subdn-bold" : "");
-                    html += `<div class="summary-table-row ${rowClass}"><div>${r.name}</div><div>${r.tc}</div><div class="text-teal-600 font-black">${r.tu}</div></div>`;
+                    html += `<div class="summary-table-row ${rowClass}" style="grid-template-columns: ${mobileGridCols};"><div>${r.name}</div><div>${r.tc}</div><div class="text-rose-600 font-black">${r.tw || 0}</div><div class="text-teal-600 font-black">${r.tu}</div></div>`;
                 });
 
-                html += `</div><div class="summary-footer"><div class="flex justify-between font-black"><span>GRAND TOTAL (${label})</span><span class="text-rose-600 text-lg">${grandTU}</span></div>
+                html += `</div><div class="summary-footer"><div class="flex justify-between font-black"><span>GRAND TOTAL (${label})</span><span class="text-rose-600 text-lg">${grandTU}</span></div><div class="flex justify-between font-black" style="margin-top:4px;"><span>TOTAL WRONG MOBILE NO</span><span class="text-rose-600 text-lg">${grandTW}</span></div>
                     <div class="btn-export-row">
                         <button class="btn-unique btn-excel-unique" onclick="doExport('XLS')">
                             <svg width="18" height="18" fill="white" viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16h-8v-2h8v2zm0-4h-8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
@@ -4713,11 +4752,11 @@
                     });
                     csv += `GRAND TOTAL,${grandTC},${grandTU}`;
                 } else {
-                    csv += `${colLabel},TOTAL CONS.,${valueLabel}\n`;
+                    csv += `${colLabel},TOTAL CONS.,WRONG MOBILE NO,${valueLabel}\n`;
                     uiListSummary.forEach((r) => {
-                        csv += `${r.name},${r.tc},${r.tu}\n`;
+                        csv += `${r.name},${r.tc},${r.tw || 0},${r.tu}\n`;
                     });
-                    csv += `GRAND TOTAL,${grandTC},${grandTU}`;
+                    csv += `GRAND TOTAL,${grandTC},${grandTW},${grandTU}`;
                 }
                 const link = document.createElement("a");
                 link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
@@ -4739,12 +4778,12 @@
                 doc.text(reportHeading, 105, 34, { align: "center" });
                 doc.autoTable({
                     startY: 40,
-                    head: [summaryModule === "LOK_ADALAT" ? [colLabel, valueLabel, "DISTRIBUTED NOTICE"] : [colLabel, "TOTAL CONS.", valueLabel]],
-                    body: summaryModule === "LOK_ADALAT" ? uiListSummary.map((r) => [r.name, r.tc, r.tu]) : uiListSummary.map((r) => [r.name, r.tc, r.tu]),
-                    foot: [summaryModule === "LOK_ADALAT" ? ["GRAND TOTAL", grandTC, grandTU] : ["GRAND TOTAL", grandTC, grandTU]],
+                    head: [summaryModule === "LOK_ADALAT" ? [colLabel, valueLabel, "DISTRIBUTED NOTICE"] : [colLabel, "TOTAL CONS.", "WRONG MOBILE NO", valueLabel]],
+                    body: summaryModule === "LOK_ADALAT" ? uiListSummary.map((r) => [r.name, r.tc, r.tu]) : uiListSummary.map((r) => [r.name, r.tc, r.tw || 0, r.tu]),
+                    foot: [summaryModule === "LOK_ADALAT" ? ["GRAND TOTAL", grandTC, grandTU] : ["GRAND TOTAL", grandTC, grandTW, grandTU]],
                     theme: "grid",
                     headStyles: { fillColor: [13, 148, 136], halign: "center" },
-                    columnStyles: summaryModule === "LOK_ADALAT" ? { 0: { halign: "left" }, 1: { halign: "center" }, 2: { halign: "center" } } : { 0: { halign: "left" }, 1: { halign: "center" }, 2: { halign: "center" } },
+                    columnStyles: summaryModule === "LOK_ADALAT" ? { 0: { halign: "left" }, 1: { halign: "center" }, 2: { halign: "center" } } : { 0: { halign: "left" }, 1: { halign: "center" }, 2: { halign: "center" }, 3: { halign: "center" } },
                     footStyles: { fillColor: [241, 245, 249], textColor: [190, 18, 60], fontStyle: "bold", halign: "center" },
                     didParseCell(data) {
                         if (data.section === "body") {
