@@ -1146,10 +1146,18 @@
                     <div id="mobile-update-wrong-list-scope-label" style="font-size:0.58rem; font-weight:850; color:#475569; margin-top:2px;">Galat / Missing Mobile No wale Consumer</div>
                 </div>
                 <select id="mobile-update-wrong-list-hq" onchange="setMobileUpdateWrongListHq(this.value)" style="width:100%; max-width:360px; height:42px; margin:9px auto 0; display:block; border:1.5px solid #fca5a5; border-radius:12px; padding:0 12px; font-size:0.76rem; font-weight:950; color:#991b1b; background:#fff7f7;">
-                    <option value="">SABHI HQ</option>
+                    <option value="">ALL HQ</option>
+                </select>
+                <select id="mobile-update-wrong-list-village" onchange="setMobileUpdateWrongListVillage(this.value)" style="width:100%; max-width:360px; height:42px; margin:8px auto 0; display:block; border:1.5px solid #fca5a5; border-radius:12px; padding:0 12px; font-size:0.76rem; font-weight:950; color:#991b1b; background:#fff7f7;">
+                    <option value="">ALL VILLAGE</option>
                 </select>
                 <div id="mobile-update-wrong-list-summary" style="width:100%; max-width:360px; margin:9px auto 0;"></div>
                 <div id="mobile-update-wrong-list-table" style="width:100%; max-width:360px; margin:0 auto;"></div>
+                <div id="mobile-update-wrong-list-download-row" style="display:flex; gap:10px; width:100%; max-width:360px; margin:9px auto 0;">
+                    <button id="mobile-update-wrong-list-pdf-btn" onclick="downloadMobileUpdateWrongList('PDF')" style="flex:1; height:34px; border:none; border-radius:11px; background:#ef4444; color:#ffffff; font-size:0.66rem; font-weight:950;">PDF</button>
+                    <button id="mobile-update-wrong-list-excel-btn" onclick="downloadMobileUpdateWrongList('EXCEL')" style="flex:1; height:34px; border:none; border-radius:11px; background:#16a34a; color:#ffffff; font-size:0.66rem; font-weight:950;">EXCEL</button>
+                </div>
+                <div id="mobile-update-wrong-list-download-status" style="display:none; width:100%; max-width:360px; margin:8px auto 0; border-radius:12px; padding:8px; background:#fff1f2; border:1.2px solid #fca5a5; color:#991b1b; font-size:0.66rem; font-weight:950; text-align:center;">Loading...</div>
             </div>
         </main>
 

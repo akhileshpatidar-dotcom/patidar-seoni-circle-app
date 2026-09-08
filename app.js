@@ -828,19 +828,26 @@
             switchView("mobile-update-wrong-list");
         }
 
+        // Poore DC ki consumer master file + backend "getSummary" ek hi baar (screen
+        // khulte waqt) fetch karke cache kar lete hain (mobileUpdateWrongListAllRows) -
+        // isme wo saare consumers hain jinka mobile number master sheet me ORIGINALLY
+        // galat/khaali tha, har ek par "fixed: true/false" (Update Mobile No se sahi ho
+        // chuka hai ya abhi bhi wrong hai) tag laga hota hai. HQ/Village dropdown badalne
+        // par sirf isi cached data par local filter chalta hai - dobara backend/sheet
+        // sync NAHI hota (user ki specific request). Screen dobara khulne par (ya DC badalne
+        // par) hi taaza sync hota hai.
+        let mobileUpdateWrongListAllRows = [];
+        let mobileUpdateWrongListLoadedDcKey = "";
         let mobileUpdateWrongListHq = "";
+        let mobileUpdateWrongListVillage = "";
         let mobileUpdateWrongListRenderToken = 0;
 
         function initMobileUpdateWrongList() {
             mobileUpdateWrongListHq = "";
+            mobileUpdateWrongListVillage = "";
             const scopeLabel = document.getElementById("mobile-update-wrong-list-scope-label");
             if (scopeLabel) scopeLabel.innerText = activeDC ? `DC: ${activeDC} - Galat / Missing Mobile No wale Consumer` : "Galat / Missing Mobile No wale Consumer";
-            renderMobileUpdateWrongList();
-        }
-
-        function setMobileUpdateWrongListHq(value) {
-            mobileUpdateWrongListHq = value || "";
-            renderMobileUpdateWrongList();
+            loadMobileUpdateWrongListData();
         }
 
         function buildMobileUpdateWrongListRows(rows, dcName, cloudData) {
@@ -863,27 +870,33 @@
                 .map((row) => {
                     const ivrs = normalizeLookupDigits(row.ivrsNo);
                     if (!ivrs) return null;
-                    if (updatedMobileByIvrs[ivrs]) return null;
+                    // "Originally wrong" - master sheet me hi number galat/khaali tha.
                     if (normalizeRevenueMessageMobile(row.mobileNo)) return null;
                     return {
                         ivrsNo: row.ivrsNo || "",
                         consumerName: row.consumerName || "",
                         hqName: String(row.hqName || "GENERAL").trim().toUpperCase() || "GENERAL",
                         village: String(row.village || "UNKNOWN").trim().toUpperCase() || "UNKNOWN",
-                        rawMobile: String(row.mobileNo || "").trim()
+                        rawMobile: String(row.mobileNo || "").trim(),
+                        fixed: !!updatedMobileByIvrs[ivrs]
                     };
                 })
                 .filter(Boolean);
         }
 
-        async function renderMobileUpdateWrongList() {
-            const summaryBox = document.getElementById("mobile-update-wrong-list-summary");
+        async function loadMobileUpdateWrongListData(forceRefresh = false) {
             const tableBox = document.getElementById("mobile-update-wrong-list-table");
-            const hqSelect = document.getElementById("mobile-update-wrong-list-hq");
+            const summaryBox = document.getElementById("mobile-update-wrong-list-summary");
             if (!tableBox) return;
-            const renderToken = ++mobileUpdateWrongListRenderToken;
             const dcName = activeDC;
+            const dcKey = normalizeDcName(dcName);
+            if (!forceRefresh && mobileUpdateWrongListLoadedDcKey === dcKey && dcKey) {
+                renderMobileUpdateWrongList();
+                return;
+            }
+            const renderToken = ++mobileUpdateWrongListRenderToken;
             const isRenderValid = () => renderToken === mobileUpdateWrongListRenderToken && document.getElementById("mobile-update-wrong-list-view")?.classList.contains("active");
+            if (summaryBox) summaryBox.innerHTML = "";
             const progress = renderSyncingProgress(tableBox, isRenderValid, "SYNCING LATEST DATA...");
             try {
                 if (!dcName) throw new Error("DC select nahi hai");
@@ -891,39 +904,160 @@
                 const cloudData = await loadRemoteJson(`${scriptURL}?action=getSummary`);
                 if (!isRenderValid()) { progress.stop(); return; }
                 const rows = getConsumerRows(dcName).map(mapRevenueConsumerRow).filter((row) => normalizeLookupDigits(row.ivrsNo));
-                const allWrongRows = buildMobileUpdateWrongListRows(rows, dcName, cloudData);
+                mobileUpdateWrongListAllRows = buildMobileUpdateWrongListRows(rows, dcName, cloudData);
+                mobileUpdateWrongListLoadedDcKey = dcKey;
                 await progress.finish();
                 if (!isRenderValid()) return;
-                if (hqSelect) {
-                    populateRevenueSelect(hqSelect, getRevenueUniqueValues(allWrongRows, "hqName"), "SABHI HQ");
-                    hqSelect.value = mobileUpdateWrongListHq;
-                }
-                const filteredRows = mobileUpdateWrongListHq
-                    ? allWrongRows.filter((row) => normalizeLookupValue(row.hqName) === normalizeLookupValue(mobileUpdateWrongListHq))
-                    : allWrongRows;
-                if (summaryBox) {
-                    summaryBox.innerHTML = `
-                        <div style="background:#fff1f2; border:1.5px solid #fca5a5; border-radius:14px; padding:10px; text-align:center;">
-                            <div style="font-size:0.58rem; font-weight:850; color:#9f1239; text-transform:uppercase;">Galat / Missing Mobile No</div>
-                            <div style="font-size:1.15rem; font-weight:950; color:#991b1b; margin-top:3px;">${filteredRows.length}</div>
-                        </div>
-                    `;
-                }
-                if (!filteredRows.length) {
-                    tableBox.innerHTML = `<div style="text-align:center; color:#166534; font-size:0.75rem; font-weight:900; padding:14px;">Sabhi consumers ke number sahi hain</div>`;
-                    return;
-                }
-                tableBox.innerHTML = filteredRows.map((row) => `
-                    <div style="background:#ffffff; border:1.5px solid #fecaca; border-radius:14px; padding:10px 12px; margin-top:8px;">
-                        <div style="font-size:0.78rem; font-weight:950; color:#0f172a;">${escapeHtml(row.consumerName || "-")}</div>
-                        <div style="font-size:0.65rem; font-weight:800; color:#475569; margin-top:2px;">IVRS: ${escapeHtml(row.ivrsNo)} | ${escapeHtml(row.village)} (${escapeHtml(row.hqName)})</div>
-                        <div style="font-size:0.68rem; font-weight:900; color:#991b1b; margin-top:3px;">Current No: ${escapeHtml(row.rawMobile || "KHALI")}</div>
-                        <button type="button" onclick="jumpToUpdateMobileNoFromWrongList('${escapeHtml(row.ivrsNo)}')" style="width:100%; height:36px; margin-top:8px; border:none; border-radius:10px; background:#dc2626; color:#fff; font-size:0.68rem; font-weight:950;">UPDATE MOBILE NO</button>
-                    </div>
-                `).join("");
+                renderMobileUpdateWrongList();
             } catch (error) {
                 progress.stop();
                 tableBox.innerHTML = `<div style="text-align:center; color:#991b1b; font-size:0.72rem; font-weight:900; padding:14px;">List load nahi ho payi</div>`;
+            }
+        }
+
+        // HQ/Village dropdown change par sirf yahi call hota hai - koi network/sheet
+        // sync nahi, sirf mobileUpdateWrongListAllRows (already cache me) par filter.
+        function setMobileUpdateWrongListHq(value) {
+            mobileUpdateWrongListHq = value || "";
+            mobileUpdateWrongListVillage = "";
+            renderMobileUpdateWrongList();
+        }
+
+        function setMobileUpdateWrongListVillage(value) {
+            mobileUpdateWrongListVillage = value || "";
+            renderMobileUpdateWrongList();
+        }
+
+        function renderMobileUpdateWrongList() {
+            const summaryBox = document.getElementById("mobile-update-wrong-list-summary");
+            const tableBox = document.getElementById("mobile-update-wrong-list-table");
+            const hqSelect = document.getElementById("mobile-update-wrong-list-hq");
+            const villageSelect = document.getElementById("mobile-update-wrong-list-village");
+            const downloadRow = document.getElementById("mobile-update-wrong-list-download-row");
+            if (!tableBox) return;
+            const allRows = mobileUpdateWrongListAllRows;
+
+            if (hqSelect) {
+                populateRevenueSelect(hqSelect, getRevenueUniqueValues(allRows, "hqName"), "ALL HQ");
+                hqSelect.value = mobileUpdateWrongListHq;
+            }
+            const hqScopedRows = mobileUpdateWrongListHq
+                ? allRows.filter((row) => normalizeLookupValue(row.hqName) === normalizeLookupValue(mobileUpdateWrongListHq))
+                : allRows;
+            if (villageSelect) {
+                populateRevenueSelect(villageSelect, getRevenueUniqueValues(hqScopedRows, "village"), "ALL VILLAGE");
+                villageSelect.value = mobileUpdateWrongListVillage;
+            }
+
+            if (!mobileUpdateWrongListHq) {
+                // ===== ALL HQ: HQ-wise SUMMARY + PDF/Excel download =====
+                if (downloadRow) downloadRow.style.display = "flex";
+                const hqMap = {};
+                allRows.forEach((row) => {
+                    if (!hqMap[row.hqName]) hqMap[row.hqName] = { total: 0, updated: 0 };
+                    hqMap[row.hqName].total++;
+                    if (row.fixed) hqMap[row.hqName].updated++;
+                });
+                mobileUpdateWrongListSummaryRows = Object.keys(hqMap).sort((a, b) => a.localeCompare(b)).map((hqName) => ({
+                    hqName,
+                    total: hqMap[hqName].total,
+                    updated: hqMap[hqName].updated
+                }));
+                if (summaryBox) {
+                    summaryBox.innerHTML = `
+                        <div style="background:#fff1f2; border:1.5px solid #fca5a5; border-radius:14px; padding:10px; text-align:center; margin-bottom:8px;">
+                            <div style="font-size:0.58rem; font-weight:850; color:#9f1239; text-transform:uppercase;">Total Wrong Mobile No (Sabhi HQ)</div>
+                            <div style="font-size:1.15rem; font-weight:950; color:#991b1b; margin-top:3px;">${allRows.length}</div>
+                        </div>
+                    `;
+                }
+                if (!mobileUpdateWrongListSummaryRows.length) {
+                    tableBox.innerHTML = `<div style="text-align:center; color:#166534; font-size:0.75rem; font-weight:900; padding:14px;">Sabhi consumers ke number sahi hain</div>`;
+                    return;
+                }
+                let html = `<div class="summary-wrapper"><div class="summary-table-header" style="grid-template-columns: 1.4fr 0.85fr 0.85fr;"><div>HQ NAME</div><div>TOTAL WRONG</div><div>UPDATED</div></div>`;
+                mobileUpdateWrongListSummaryRows.forEach((row) => {
+                    html += `<div class="summary-table-row" style="grid-template-columns: 1.4fr 0.85fr 0.85fr;"><div>${escapeHtml(row.hqName)}</div><div class="text-rose-700 font-black">${row.total}</div><div class="text-emerald-700 font-black">${row.updated}</div></div>`;
+                });
+                html += `</div>`;
+                tableBox.innerHTML = html;
+            } else {
+                // ===== Specific HQ chuna hua: sirf ABHI BHI WRONG waali chhoti list =====
+                if (downloadRow) downloadRow.style.display = "none";
+                if (summaryBox) summaryBox.innerHTML = "";
+                const villageScopedRows = mobileUpdateWrongListVillage
+                    ? hqScopedRows.filter((row) => normalizeLookupValue(row.village) === normalizeLookupValue(mobileUpdateWrongListVillage))
+                    : hqScopedRows;
+                const stillWrongRows = villageScopedRows.filter((row) => !row.fixed);
+                if (!stillWrongRows.length) {
+                    tableBox.innerHTML = `<div style="text-align:center; color:#166534; font-size:0.72rem; font-weight:900; padding:12px;">Is HQ/Village me sabhi number sahi hain</div>`;
+                    return;
+                }
+                tableBox.innerHTML = stillWrongRows.map((row) => `
+                    <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; background:#ffffff; border:1px solid #fecaca; border-radius:10px; padding:6px 8px; margin-top:6px;">
+                        <div style="text-align:left; min-width:0;">
+                            <div style="font-size:0.66rem; font-weight:900; color:#0f172a; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(row.consumerName || "-")}</div>
+                            <div style="font-size:0.56rem; font-weight:750; color:#64748b;">IVRS ${escapeHtml(row.ivrsNo)} | ${escapeHtml(row.village)}</div>
+                            <div style="font-size:0.56rem; font-weight:800; color:#991b1b;">No: ${escapeHtml(row.rawMobile || "KHALI")}</div>
+                        </div>
+                        <button type="button" onclick="jumpToUpdateMobileNoFromWrongList('${escapeHtml(row.ivrsNo)}')" style="flex:0 0 auto; height:28px; padding:0 9px; border:none; border-radius:8px; background:#dc2626; color:#fff; font-size:0.52rem; font-weight:950; white-space:nowrap;">UPDATE MOBILE NO</button>
+                    </div>
+                `).join("");
+            }
+        }
+
+        let mobileUpdateWrongListSummaryRows = [];
+
+        function setMobileUpdateWrongListDownloadState(isLoading, message = "", ok = true) {
+            const pdfBtn = document.getElementById("mobile-update-wrong-list-pdf-btn");
+            const excelBtn = document.getElementById("mobile-update-wrong-list-excel-btn");
+            const statusBox = document.getElementById("mobile-update-wrong-list-download-status");
+            const statusMessage = normalizeActionStatusMessage(message, isLoading, ok);
+            [pdfBtn, excelBtn].forEach((btn) => {
+                if (!btn) return;
+                btn.disabled = isLoading;
+                btn.style.opacity = isLoading ? "0.65" : "1";
+                btn.style.pointerEvents = isLoading ? "none" : "auto";
+            });
+            if (!statusBox) return;
+            statusBox.style.display = statusMessage ? "block" : "none";
+            statusBox.style.background = ok ? "#ecfdf5" : "#fff1f2";
+            statusBox.style.borderColor = ok ? "#86efac" : "#fca5a5";
+            statusBox.style.color = ok ? "#166534" : "#991b1b";
+            statusBox.innerHTML = escapeHtml(statusMessage);
+        }
+
+        function downloadMobileUpdateWrongList(type) {
+            if (!mobileUpdateWrongListSummaryRows.length) return showToast("Download ke liye data nahi hai", false);
+            setMobileUpdateWrongListDownloadState(true, `${type === "PDF" ? "PDF" : "Excel"} download ho raha hai... kripya wait kijiye`, true);
+            try {
+                const headers = ["HQ NAME", "TOTAL WRONG", "UPDATED"];
+                const bodyRows = mobileUpdateWrongListSummaryRows.map((row) => [row.hqName, row.total, row.updated]);
+                const reportTitle = `Wrong Mobile No List - DC ${activeDC}`;
+                const scopeLine = `Scope: DC - ${activeDC}`;
+                const fileName = `${reportTitle}`.replace(/[\\/:*?"<>|]+/g, "_");
+                if (type === "PDF") {
+                    if (!window.jspdf?.jsPDF) { setMobileUpdateWrongListDownloadState(false, "PDF library load nahi hui", false); return; }
+                    const { jsPDF } = window.jspdf;
+                    const doc = new jsPDF({ orientation: "landscape" });
+                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
+                    doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 12, { align: "center" });
+                    doc.setFontSize(9); doc.text(scopeLine, 148, 19, { align: "center" });
+                    doc.autoTable({ startY: 25, head: [headers], body: bodyRows, theme: "grid", styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" }, headStyles: { fillColor: [185, 28, 28] } });
+                    savePdfDocumentForDevice(doc, `${fileName}.pdf`);
+                    setMobileUpdateWrongListDownloadState(false, "PDF download ho chuki hai", true);
+                    return;
+                }
+                const csvSafe = (value) => { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
+                const csv = [[reportTitle], [scopeLine], [], headers, ...bodyRows].map((row) => row.map(csvSafe).join(",")).join("\n");
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+                link.download = `${fileName}.csv`;
+                link.click();
+                setMobileUpdateWrongListDownloadState(false, "Excel download ho chuki hai", true);
+            } catch (error) {
+                setMobileUpdateWrongListDownloadState(false, "Download nahi ho paya", false);
+                showToast(error?.message || "Report download nahi ho payi", false);
             }
         }
 
