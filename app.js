@@ -813,6 +813,128 @@
             switchView("mobile-update-list");
         }
 
+        // ===================================================================
+        // WRONG / MISSING MOBILE NO LIST ("Update Mobile No" 3-dot menu) - poore
+        // DC ki consumer master file scan karke un sabhi consumers ki HQ-wise list
+        // banata hai jinka mobile number sheet me galat/khaali hai (10 digit nahi
+        // hai ya 6-9 se shuru nahi hota - wahi validity check jo already SMS/WhatsApp
+        // button enable/disable karne me use hota hai, normalizeRevenueMessageMobile).
+        // Jis consumer ka number "Update Mobile No" screen se already sahi (valid 10
+        // digit) submit ho chuka hai (backend action=getSummary me mil jaata hai),
+        // wo yahan se turant apne aap hat jaata hai - koi alag "resolved" state kahin
+        // save nahi karni padti, list hamesha latest data se taaza calculate hoti hai.
+        function openMobileUpdateWrongList() {
+            closeHeaderMenu();
+            switchView("mobile-update-wrong-list");
+        }
+
+        let mobileUpdateWrongListHq = "";
+        let mobileUpdateWrongListRenderToken = 0;
+
+        function initMobileUpdateWrongList() {
+            mobileUpdateWrongListHq = "";
+            const scopeLabel = document.getElementById("mobile-update-wrong-list-scope-label");
+            if (scopeLabel) scopeLabel.innerText = activeDC ? `DC: ${activeDC} - Galat / Missing Mobile No wale Consumer` : "Galat / Missing Mobile No wale Consumer";
+            renderMobileUpdateWrongList();
+        }
+
+        function setMobileUpdateWrongListHq(value) {
+            mobileUpdateWrongListHq = value || "";
+            renderMobileUpdateWrongList();
+        }
+
+        function buildMobileUpdateWrongListRows(rows, dcName, cloudData) {
+            const normDc = normalizeDcName(dcName);
+            const updatedMobileByIvrs = {};
+            (cloudData || []).forEach((u) => {
+                const uDc = (u.dc || "").trim().toUpperCase();
+                if (uDc !== normDc) return;
+                const validMobile = normalizeRevenueMessageMobile(u.correct_mobile || "");
+                if (!validMobile) return;
+                const ivrs = normalizeLookupDigits(u.ivrs || "");
+                if (!ivrs) return;
+                const existing = updatedMobileByIvrs[ivrs];
+                if (!existing || String(u.date || "") >= String(existing.date || "")) {
+                    updatedMobileByIvrs[ivrs] = { mobile: validMobile, date: (u.date || "").trim() };
+                }
+            });
+
+            return rows
+                .map((row) => {
+                    const ivrs = normalizeLookupDigits(row.ivrsNo);
+                    if (!ivrs) return null;
+                    if (updatedMobileByIvrs[ivrs]) return null;
+                    if (normalizeRevenueMessageMobile(row.mobileNo)) return null;
+                    return {
+                        ivrsNo: row.ivrsNo || "",
+                        consumerName: row.consumerName || "",
+                        hqName: String(row.hqName || "GENERAL").trim().toUpperCase() || "GENERAL",
+                        village: String(row.village || "UNKNOWN").trim().toUpperCase() || "UNKNOWN",
+                        rawMobile: String(row.mobileNo || "").trim()
+                    };
+                })
+                .filter(Boolean);
+        }
+
+        async function renderMobileUpdateWrongList() {
+            const summaryBox = document.getElementById("mobile-update-wrong-list-summary");
+            const tableBox = document.getElementById("mobile-update-wrong-list-table");
+            const hqSelect = document.getElementById("mobile-update-wrong-list-hq");
+            if (!tableBox) return;
+            const renderToken = ++mobileUpdateWrongListRenderToken;
+            const dcName = activeDC;
+            const isRenderValid = () => renderToken === mobileUpdateWrongListRenderToken && document.getElementById("mobile-update-wrong-list-view")?.classList.contains("active");
+            const progress = renderSyncingProgress(tableBox, isRenderValid, "SYNCING LATEST DATA...");
+            try {
+                if (!dcName) throw new Error("DC select nahi hai");
+                await ensureConsumerDataLoadedFor([dcName]);
+                const cloudData = await loadRemoteJson(`${scriptURL}?action=getSummary`);
+                if (!isRenderValid()) { progress.stop(); return; }
+                const rows = getConsumerRows(dcName).map(mapRevenueConsumerRow).filter((row) => normalizeLookupDigits(row.ivrsNo));
+                const allWrongRows = buildMobileUpdateWrongListRows(rows, dcName, cloudData);
+                await progress.finish();
+                if (!isRenderValid()) return;
+                if (hqSelect) {
+                    populateRevenueSelect(hqSelect, getRevenueUniqueValues(allWrongRows, "hqName"), "SABHI HQ");
+                    hqSelect.value = mobileUpdateWrongListHq;
+                }
+                const filteredRows = mobileUpdateWrongListHq
+                    ? allWrongRows.filter((row) => normalizeLookupValue(row.hqName) === normalizeLookupValue(mobileUpdateWrongListHq))
+                    : allWrongRows;
+                if (summaryBox) {
+                    summaryBox.innerHTML = `
+                        <div style="background:#fff1f2; border:1.5px solid #fca5a5; border-radius:14px; padding:10px; text-align:center;">
+                            <div style="font-size:0.58rem; font-weight:850; color:#9f1239; text-transform:uppercase;">Galat / Missing Mobile No</div>
+                            <div style="font-size:1.15rem; font-weight:950; color:#991b1b; margin-top:3px;">${filteredRows.length}</div>
+                        </div>
+                    `;
+                }
+                if (!filteredRows.length) {
+                    tableBox.innerHTML = `<div style="text-align:center; color:#166534; font-size:0.75rem; font-weight:900; padding:14px;">Sabhi consumers ke number sahi hain</div>`;
+                    return;
+                }
+                tableBox.innerHTML = filteredRows.map((row) => `
+                    <div style="background:#ffffff; border:1.5px solid #fecaca; border-radius:14px; padding:10px 12px; margin-top:8px;">
+                        <div style="font-size:0.78rem; font-weight:950; color:#0f172a;">${escapeHtml(row.consumerName || "-")}</div>
+                        <div style="font-size:0.65rem; font-weight:800; color:#475569; margin-top:2px;">IVRS: ${escapeHtml(row.ivrsNo)} | ${escapeHtml(row.village)} (${escapeHtml(row.hqName)})</div>
+                        <div style="font-size:0.68rem; font-weight:900; color:#991b1b; margin-top:3px;">Current No: ${escapeHtml(row.rawMobile || "KHALI")}</div>
+                        <button type="button" onclick="jumpToUpdateMobileNoFromWrongList('${escapeHtml(row.ivrsNo)}')" style="width:100%; height:36px; margin-top:8px; border:none; border-radius:10px; background:#dc2626; color:#fff; font-size:0.68rem; font-weight:950;">UPDATE MOBILE NO</button>
+                    </div>
+                `).join("");
+            } catch (error) {
+                progress.stop();
+                tableBox.innerHTML = `<div style="text-align:center; color:#991b1b; font-size:0.72rem; font-weight:900; padding:14px;">List load nahi ho payi</div>`;
+            }
+        }
+
+        function jumpToUpdateMobileNoFromWrongList(ivrsNo) {
+            const ivrs = normalizeLookupDigits(ivrsNo);
+            if (!ivrs) return;
+            switchView("mobile-update");
+            const searchInput = document.getElementById("search-ivrs");
+            if (searchInput) searchInput.value = ivrs;
+        }
+
         function initMobileUpdateList() {
             const dateInput = document.getElementById("mobile-update-list-date");
             const monthInput = document.getElementById("mobile-update-list-month");
@@ -17393,6 +17515,9 @@
                 if (id === "mobile-update-list") {
                     initMobileUpdateList();
                 }
+                if (id === "mobile-update-wrong-list") {
+                    initMobileUpdateWrongList();
+                }
                 if (id === "revenue-collection") {
                     initRevenueCollection();
                 }
@@ -17655,7 +17780,7 @@
                 switchView("revenue-collection");
             } else if (act === "vr-download-log-view") {
                 switchView("vr-calculation");
-            } else if (act === "mobile-update-report-view") {
+            } else if (act === "mobile-update-report-view" || act === "mobile-update-wrong-list-view") {
                 switchView("mobile-update");
             } else if (act === "dc-dashboard-view" || act === "mobile-update-view" || act === "revenue-collection-view") {
                 if (act === "mobile-update-view") {
