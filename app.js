@@ -949,9 +949,11 @@
                 villageSelect.value = mobileUpdateWrongListVillage;
             }
 
+            if (downloadRow) downloadRow.style.display = "flex";
+
             if (!mobileUpdateWrongListHq) {
-                // ===== ALL HQ: HQ-wise SUMMARY + PDF/Excel download =====
-                if (downloadRow) downloadRow.style.display = "flex";
+                // ===== ALL HQ: HQ-wise SUMMARY + PDF/Excel download (HQ ke baad detail
+                // list bhi agle pages me PDF me shamil hoti hai - downloadMobileUpdateWrongListAllHq() dekhiye) =====
                 const hqMap = {};
                 allRows.forEach((row) => {
                     if (!hqMap[row.hqName]) hqMap[row.hqName] = { total: 0, updated: 0 };
@@ -983,12 +985,14 @@
                 tableBox.innerHTML = html;
             } else {
                 // ===== Specific HQ chuna hua: sirf ABHI BHI WRONG waali chhoti list =====
-                if (downloadRow) downloadRow.style.display = "none";
+                // (yahan bhi neeche PDF/Excel download milega - isi filtered list ka,
+                // downloadMobileUpdateWrongListFiltered() dekhiye)
                 if (summaryBox) summaryBox.innerHTML = "";
                 const villageScopedRows = mobileUpdateWrongListVillage
                     ? hqScopedRows.filter((row) => normalizeLookupValue(row.village) === normalizeLookupValue(mobileUpdateWrongListVillage))
                     : hqScopedRows;
                 const stillWrongRows = villageScopedRows.filter((row) => !row.fixed);
+                mobileUpdateWrongListCurrentDetailRows = stillWrongRows;
                 if (!stillWrongRows.length) {
                     tableBox.innerHTML = `<div style="text-align:center; color:#166534; font-size:0.72rem; font-weight:900; padding:12px;">Is HQ/Village me sabhi number sahi hain</div>`;
                     return;
@@ -1007,6 +1011,7 @@
         }
 
         let mobileUpdateWrongListSummaryRows = [];
+        let mobileUpdateWrongListCurrentDetailRows = [];
 
         function setMobileUpdateWrongListDownloadState(isLoading, message = "", ok = true) {
             const pdfBtn = document.getElementById("mobile-update-wrong-list-pdf-btn");
@@ -1028,14 +1033,86 @@
         }
 
         function downloadMobileUpdateWrongList(type) {
+            if (mobileUpdateWrongListHq) {
+                downloadMobileUpdateWrongListFiltered(type);
+            } else {
+                downloadMobileUpdateWrongListAllHq(type);
+            }
+        }
+
+        const MOBILE_UPDATE_WRONG_LIST_DETAIL_HEADERS = ["IVRS NO", "CONSUMER NAME", "VILLAGE", "MOBILE NO (WRONG)"];
+
+        function getMobileUpdateWrongListDetailRowsForHq(hqName) {
+            return mobileUpdateWrongListAllRows
+                .filter((row) => row.hqName === hqName && !row.fixed)
+                .map((row) => [row.ivrsNo, row.consumerName, row.village, row.rawMobile || "KHALI"]);
+        }
+
+        // ALL HQ mode: pehle page par HQ-wise SUMMARY (Total Wrong / Updated), uske
+        // baad har HQ ke liye ek naya page - us HQ ke abhi bhi wrong consumers ki
+        // poori detail list (IVRS/Name/Village/Mobile).
+        function downloadMobileUpdateWrongListAllHq(type) {
             if (!mobileUpdateWrongListSummaryRows.length) return showToast("Download ke liye data nahi hai", false);
             setMobileUpdateWrongListDownloadState(true, `${type === "PDF" ? "PDF" : "Excel"} download ho raha hai... kripya wait kijiye`, true);
             try {
-                const headers = ["HQ NAME", "TOTAL WRONG", "UPDATED"];
-                const bodyRows = mobileUpdateWrongListSummaryRows.map((row) => [row.hqName, row.total, row.updated]);
+                const summaryHeaders = ["HQ NAME", "TOTAL WRONG", "UPDATED"];
+                const summaryBodyRows = mobileUpdateWrongListSummaryRows.map((row) => [row.hqName, row.total, row.updated]);
                 const reportTitle = `Wrong Mobile No List - DC ${activeDC}`;
-                const scopeLine = `Scope: DC - ${activeDC}`;
-                const fileName = `${reportTitle}`.replace(/[\\/:*?"<>|]+/g, "_");
+                const scopeLine = `Scope: DC - ${activeDC} (All HQ)`;
+                const fileName = `${reportTitle}`.replace(/[\/:*?"<>|]+/g, "_");
+                if (type === "PDF") {
+                    if (!window.jspdf?.jsPDF) { setMobileUpdateWrongListDownloadState(false, "PDF library load nahi hui", false); return; }
+                    const { jsPDF } = window.jspdf;
+                    const doc = new jsPDF({ orientation: "landscape" });
+                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
+                    doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 12, { align: "center" });
+                    doc.setFontSize(9); doc.text(scopeLine, 148, 19, { align: "center" });
+                    doc.autoTable({ startY: 25, head: [summaryHeaders], body: summaryBodyRows, theme: "grid", styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" }, headStyles: { fillColor: [185, 28, 28] } });
+                    mobileUpdateWrongListSummaryRows.forEach((hqRow) => {
+                        const detailRows = getMobileUpdateWrongListDetailRowsForHq(hqRow.hqName);
+                        if (!detailRows.length) return;
+                        doc.addPage();
+                        doc.setFontSize(12); doc.setTextColor(0); doc.text(`HQ: ${hqRow.hqName} - Wrong Mobile No List`, 148, 12, { align: "center" });
+                        doc.autoTable({ startY: 18, head: [MOBILE_UPDATE_WRONG_LIST_DETAIL_HEADERS], body: detailRows, theme: "grid", styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" }, headStyles: { fillColor: [185, 28, 28] } });
+                    });
+                    savePdfDocumentForDevice(doc, `${fileName}.pdf`);
+                    setMobileUpdateWrongListDownloadState(false, "PDF download ho chuki hai", true);
+                    return;
+                }
+                const csvSafe = (value) => { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
+                const csvLines = [[reportTitle], [scopeLine], [], summaryHeaders, ...summaryBodyRows, []];
+                mobileUpdateWrongListSummaryRows.forEach((hqRow) => {
+                    const detailRows = getMobileUpdateWrongListDetailRowsForHq(hqRow.hqName);
+                    if (!detailRows.length) return;
+                    csvLines.push([`HQ: ${hqRow.hqName}`]);
+                    csvLines.push(MOBILE_UPDATE_WRONG_LIST_DETAIL_HEADERS);
+                    detailRows.forEach((row) => csvLines.push(row));
+                    csvLines.push([]);
+                });
+                const csv = csvLines.map((row) => row.map(csvSafe).join(",")).join("\n");
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+                link.download = `${fileName}.csv`;
+                link.click();
+                setMobileUpdateWrongListDownloadState(false, "Excel download ho chuki hai", true);
+            } catch (error) {
+                setMobileUpdateWrongListDownloadState(false, "Download nahi ho paya", false);
+                showToast(error?.message || "Report download nahi ho payi", false);
+            }
+        }
+
+        // Specific HQ (aur Village) chuna hua ho to sirf usi filtered - abhi bhi
+        // wrong - list ka download (IVRS/Name/Village/Mobile).
+        function downloadMobileUpdateWrongListFiltered(type) {
+            if (!mobileUpdateWrongListCurrentDetailRows.length) return showToast("Download ke liye data nahi hai", false);
+            setMobileUpdateWrongListDownloadState(true, `${type === "PDF" ? "PDF" : "Excel"} download ho raha hai... kripya wait kijiye`, true);
+            try {
+                const headers = MOBILE_UPDATE_WRONG_LIST_DETAIL_HEADERS;
+                const bodyRows = mobileUpdateWrongListCurrentDetailRows.map((row) => [row.ivrsNo, row.consumerName, row.village, row.rawMobile || "KHALI"]);
+                const scopeText = mobileUpdateWrongListVillage ? `HQ ${mobileUpdateWrongListHq} - Village ${mobileUpdateWrongListVillage}` : `HQ ${mobileUpdateWrongListHq}`;
+                const reportTitle = `Wrong Mobile No List - DC ${activeDC} - ${scopeText}`;
+                const scopeLine = `Scope: DC - ${activeDC} (${scopeText})`;
+                const fileName = `${reportTitle}`.replace(/[\/:*?"<>|]+/g, "_");
                 if (type === "PDF") {
                     if (!window.jspdf?.jsPDF) { setMobileUpdateWrongListDownloadState(false, "PDF library load nahi hui", false); return; }
                     const { jsPDF } = window.jspdf;
