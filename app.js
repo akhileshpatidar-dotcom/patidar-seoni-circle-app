@@ -866,7 +866,19 @@
                 }
             });
 
-            const duplicateFreqMap = computeMobileDuplicateFreqMap(rows, (row) => row.mobileNo);
+            // Duplicate-count SIRF un consumers se calculate hota hai jinka mobile no
+            // abhi bhi wrong hai (jinke IVRS ke liye Update Mobile No se koi sahi number
+            // submit NAHI hua) - isliye REASON me dikhne wali ginti (jaise "11 CONSUMER")
+            // hamesha utne hi consumers se match karegi jitne is list me actually dikhte
+            // hain. Jo consumer pehle hi fix ho chuke hain unko count me nahi jodte -
+            // isliye agar kaafi consumers fix ho jayen aur bacha hua group threshold (10)
+            // se niche aa jaye, to bache consumer bhi apne aap "duplicate" nahi maane
+            // jayenge (ab itne connection ek number par practically possible lag sakte hain).
+            const stillActiveRowsForDup = rows.filter((row) => {
+                const ivrs = normalizeLookupDigits(row.ivrsNo);
+                return !(ivrs && updatedMobileByIvrs[ivrs]);
+            });
+            const duplicateFreqMap = computeMobileDuplicateFreqMap(stillActiveRowsForDup, (row) => row.mobileNo);
 
             return rows
                 .map((row) => {
@@ -1004,7 +1016,11 @@
                 const villageScopedRows = mobileUpdateWrongListVillage
                     ? hqScopedRows.filter((row) => normalizeLookupValue(row.village) === normalizeLookupValue(mobileUpdateWrongListVillage))
                     : hqScopedRows;
-                const stillWrongRows = villageScopedRows.filter((row) => !row.fixed);
+                // Mobile No ke ascending order me sort - taki jinka mobile no same/
+                // duplicate hai wo ek sath (lagatar) dikhein, manual verify karna aasan
+                // ho jaye.
+                const stillWrongRows = villageScopedRows.filter((row) => !row.fixed)
+                    .sort((a, b) => (a.rawMobile || "").localeCompare(b.rawMobile || ""));
                 mobileUpdateWrongListCurrentDetailRows = stillWrongRows;
                 if (!stillWrongRows.length) {
                     tableBox.innerHTML = `<div style="text-align:center; color:#166534; font-size:0.72rem; font-weight:900; padding:12px;">Is HQ/Village me sabhi number sahi hain</div>`;
@@ -1059,6 +1075,7 @@
         function getMobileUpdateWrongListDetailRowsForHq(hqName) {
             return mobileUpdateWrongListAllRows
                 .filter((row) => row.hqName === hqName && !row.fixed)
+                .sort((a, b) => (a.rawMobile || "").localeCompare(b.rawMobile || ""))
                 .map((row) => [row.ivrsNo, row.consumerName, row.village, row.rawMobile || "KHALI", row.reason || ""]);
         }
 
@@ -4173,7 +4190,13 @@
                     const rows = getConsumerRows(normDc);
                     tc = rows.length;
                     const fixedSet = getFixedIvrsSetForDc(dcName);
-                    const freqMap = computeMobileDuplicateFreqMap(rows, getMobileFieldFromRow);
+                    // Duplicate-count sirf abhi-bhi-wrong consumers se (Wrong Mobile No
+                    // List screen jaisa hi) - taki dono jagah ka number match kare.
+                    const stillActiveRowsForDup = rows.filter((row) => {
+                        const ivrs = normalizeLookupDigits(getConsumerField(row, ["IVRS", "IVRS NO", "IVRS NUMBER", "IVRSNO"]));
+                        return !(ivrs && fixedSet.has(ivrs));
+                    });
+                    const freqMap = computeMobileDuplicateFreqMap(stillActiveRowsForDup, getMobileFieldFromRow);
                     rows.forEach((row) => {
                         if (isRowStillWrong(row, fixedSet, freqMap)) tw++;
                     });
@@ -4192,7 +4215,11 @@
                     const stats = {};
                     const fixedSet = getFixedIvrsSetForDc(activeDC);
                     const dcRows = getConsumerRows(activeDC);
-                    const freqMap = computeMobileDuplicateFreqMap(dcRows, getMobileFieldFromRow);
+                    const stillActiveDcRowsForDup = dcRows.filter((row) => {
+                        const ivrs = normalizeLookupDigits(getConsumerField(row, ["IVRS", "IVRS NO", "IVRS NUMBER", "IVRSNO"]));
+                        return !(ivrs && fixedSet.has(ivrs));
+                    });
+                    const freqMap = computeMobileDuplicateFreqMap(stillActiveDcRowsForDup, getMobileFieldFromRow);
                     dcRows.forEach((row) => {
                         const h = getConsumerField(row, ["HQ", "HQ NAME", "HEADQUARTER", "HEAD QUARTER", "H.Q."], "GENERAL").trim().toUpperCase() || "GENERAL";
                         stats[h] = stats[h] || { tc: 0, tu: 0, tw: 0 };
