@@ -135,6 +135,13 @@
         // Defaulters me pehle se hai).
         let progressTargetGovtFilter = "";
         let progressStaffTypeFilter = "";
+        // USER REQUEST (2026-09-09): "Paid Count Summary" - 8th Revenue dropdown
+        // report. DC level: dropdown holds HQ names ("" = ALL HQ, shows HQ-wise
+        // summary; specific HQ shows that HQ's village-wise list). Division/Circle
+        // level: same idea one level up (dropdown holds DC names, "" = ALL DC shows
+        // DC-wise summary; specific DC shows that DC's HQ-wise list). Same state
+        // var reused for both levels since only one dropdown is ever active at a time.
+        let progressPaidCountFilter = "";
         let lastRevenueProgressBoxData = null;
         let lastRevenueProgressStaffData = null;
         // Target vs Achievement ke liye - jab Govt/Non-Govt filter select ho, tab
@@ -3237,6 +3244,7 @@
             if (progressRevenueReportType === "NONPAYEE_3M") return downloadProgressRevenueNonPayeeSummary(fmt, "3M");
             if (progressRevenueReportType === "NONPAYEE_6M") return downloadProgressRevenueNonPayeeSummary(fmt, "6M");
             if (progressRevenueReportType === "NONPAYEE_SINCE_CONNECTION") return downloadProgressRevenueNonPayeeSummary(fmt, "SINCE_CONNECTION");
+            if (progressRevenueReportType === "PAIDCOUNT") return downloadProgressRevenuePaidCountSummary(fmt);
             return downloadProgressRevenueCategorySummary(fmt);
         }
 
@@ -3446,6 +3454,160 @@
             `;
         }
 
+        // ===== Paid Count Summary (8th Revenue dropdown report, added 2026-09-09) =====
+        // Reuses the same buildRevenueHqVillagePaidUnpaidTree() tree that Category Wise/
+        // Target already load (data.hqVillageSummaryData) - no extra fetch needed, dropdown
+        // switch is instant. DC level tree top rows = HQ nodes (each with village children).
+        // Division/Circle level tree top rows = DC nodes (each with HQ children, mixed with
+        // SUBDN_TOTAL/SUB_TOTAL rows we deliberately drop here - user only asked for a plain
+        // DC-wise/HQ-wise/Village-wise summary, no sub-division subtotal rows).
+        function getRevenuePaidCountPlainRows(tree) {
+            return (tree || []).filter((row) => row.type !== "SUB_TOTAL" && row.type !== "SUBDN_TOTAL");
+        }
+
+        function sortRevenuePaidCountRowsAscPct(rows) {
+            // USER REQUEST: sabse kam Paid % wali row sabse upar (default alphabetical
+            // tree order ke bajaye) - taaki kam-performing HQ/Village/DC turant dikhe.
+            return (rows || []).slice().sort((a, b) => {
+                const totalA = Number(a.paidTotal || 0) + Number(a.unpaidTotal || 0);
+                const totalB = Number(b.paidTotal || 0) + Number(b.unpaidTotal || 0);
+                return getRevenueAchievementPct(a.paidTotal, totalA) - getRevenueAchievementPct(b.paidTotal, totalB);
+            });
+        }
+
+        function findRevenuePaidCountNode(rows, name) {
+            const normalized = normalizeLookupValue(name);
+            return (rows || []).find((row) => normalizeLookupValue(row.name) === normalized);
+        }
+
+        function renderRevenuePaidCountTableHtml(rows, colLabel) {
+            const sorted = sortRevenuePaidCountRowsAscPct(rows);
+            const cols = "1.4fr 0.85fr 0.85fr 0.7fr";
+            let html = `<div class="summary-wrapper" style="margin-top:6px;"><div class="summary-table-header" style="grid-template-columns: ${cols};"><div>${escapeHtml(colLabel)}</div><div>TOTAL</div><div>PAID</div><div>%</div></div>`;
+            if (!sorted.length) {
+                html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div class="text-rose-600">Data nahi mila.</div></div>`;
+            } else {
+                let grandTotal = 0, grandPaid = 0;
+                sorted.forEach((row) => {
+                    const total = Number(row.paidTotal || 0) + Number(row.unpaidTotal || 0);
+                    const paid = Number(row.paidTotal || 0);
+                    grandTotal += total; grandPaid += paid;
+                    const pct = getRevenueAchievementPct(paid, total);
+                    const pctColor = pct >= 75 ? "#166534" : (pct >= 40 ? "#b45309" : "#9f1239");
+                    html += `<div class="summary-table-row" style="grid-template-columns: ${cols};"><div>${escapeHtml(row.name)}</div><div class="font-black">${total}</div><div class="text-emerald-700 font-black">${paid}</div><div style="color:${pctColor}; font-weight:950;">${pct}%</div></div>`;
+                });
+                const grandPct = getRevenueAchievementPct(grandPaid, grandTotal);
+                html += `<div class="summary-table-row blue-bold" style="grid-template-columns: ${cols};"><div>TOTAL</div><div class="font-black">${grandTotal}</div><div class="text-emerald-700 font-black">${grandPaid}</div><div style="font-weight:950;">${grandPct}%</div></div>`;
+            }
+            html += `</div>`;
+            return html;
+        }
+
+        function renderRevenueProgressPaidCountSummaryHtml(summaryData) {
+            const tree = summaryData?.tree || [];
+            const plainRows = getRevenuePaidCountPlainRows(tree);
+            const isDc = activeViewLevel === "DC";
+            const topLabel = isDc ? revenueHqLabelUpper() : "DC NAME";
+            const topAllLabel = isDc ? revenueHqAllLabel().toUpperCase() : "ALL DC";
+            const selectedNode = progressPaidCountFilter ? findRevenuePaidCountNode(plainRows, progressPaidCountFilter) : null;
+            const optionsHtml = [`<option value="">${escapeHtml(topAllLabel)}</option>`]
+                .concat(plainRows.map((row) => `<option value="${escapeHtml(row.name)}" ${selectedNode && normalizeLookupValue(selectedNode.name) === normalizeLookupValue(row.name) ? "selected" : ""}>${escapeHtml(row.name)}</option>`))
+                .join("");
+            const bodyRows = selectedNode ? (selectedNode.children || []) : plainRows;
+            const colLabel = selectedNode ? (isDc ? revenueVillageLabelUpper() : "HQ NAME") : topLabel;
+            return `
+                <div style="font-size:0.75rem; font-weight:950; color:#1d4ed8; text-align:center;">Paid Count Summary</div>
+                <select onchange="setProgressPaidCountFilter(this.value)" style="width:100%; height:44px; margin:9px auto 0; display:block; border:1.5px solid #93c5fd; border-radius:12px; padding:0 12px; font-size:0.76rem; font-weight:900; color:#0f172a; background:#ffffff;">
+                    ${optionsHtml}
+                </select>
+                <div style="font-size:0.62rem; font-weight:900; color:#1d4ed8; text-align:center; margin-top:10px;">${escapeHtml(colLabel)} WISE</div>
+                ${renderRevenuePaidCountTableHtml(bodyRows, colLabel)}
+            `;
+        }
+
+        // Download scope follows the on-screen dropdown exactly (USER REQUEST 2026-09-09):
+        // - Kisi specific HQ/DC select hai to sirf usi ke andar wali rows (Village/HQ) download
+        //   hongi.
+        // - "ALL HQ"/"ALL DC" (dropdown khaali) par DC level = pura HQ-wise + village-wise
+        //   combined data; Division/Circle level = DC-wise + har DC ke andar HQ-wise (village
+        //   tak nahi) - jaisa user ne confirm kiya.
+        function downloadProgressRevenuePaidCountSummary(fmt) {
+            const summaryData = lastRevenueProgressBoxData?.hqVillageSummaryData;
+            if (!summaryData) return showToast("Report ke liye data nahi hai", false);
+            const downloadTypeLabel = fmt === "PDF" ? "PDF" : "Excel";
+            setProgressCategoryDownloadState(true, `${downloadTypeLabel} downloading... kripya wait kijiye`);
+            try {
+                const tree = summaryData.tree || [];
+                const plainRows = getRevenuePaidCountPlainRows(tree);
+                const isDc = activeViewLevel === "DC";
+                const topLabel = isDc ? revenueHqLabelUpper() : "DC NAME";
+                const childLabel = isDc ? revenueVillageLabelUpper() : "HQ NAME";
+                const selectedNode = progressPaidCountFilter ? findRevenuePaidCountNode(plainRows, progressPaidCountFilter) : null;
+                const grandRow = (rows) => {
+                    const grandTotal = rows.reduce((s, r) => s + Number(r.paidTotal || 0) + Number(r.unpaidTotal || 0), 0);
+                    const grandPaid = rows.reduce((s, r) => s + Number(r.paidTotal || 0), 0);
+                    return { grandTotal, grandPaid, pct: getRevenueAchievementPct(grandPaid, grandTotal) };
+                };
+
+                let headers, bodyRows, reportTitle;
+                if (selectedNode) {
+                    const childRows = sortRevenuePaidCountRowsAscPct(selectedNode.children || []);
+                    headers = [childLabel, "TOTAL CONSUMER", "PAID CONSUMER", "PAID %"];
+                    bodyRows = childRows.map((row) => {
+                        const total = Number(row.paidTotal || 0) + Number(row.unpaidTotal || 0);
+                        return [row.name, total, row.paidTotal, `${getRevenueAchievementPct(row.paidTotal, total)}%`];
+                    });
+                    const g = grandRow(childRows);
+                    bodyRows.push(["TOTAL", g.grandTotal, g.grandPaid, `${g.pct}%`]);
+                    reportTitle = `Paid Count Summary (${selectedNode.name} - ${childLabel} Wise)`;
+                } else {
+                    headers = [topLabel, childLabel, "TOTAL CONSUMER", "PAID CONSUMER", "PAID %"];
+                    bodyRows = [];
+                    const topSorted = sortRevenuePaidCountRowsAscPct(plainRows);
+                    topSorted.forEach((topRow) => {
+                        const childRows = sortRevenuePaidCountRowsAscPct(topRow.children || []);
+                        childRows.forEach((childRow) => {
+                            const total = Number(childRow.paidTotal || 0) + Number(childRow.unpaidTotal || 0);
+                            bodyRows.push([topRow.name, childRow.name, total, childRow.paidTotal, `${getRevenueAchievementPct(childRow.paidTotal, total)}%`]);
+                        });
+                    });
+                    const g = grandRow(topSorted);
+                    bodyRows.push(["TOTAL", "", g.grandTotal, g.grandPaid, `${g.pct}%`]);
+                    reportTitle = isDc ? "Paid Count Summary (All HQ Wise)" : "Paid Count Summary (All DC Wise)";
+                }
+
+                const scope = activeViewLevel === "DC" ? `DC - ${activeDC}` : (activeViewLevel === "DIVISION" ? activeDiv : "SEONI CIRCLE");
+                reportTitle = `${reportTitle} - ${scope}`;
+                const rawVal = document.getElementById("report-date")?.value || "";
+                const parsed = parseSummarySelection(rawVal, summaryMode);
+                const periodLine = `Period: ${parsed.label || getTodayIsoDate()}`;
+                const fileName = `${reportTitle}-${parsed.label || getTodayIsoDate()}`.replace(/[\\/:*?"<>|]+/g, "_");
+                if (fmt === "PDF") {
+                    if (!window.jspdf?.jsPDF) { setProgressCategoryDownloadState(false, "PDF library load nahi hui"); return; }
+                    const { jsPDF } = window.jspdf;
+                    const doc = new jsPDF({ orientation: "landscape" });
+                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
+                    doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 12, { align: "center" });
+                    doc.setFontSize(9); doc.text(`Scope: ${scope}`, 148, 19, { align: "center" });
+                    doc.text(periodLine, 148, 25, { align: "center" });
+                    doc.autoTable({ startY: 31, head: [headers], body: bodyRows, theme: "grid", styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" }, headStyles: { fillColor: [29, 78, 216] } });
+                    savePdfDocumentForDevice(doc, `${fileName}.pdf`);
+                } else {
+                    const csvSafe = (value) => { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
+                    const csv = [[reportTitle], [`Scope: ${scope}`], [periodLine], [], headers, ...bodyRows].map((row) => row.map(csvSafe).join(",")).join("\n");
+                    const link = document.createElement("a");
+                    link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+                    link.download = `${fileName}.csv`;
+                    link.click();
+                }
+                setTimeout(() => setProgressCategoryDownloadState(false, `${downloadTypeLabel} download ho chuki hai`), 500);
+            } catch (error) {
+                setProgressCategoryDownloadState(false, "Download nahi ho paya");
+                showToast(error?.message || "Paid Count Summary download nahi ho payi", false);
+            }
+        }
+        // ===== End Paid Count Summary =====
+
         // Top 20/50 Defaulters ka data buildRevenueHqVillageConsumerRows() se aata hai - isi
         // function ka data "HQ / Village Wise Paid-Unpaid" list section aur dedicated "Top
         // 20/50 Defaulters" report dono use karte hain. Yahan par (Daily/Progress Report ki
@@ -3650,12 +3812,21 @@
         }
 
         function setProgressRevenueReportType(value) {
-            const validValues = ["STAFF", "CATEGORY", "TARGET", "DEFAULTERS", "NONPAYEE_3M", "NONPAYEE_6M", "NONPAYEE_SINCE_CONNECTION"];
+            const validValues = ["STAFF", "CATEGORY", "TARGET", "DEFAULTERS", "NONPAYEE_3M", "NONPAYEE_6M", "NONPAYEE_SINCE_CONNECTION", "PAIDCOUNT"];
             progressRevenueReportType = validValues.includes(value) ? value : "STAFF";
             resetProgressNonPayeeFilterState();
             progressDefaultersGovtFilter = "";
             progressTargetGovtFilter = "";
             progressStaffTypeFilter = "";
+            progressPaidCountFilter = "";
+            const body = document.getElementById("progress-revenue-body");
+            if (body) body.innerHTML = renderProgressRevenueBodyInner();
+        }
+
+        // Paid Count Summary ke apne dropdown (HQ ya DC chunne wala) ke liye - baaki
+        // sab progressXxxFilter setters jaisa hi, sirf re-render karta hai.
+        function setProgressPaidCountFilter(value) {
+            progressPaidCountFilter = value || "";
             const body = document.getElementById("progress-revenue-body");
             if (body) body.innerHTML = renderProgressRevenueBodyInner();
         }
@@ -3673,6 +3844,7 @@
             if (progressRevenueReportType === "NONPAYEE_3M") return "Non Payee From 3 Month";
             if (progressRevenueReportType === "NONPAYEE_6M") return "Non Payee From 6 Month";
             if (progressRevenueReportType === "NONPAYEE_SINCE_CONNECTION") return "Non Payee From Date of Connection";
+            if (progressRevenueReportType === "PAIDCOUNT") return "Paid Count Summary";
             return "Category Wise";
         }
 
@@ -3800,6 +3972,8 @@
                 bodyHtml = renderRevenueProgressNonPayeeSummaryHtml(data.mode || "DAILY", data.filterValue || "", "6M");
             } else if (progressRevenueReportType === "NONPAYEE_SINCE_CONNECTION") {
                 bodyHtml = renderRevenueProgressNonPayeeSummaryHtml(data.mode || "DAILY", data.filterValue || "", "SINCE_CONNECTION");
+            } else if (progressRevenueReportType === "PAIDCOUNT") {
+                bodyHtml = renderRevenueProgressPaidCountSummaryHtml(data.hqVillageSummaryData);
             } else {
                 bodyHtml = data.hqVillageSummaryData ? renderRevenueProgressHqVillageSummaryHtml(data.hqVillageSummaryData) : `<div style="font-size:0.75rem; font-weight:950; color:#1d4ed8; text-align:center;">Category Wise Paid/Unpaid Summary</div>`;
             }
@@ -3818,7 +3992,7 @@
         }
 
         function renderProgressRevenueBodyInner() {
-            if (["CATEGORY", "TARGET", "DEFAULTERS", "NONPAYEE_3M", "NONPAYEE_6M", "NONPAYEE_SINCE_CONNECTION"].includes(progressRevenueReportType)) {
+            if (["CATEGORY", "TARGET", "DEFAULTERS", "NONPAYEE_3M", "NONPAYEE_6M", "NONPAYEE_SINCE_CONNECTION", "PAIDCOUNT"].includes(progressRevenueReportType)) {
                 return renderRevenueProgressNonStaffBoxHtml();
             }
             const staffData = lastRevenueProgressStaffData || { rows: [], label: "" };
@@ -3837,6 +4011,7 @@
                     <option value="NONPAYEE_3M" ${progressRevenueReportType === "NONPAYEE_3M" ? "selected" : ""}>Non Payee From 3 Month</option>
                     <option value="NONPAYEE_6M" ${progressRevenueReportType === "NONPAYEE_6M" ? "selected" : ""}>Non Payee From 6 Month</option>
                     <option value="NONPAYEE_SINCE_CONNECTION" ${progressRevenueReportType === "NONPAYEE_SINCE_CONNECTION" ? "selected" : ""}>Non Payee From Date of Connection</option>
+                    <option value="PAIDCOUNT" ${progressRevenueReportType === "PAIDCOUNT" ? "selected" : ""}>Paid Count Summary</option>
                 </select>
             `;
             return `${selectHtml}<div id="progress-revenue-body">${renderProgressRevenueBodyInner()}</div>`;
