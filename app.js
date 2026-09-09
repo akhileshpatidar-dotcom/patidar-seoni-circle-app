@@ -866,19 +866,31 @@
                 }
             });
 
+            const duplicateFreqMap = computeMobileDuplicateFreqMap(rows, (row) => row.mobileNo);
+
             return rows
                 .map((row) => {
                     const ivrs = normalizeLookupDigits(row.ivrsNo);
                     if (!ivrs) return null;
+                    const rawMobile = String(row.mobileNo || "").trim();
                     // "Originally wrong" - master sheet me hi number galat/khaali tha, ya
                     // dummy/placeholder number (jaise 9999999999) tha.
-                    if (!isMobileNoConsideredWrong(row.mobileNo)) return null;
+                    const originallyWrong = isMobileNoConsideredWrong(rawMobile);
+                    // "Duplicate" - number format se to sahi dikhta hai lekin isi DC me
+                    // 10 baar se adhik alag consumers me repeat ho raha hai (practically
+                    // itne connection ek hi mobile no par sahi nahi ho sakte).
+                    const isDuplicate = !originallyWrong && isMobileNoDuplicateOverThreshold(rawMobile, duplicateFreqMap);
+                    if (!originallyWrong && !isDuplicate) return null;
+                    const reason = originallyWrong
+                        ? "KHALI / GALAT FORMAT"
+                        : `DUPLICATE - EK HI NO PAR ${duplicateFreqMap[normalizeRevenueMessageMobile(rawMobile)]} CONSUMER`;
                     return {
                         ivrsNo: row.ivrsNo || "",
                         consumerName: row.consumerName || "",
                         hqName: String(row.hqName || "GENERAL").trim().toUpperCase() || "GENERAL",
                         village: String(row.village || "UNKNOWN").trim().toUpperCase() || "UNKNOWN",
-                        rawMobile: String(row.mobileNo || "").trim(),
+                        rawMobile,
+                        reason,
                         fixed: !!updatedMobileByIvrs[ivrs]
                     };
                 })
@@ -1004,6 +1016,7 @@
                             <div style="font-size:0.66rem; font-weight:900; color:#0f172a; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(row.consumerName || "-")}</div>
                             <div style="font-size:0.56rem; font-weight:750; color:#64748b;">IVRS ${escapeHtml(row.ivrsNo)} | ${escapeHtml(row.village)}</div>
                             <div style="font-size:0.56rem; font-weight:800; color:#991b1b;">No: ${escapeHtml(row.rawMobile || "KHALI")}</div>
+                            <div style="font-size:0.5rem; font-weight:750; color:#b45309;">${escapeHtml(row.reason || "")}</div>
                         </div>
                         <button type="button" onclick="jumpToUpdateMobileNoFromWrongList('${escapeHtml(row.ivrsNo)}')" style="flex:0 0 auto; height:28px; padding:0 9px; border:none; border-radius:8px; background:#dc2626; color:#fff; font-size:0.52rem; font-weight:950; white-space:nowrap;">UPDATE MOBILE NO</button>
                     </div>
@@ -1041,12 +1054,12 @@
             }
         }
 
-        const MOBILE_UPDATE_WRONG_LIST_DETAIL_HEADERS = ["IVRS NO", "CONSUMER NAME", "VILLAGE", "MOBILE NO (WRONG)"];
+        const MOBILE_UPDATE_WRONG_LIST_DETAIL_HEADERS = ["IVRS NO", "CONSUMER NAME", "VILLAGE", "MOBILE NO (WRONG)", "REASON"];
 
         function getMobileUpdateWrongListDetailRowsForHq(hqName) {
             return mobileUpdateWrongListAllRows
                 .filter((row) => row.hqName === hqName && !row.fixed)
-                .map((row) => [row.ivrsNo, row.consumerName, row.village, row.rawMobile || "KHALI"]);
+                .map((row) => [row.ivrsNo, row.consumerName, row.village, row.rawMobile || "KHALI", row.reason || ""]);
         }
 
         // ALL HQ mode: pehle page par HQ-wise SUMMARY (Total Wrong / Updated), uske
@@ -1109,7 +1122,7 @@
             setMobileUpdateWrongListDownloadState(true, `${type === "PDF" ? "PDF" : "Excel"} download ho raha hai... kripya wait kijiye`, true);
             try {
                 const headers = MOBILE_UPDATE_WRONG_LIST_DETAIL_HEADERS;
-                const bodyRows = mobileUpdateWrongListCurrentDetailRows.map((row) => [row.ivrsNo, row.consumerName, row.village, row.rawMobile || "KHALI"]);
+                const bodyRows = mobileUpdateWrongListCurrentDetailRows.map((row) => [row.ivrsNo, row.consumerName, row.village, row.rawMobile || "KHALI", row.reason || ""]);
                 const scopeText = mobileUpdateWrongListVillage ? `HQ ${mobileUpdateWrongListHq} - Village ${mobileUpdateWrongListVillage}` : `HQ ${mobileUpdateWrongListHq}`;
                 const reportTitle = `Wrong Mobile No List - DC ${activeDC} - ${scopeText}`;
                 const scopeLine = `Scope: DC - ${activeDC} (${scopeText})`;
@@ -4139,9 +4152,16 @@
                     });
                     return set;
                 };
-                const isRowStillWrong = (row, fixedSet) => {
+                const getMobileFieldFromRow = (row) => getConsumerField(row, ["MOBILE NO", "MOBILE NUMBER", "MOBILE"]);
+                const isRowStillWrong = (row, fixedSet, freqMap) => {
                     const ivrs = normalizeLookupDigits(getConsumerField(row, ["IVRS", "IVRS NO", "IVRS NUMBER", "IVRSNO"]));
-                    if (!isMobileNoConsideredWrong(getConsumerField(row, ["MOBILE NO", "MOBILE NUMBER", "MOBILE"]))) return false;
+                    const mobileVal = getMobileFieldFromRow(row);
+                    // Ya to master sheet me hi khaali/galat-format/dummy number hai, ya
+                    // isi DC me yah number 10 baar se adhik alag consumers me repeat ho
+                    // raha hai (duplicate - practically itne connection ek number par
+                    // sahi nahi ho sakte).
+                    const isWrong = isMobileNoConsideredWrong(mobileVal) || isMobileNoDuplicateOverThreshold(mobileVal, freqMap);
+                    if (!isWrong) return false;
                     return !(ivrs && fixedSet.has(ivrs));
                 };
 
@@ -4153,8 +4173,9 @@
                     const rows = getConsumerRows(normDc);
                     tc = rows.length;
                     const fixedSet = getFixedIvrsSetForDc(dcName);
+                    const freqMap = computeMobileDuplicateFreqMap(rows, getMobileFieldFromRow);
                     rows.forEach((row) => {
-                        if (isRowStillWrong(row, fixedSet)) tw++;
+                        if (isRowStillWrong(row, fixedSet, freqMap)) tw++;
                     });
                     cloudData.forEach((u) => {
                         const ts = (u.date || "").trim();
@@ -4170,11 +4191,13 @@
                 if (activeViewLevel === "DC") {
                     const stats = {};
                     const fixedSet = getFixedIvrsSetForDc(activeDC);
-                    getConsumerRows(activeDC).forEach((row) => {
+                    const dcRows = getConsumerRows(activeDC);
+                    const freqMap = computeMobileDuplicateFreqMap(dcRows, getMobileFieldFromRow);
+                    dcRows.forEach((row) => {
                         const h = getConsumerField(row, ["HQ", "HQ NAME", "HEADQUARTER", "HEAD QUARTER", "H.Q."], "GENERAL").trim().toUpperCase() || "GENERAL";
                         stats[h] = stats[h] || { tc: 0, tu: 0, tw: 0 };
                         stats[h].tc++;
-                        if (isRowStillWrong(row, fixedSet)) stats[h].tw++;
+                        if (isRowStillWrong(row, fixedSet, freqMap)) stats[h].tw++;
                     });
                     cloudData.forEach((u) => {
                         const ts = (u.date || "").trim();
@@ -12294,6 +12317,34 @@
             if (!valid) return true;
             if (/^(\d)\1{9}$/.test(valid)) return true;
             return false;
+        }
+
+        // Ek hi mobile no yadi ek DC me 10 baar se adhik (11 ya usse zyada) alag-alag
+        // consumers me mile to practically itne connection ek hi number par sahi nahi
+        // ho sakte - is threshold se zyada baar repeat hone wale number "duplicate"
+        // maane jaate hain aur unke saare consumer bhi Wrong Mobile No List me dikhaye
+        // jaate hain (dobara manual verify karne ke liye). Pehle se blank/galat-format/
+        // dummy-repeated-digit wale number is duplicate-check me shamil nahi kiye jaate
+        // (wo already isMobileNoConsideredWrong se pakde ja chuke hain).
+        const MOBILE_WRONG_DUPLICATE_THRESHOLD = 10;
+
+        function computeMobileDuplicateFreqMap(rows, getMobile) {
+            const freq = {};
+            rows.forEach((row) => {
+                const raw = getMobile(row);
+                if (isMobileNoConsideredWrong(raw)) return;
+                const valid = normalizeRevenueMessageMobile(raw);
+                if (!valid) return;
+                freq[valid] = (freq[valid] || 0) + 1;
+            });
+            return freq;
+        }
+
+        function isMobileNoDuplicateOverThreshold(raw, freqMap) {
+            if (isMobileNoConsideredWrong(raw)) return false;
+            const valid = normalizeRevenueMessageMobile(raw);
+            if (!valid) return false;
+            return (freqMap[valid] || 0) > MOBILE_WRONG_DUPLICATE_THRESHOLD;
         }
 
         function buildRevenueConsumerMessage(row) {
