@@ -856,8 +856,8 @@
             (cloudData || []).forEach((u) => {
                 const uDc = (u.dc || "").trim().toUpperCase();
                 if (uDc !== normDc) return;
+                if (isMobileNoConsideredWrong(u.correct_mobile || "")) return;
                 const validMobile = normalizeRevenueMessageMobile(u.correct_mobile || "");
-                if (!validMobile) return;
                 const ivrs = normalizeLookupDigits(u.ivrs || "");
                 if (!ivrs) return;
                 const existing = updatedMobileByIvrs[ivrs];
@@ -870,8 +870,9 @@
                 .map((row) => {
                     const ivrs = normalizeLookupDigits(row.ivrsNo);
                     if (!ivrs) return null;
-                    // "Originally wrong" - master sheet me hi number galat/khaali tha.
-                    if (normalizeRevenueMessageMobile(row.mobileNo)) return null;
+                    // "Originally wrong" - master sheet me hi number galat/khaali tha, ya
+                    // dummy/placeholder number (jaise 9999999999) tha.
+                    if (!isMobileNoConsideredWrong(row.mobileNo)) return null;
                     return {
                         ivrsNo: row.ivrsNo || "",
                         consumerName: row.consumerName || "",
@@ -4132,7 +4133,7 @@
                     cloudData.forEach((u) => {
                         const uDc = (u.dc || "").trim().toUpperCase();
                         if (uDc !== normDc) return;
-                        if (!normalizeRevenueMessageMobile(u.correct_mobile || "")) return;
+                        if (isMobileNoConsideredWrong(u.correct_mobile || "")) return;
                         const ivrs = normalizeLookupDigits(u.ivrs || "");
                         if (ivrs) set.add(ivrs);
                     });
@@ -4140,7 +4141,7 @@
                 };
                 const isRowStillWrong = (row, fixedSet) => {
                     const ivrs = normalizeLookupDigits(getConsumerField(row, ["IVRS", "IVRS NO", "IVRS NUMBER", "IVRSNO"]));
-                    if (normalizeRevenueMessageMobile(getConsumerField(row, ["MOBILE NO", "MOBILE NUMBER", "MOBILE"]))) return false;
+                    if (!isMobileNoConsideredWrong(getConsumerField(row, ["MOBILE NO", "MOBILE NUMBER", "MOBILE"]))) return false;
                     return !(ivrs && fixedSet.has(ivrs));
                 };
 
@@ -12279,6 +12280,20 @@
             const digits = String(value || "").replace(/\D/g, "");
             const mobile = digits.length > 10 ? digits.slice(-10) : digits;
             return /^[6-9]\d{9}$/.test(mobile) ? mobile : "";
+        }
+
+        // "Wrong Mobile No List" (aur Daily Progress ka WRONG MOBILE NO column) ke
+        // liye - format-valid (10 digit, 6-9 se start) ke aage bhi ek check: agar
+        // sabhi 10 digit ek hi anka ke repeat hain (9999999999, 8888888888 waghera -
+        // field me commonly dala jaane wala dummy/placeholder number), usko bhi
+        // "wrong" maante hain. normalizeRevenueMessageMobile() KHUD nahi badla -
+        // wahi SMS/WhatsApp button enable/disable jaise purane, alag features me
+        // bhi use hoti hai, unko chhedna nahi hai (strict scope).
+        function isMobileNoConsideredWrong(value) {
+            const valid = normalizeRevenueMessageMobile(value);
+            if (!valid) return true;
+            if (/^(\d)\1{9}$/.test(valid)) return true;
+            return false;
         }
 
         function buildRevenueConsumerMessage(row) {
