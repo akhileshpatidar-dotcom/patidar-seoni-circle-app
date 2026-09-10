@@ -18146,27 +18146,39 @@
             return lines.slice(1).map((line) => (splitCsvLine(line)[0] || "").trim()).filter(Boolean);
         }
 
+        // isLikelyCsvPayload() ek comma hone ki demand karta hai (multi-column sheets ke
+        // liye theek hai), lekin "NAME OF STAFF" sheet me SIRF ek hi column hai - uske CSV
+        // export me kabhi comma aata hi nahi, isliye wo check hamesha fail ho jaata tha
+        // aur staff list kabhi load hi nahi hoti thi (yeh asli root-cause bug tha, cache
+        // ka issue nahi). Staff CSV ke liye yeh alag, comma na maangne wala, lenient check
+        // use karo.
+        function isLikelyStaffCsvPayload(rawText) {
+            const raw = String(rawText || "").trim();
+            if (!raw) return false;
+            if (/^\s*</.test(raw)) return false;
+            return raw.split(/\r?\n/).filter((line) => line.trim()).length >= 2;
+        }
+
         async function loadMeterCheckingStaffNames(dcName = activeDC, forceRefresh = false) {
             const dcKey = getMeterCheckingDcKey(dcName);
             if (!forceRefresh && meterCheckingStaffLoadedDcKey === dcKey && meterCheckingStaffNames.length) return meterCheckingStaffNames;
             const cfg = meterCheckingConfig[dcKey];
             if (!cfg || !cfg.staffCsvUrl) return [];
-            // v2 (2026-09-10): cache-key version bump - purani (test ke waqt sirf 24
-            // naam wali) cached list ko automatically invalid karne ke liye, taaki sabke
-            // browser me fresh (48 naam wali) list dobara load ho jaye, kisi ko manually
-            // kuch clear na karna pade.
-            const staffCacheKey = `seoni-meter-checking-staff-csv-v2-${dcKey}`;
+            // v3 (2026-09-10): cache-key version bump - purani (galat check ki wajah se
+            // khaali ho sakti hai) cached value ko automatically invalid karne ke liye,
+            // taaki sabke browser me fresh list dobara load ho jaye.
+            const staffCacheKey = `seoni-meter-checking-staff-csv-v3-${dcKey}`;
 
             if (!forceRefresh) {
                 try {
                     const cachedText = localStorage.getItem(staffCacheKey) || "";
-                    if (isLikelyCsvPayload(cachedText)) {
+                    if (isLikelyStaffCsvPayload(cachedText)) {
                         const cachedNames = parseMeterCheckingStaffCsv(cachedText);
                         if (cachedNames.length) {
                             meterCheckingStaffNames = cachedNames;
                             meterCheckingStaffLoadedDcKey = dcKey;
                             loadRemoteText(cfg.staffCsvUrl).then((fresh) => {
-                                if (isLikelyCsvPayload(fresh)) {
+                                if (isLikelyStaffCsvPayload(fresh)) {
                                     const freshNames = parseMeterCheckingStaffCsv(fresh);
                                     if (freshNames.length) {
                                         meterCheckingStaffNames = freshNames;
@@ -18183,7 +18195,7 @@
 
             try {
                 const rawCsv = await loadRemoteText(cfg.staffCsvUrl);
-                const names = isLikelyCsvPayload(rawCsv) ? parseMeterCheckingStaffCsv(rawCsv) : [];
+                const names = isLikelyStaffCsvPayload(rawCsv) ? parseMeterCheckingStaffCsv(rawCsv) : [];
                 if (names.length) {
                     meterCheckingStaffNames = names;
                     try { localStorage.setItem(staffCacheKey, rawCsv); } catch (_) {}
