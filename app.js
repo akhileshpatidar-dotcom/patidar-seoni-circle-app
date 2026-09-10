@@ -18606,12 +18606,22 @@
                 html += `</div><div class="summary-footer"><div class="font-black text-slate-800 text-center">TOTAL CHECKED${staffFilter ? ` - ${escapeHtml(staffFilter)}` : ""}</div><div class="mt-2 text-center text-[13px] font-black">${filtered.length}</div></div>`;
                 tableBox.innerHTML = html;
             } else {
-                let html = `<div class="summary-wrapper"><div class="summary-table-header" style="grid-template-columns: 1fr 1fr 0.8fr;"><div>CONSUMER</div><div>STAFF</div><div>TIME</div></div>`;
-                if (!filtered.length) {
+                // Date-wise: screen par sirf Name of Staff + Checked Connection ki
+                // summary dikhate hain - poora consumer-level detail (Consumer/IVRS/
+                // Meter/Time waghera) sirf downloadMeterCheckingReport() ki file me
+                // milega, screen par nahi.
+                const byStaff = {};
+                filtered.forEach((row) => {
+                    const key = row.staffName || "Unknown";
+                    byStaff[key] = (byStaff[key] || 0) + 1;
+                });
+                const staffKeys = Object.keys(byStaff).sort((a, b) => byStaff[b] - byStaff[a]);
+                let html = `<div class="summary-wrapper"><div class="summary-table-header" style="grid-template-columns: 1.6fr 1fr;"><div>NAME OF STAFF</div><div>CHECKED CONNECTION</div></div>`;
+                if (!staffKeys.length) {
                     html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div class="text-rose-600">Is date me koi data nahi mila.</div></div>`;
                 } else {
-                    filtered.forEach((row) => {
-                        html += `<div class="summary-table-row" style="grid-template-columns: 1fr 1fr 0.8fr;"><div>${escapeHtml(row.consumerName || "-")}<br><span style="font-size:0.56rem; color:#64748b;">IVRS: ${escapeHtml(row.ivrsNo)} / Meter: ${escapeHtml(row.meterNo)}</span></div><div class="font-black">${escapeHtml(row.staffName || "-")}</div><div>${escapeHtml(row.time || "-")}</div></div>`;
+                    staffKeys.forEach((name) => {
+                        html += `<div class="summary-table-row" style="grid-template-columns: 1.6fr 1fr;"><div>${escapeHtml(name)}</div><div class="font-black">${byStaff[name]}</div></div>`;
                     });
                 }
                 html += `</div><div class="summary-footer"><div class="font-black text-slate-800 text-center">TOTAL CHECKED${staffFilter ? ` - ${escapeHtml(staffFilter)}` : ""}</div><div class="mt-2 text-center text-[13px] font-black">${filtered.length}</div></div>`;
@@ -19090,6 +19100,10 @@
                 switchView("revenue-collection");
             } else if (act === "vr-download-log-view") {
                 switchView("vr-calculation");
+            } else if (act === "meter-checking-view") {
+                switchView("dc-dashboard");
+            } else if (act === "meter-checking-report-view" || act === "meter-checking-live-progress-view") {
+                switchView("meter-checking");
             } else if (act === "mobile-update-report-view" || act === "mobile-update-wrong-list-view") {
                 switchView("mobile-update");
             } else if (act === "dc-dashboard-view" || act === "mobile-update-view" || act === "revenue-collection-view") {
