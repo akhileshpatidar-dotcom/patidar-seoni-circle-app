@@ -18485,7 +18485,12 @@
             const mobileIdx = idx(["MOBILENO"]);
             const tariffIdx = idx(["TARIFFCODE"]);
             const loadIdx = idx(["LOAD"]);
-            const staffIdx = idx(["STAFFNAME"]);
+            // Sheet ka actual header "NAME OF STAFF" nikla (na ki "STAFF NAME" jo
+            // .gs script naye tab par likhta hai) - kyunki yeh tab pehle se maujood
+            // tha aur apne purane header ke saath hi use ho raha hai. Dono spelling
+            // yahan accept karte hain taaki chahe header kuch bhi ho, staff column
+            // sahi se mil jaaye.
+            const staffIdx = idx(["STAFFNAME", "NAMEOFSTAFF"]);
             const phaseIdx = idx(["PHASECURRENT"]);
             const remarkIdx = idx(["REMARK"]);
             const photo1Idx = idx(["PHOTO1"]);
