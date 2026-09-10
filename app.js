@@ -2749,6 +2749,22 @@
         async function fetchUploadedPaidCategoryListWithRetry_(dcName, attempts = 2) {
             for (let attempt = 1; attempt <= attempts; attempt++) {
                 const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+                // BUG FIX (2026-09-10): DIVISION-level Paid Count Summary kuchh DC
+                // (CHHAPARA-1, DHUMA, GHANSORE, LAKHNADON) ke liye 0%/blank dikhata
+                // tha - data backend me sahi tha, par warmRevenueCategoryUploadedPaid-
+                // Cache() DIVISION ke saare (~20+) DC ka fetch Promise.all se ek hi
+                // jhatke me chala deta tha, jisse Apps Script execution quota par
+                // contention hoti thi aur bade PAID MASTER sheet wale DC ka doGet
+                // queue me fasa reh jaata tha. ASLI FIX neeche runWithConcurrency-
+                // Limit_() hai (ek time par sirf 5 DC ka request jaata hai, baki
+                // queue me wait karte hain) - isse per-DC contention khatam ho
+                // jaati hai. (Yahan pehle timeout 60s->90s aur attempts 2->3 bhi
+                // badha diye the, par usse SINGLE DC (DC-level) report bhi ulta
+                // slow ho gayi thi - ek akela DC bhi ab network hiccup hone par
+                // 3x90s tak wait karta tha, pehle sirf 2x60s. Wapas 60s/2 attempts
+                // par rakha hai - single-DC case me contention hoti hi nahi,
+                // isliye 60s kaafi hai; DIVISION ka contention concurrency-limit
+                // se hi fix hota hai, timeout badhane se nahi.)
                 const timer = setTimeout(() => { try { if (controller) controller.abort(); } catch (_) {} }, 60000);
                 try {
                     const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getUploadedPaidCategoryList&dc_name=${encodeURIComponent(dcName)}&t=${Date.now()}`, controller ? { signal: controller.signal } : {});
@@ -2760,6 +2776,24 @@
                 if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, 800));
             }
             return fetchUploadedPaidEntriesWithRetry_(dcName, attempts);
+        }
+
+        // Ek saath sabhi DC ka fetch chalane (Promise.all) ki jagah, ek chhoti si
+        // concurrency-limited "pool" - ek time par sirf `limit` (5) DC ka request
+        // Apps Script ko jaata hai, baki queue me wait karte hain. Isse Apps Script
+        // par load kam hota hai aur bade DC (CHHAPARA-1, DHUMA, GHANSORE, LAKHNADON
+        // jaise) ko apna turn milte hi poora time milta hai jawab dene ke liye,
+        // instead of 20+ requests ke saath compete karne ke.
+        async function runWithConcurrencyLimit_(items, limit, worker) {
+            let cursor = 0;
+            async function runNext() {
+                while (cursor < items.length) {
+                    const index = cursor++;
+                    await worker(items[index], index);
+                }
+            }
+            const poolSize = Math.max(1, Math.min(limit, items.length));
+            await Promise.all(Array.from({ length: poolSize }, () => runNext()));
         }
 
         // Pehle ye function har baar call hone par (panel khulte waqt + phir dropdown me
@@ -2780,7 +2814,7 @@
                 ? allDcNames
                 : allDcNames.filter((dcName) => now - (revenueCategoryCacheWarmedAt[dcName] || 0) > REVENUE_CATEGORY_CACHE_TTL_MS);
             if (!dcNames.length) return;
-            await Promise.all(dcNames.map(async (dcName) => {
+            await runWithConcurrencyLimit_(dcNames, 5, async (dcName) => {
                 const parsed = await fetchUploadedPaidCategoryListWithRetry_(dcName);
                 if (!parsed) return;
                 const rows = Array.isArray(parsed?.entries) ? parsed.entries : (Array.isArray(parsed?.data) ? parsed.data : []);
@@ -2810,7 +2844,7 @@
                 });
                 saveRevenueUploadedPaidEntriesLocalBulk(mergedRows, dcName, true);
                 revenueCategoryCacheWarmedAt[dcName] = Date.now();
-            }));
+            });
         }
 
         function buildRevenueCategoryUploadedPaidInfo(mode, filterValue) {
