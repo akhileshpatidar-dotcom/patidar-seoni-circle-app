@@ -81,6 +81,21 @@
         const vehicleReadingVehicles = ["407- MP22ZB6089", "BOLERO- MP22ZC1591", "407- MP22G4316", "CAMPER- MP22G4342"];
         const revenueCollectionSubmitScriptUrl = "https://script.google.com/macros/s/AKfycbzaimPwzUYELgmujpaBbfByy0BcjOERA8e0mslNdbH5uUw2L6L24785obmdcpcDOc53Ww/exec";
         const revenueOfflineQueueStorageKey = "seoni-revenue-offline-submit-queue-v1";
+        // Meeter Cheking (2026-09-10 addition) - abhi sirf SEONI (T) DC ke liye live hai.
+        // Forward-compatible design (user requirement): future me kisi aur DC me yeh feature
+        // add karna ho to sirf yahan meterCheckingConfig me us DC ka key (getRevenueCollection-
+        // DcKey() jaisa hi normalized, e.g. "BARGHAT") add karke uska apna consumer/staff CSV
+        // url daalna hoga - button/section apne aap us DC par bhi dikhne lagega. Submit script
+        // URL aur report spreadsheet ID sabhi DC ke liye SAME rahenge (backend .gs file me
+        // dc_name se hi tab decide hota hai), sirf dc_name payload me badalta hai.
+        const meterCheckingConfig = {
+            "SEONIT": {
+                consumerCsvUrl: "https://docs.google.com/spreadsheets/d/1CGS2blrlv91w0QAupQq4tSGgSpc3E_w8yMuPwkMbFME/export?format=csv&gid=0",
+                staffCsvUrl: "https://docs.google.com/spreadsheets/d/1CGS2blrlv91w0QAupQq4tSGgSpc3E_w8yMuPwkMbFME/export?format=csv&gid=1334246662"
+            }
+        };
+        const meterCheckingSubmitScriptUrl = "https://script.google.com/macros/s/AKfycbwUxFlfDqzzcQvJgMe0umCwy73MOhP8ChX3Xd-wox7BOpsk6ttZsUazEzu6kyiRM9Yx/exec";
+        const meterCheckingReportSpreadsheetId = "1LtBrMNlTtX89pTBK8IZWL4ILLYu3WvjQ532JpInps0s";
         const revenueCollectionCsvUrls = {
             "CHHAPARA1": "https://docs.google.com/spreadsheets/d/1ehSaUQyrV1ZzwH0lbdhLdXRYkPdapdm5hhu0Gz0vulk/export?format=csv&gid=0",
             "CHHAPARA2": "https://docs.google.com/spreadsheets/d/1TvhGlARSxZVMq5GYDZEGAHuV6vBXRKxe_nMun4dUby0/export?format=csv&gid=0",
@@ -142,6 +157,16 @@
         // DC-wise summary; specific DC shows that DC's HQ-wise list). Same state
         // var reused for both levels since only one dropdown is ever active at a time.
         let progressPaidCountFilter = "";
+
+        // ===== Meeter Cheking state (2026-09-10) =====
+        let meterCheckingRows = [], meterCheckingRowsLoadedDcKey = "";
+        let meterCheckingStaffNames = [], meterCheckingStaffLoadedDcKey = "";
+        let currentMeterCheckingRecord = null;
+        let meterCheckingPhoto1 = { base64: "", name: "" };
+        let meterCheckingPhoto2 = { base64: "", name: "" };
+        let meterCheckingPhoto3 = { base64: "", name: "" };
+        let meterCheckingReportRows = [], meterCheckingReportLoadedDcKey = "";
+        let meterCheckingReportMode = "DAILY";
         let lastRevenueProgressBoxData = null;
         let lastRevenueProgressStaffData = null;
         // Target vs Achievement ke liye - jab Govt/Non-Govt filter select ho, tab
@@ -9374,6 +9399,14 @@
                     menu.classList.remove("show");
                 }
             });
+
+            const staffInput = document.getElementById("meter-checking-staff-input");
+            const staffDropdown = document.getElementById("meter-checking-staff-dropdown");
+            if (staffInput && staffDropdown) {
+                const clickedInsideInput = staffInput.contains(event.target);
+                const clickedInsideDropdown = staffDropdown.contains(event.target);
+                if (!clickedInsideInput && !clickedInsideDropdown) staffDropdown.style.display = "none";
+            }
         });
 
         function getStockBalance(item) {
@@ -18011,6 +18044,631 @@
             }
         }
 
+        // ===================================================================
+        // Meeter Cheking (SEONI (T) DC only, added 2026-09-10)
+        // Consumer/staff data ek DEDICATED sheet se aata hai (Revenue ke consumer
+        // master se alag) - meterCheckingConfig me har DC ka apna consumerCsvUrl/
+        // staffCsvUrl hai. Submit backend ek naya standalone script
+        // (meter-checking-submit-script.gs) hai, jo revenue-submit-script-dc-wise.gs
+        // ko chhedta nahi - risk kam rakhne ke liye. Report screen par CSV bhi
+        // client-side hi (submission sheet ka gviz export) padha jaata hai, koi
+        // backend doGet nahi chahiye.
+        // ===================================================================
+
+        function getMeterCheckingDcKey(dcName = activeDC) {
+            return getRevenueCollectionDcKey(dcName);
+        }
+
+        function isMeterCheckingAvailableForDc(dcName = activeDC) {
+            return !!meterCheckingConfig[getMeterCheckingDcKey(dcName)];
+        }
+
+        function updateMeterCheckingButtonVisibility() {
+            const btn = document.getElementById("meter-checking-dashboard-btn");
+            if (btn) btn.style.display = isMeterCheckingAvailableForDc(activeDC) ? "block" : "none";
+        }
+
+        function parseMeterCheckingConsumerCsv(csvText) {
+            const lines = (csvText || "").split(/\r?\n/).filter((line) => line.trim());
+            if (lines.length < 2) return [];
+            const headers = splitCsvLine(lines[0]).map((h) => normalizeLookupValue(h));
+            const findIndex = (aliases, fallback) => {
+                const idx = headers.findIndex((h) => aliases.some((key) => h.includes(key)));
+                return idx >= 0 ? idx : fallback;
+            };
+            const ivrsIdx = findIndex(["IVRS"], 0);
+            const meterIdx = findIndex(["METERNO", "METER"], 1);
+            const nameIdx = findIndex(["CONSUMERNAME", "CONSUMER"], 2);
+            const fatherIdx = findIndex(["FATHERNAME", "FATHER"], 3);
+            const mobileIdx = findIndex(["MOBILENO", "MOBILE"], 4);
+            const tariffIdx = findIndex(["TARIFFCODE", "TARIFF"], 5);
+            const loadIdx = findIndex(["LOAD"], 6);
+            return lines.slice(1).map((line) => {
+                const cols = splitCsvLine(line);
+                return {
+                    ivrsNo: String(cols[ivrsIdx] || "").trim(),
+                    meterNo: String(cols[meterIdx] || "").trim(),
+                    consumerName: String(cols[nameIdx] || "").trim(),
+                    fatherName: String(cols[fatherIdx] || "").trim(),
+                    mobileNo: String(cols[mobileIdx] || "").trim(),
+                    tariffCode: String(cols[tariffIdx] || "").trim(),
+                    load: String(cols[loadIdx] || "").trim()
+                };
+            }).filter((row) => row.ivrsNo || row.meterNo);
+        }
+
+        async function loadMeterCheckingConsumerData(dcName = activeDC, forceRefresh = false) {
+            const dcKey = getMeterCheckingDcKey(dcName);
+            if (!forceRefresh && meterCheckingRowsLoadedDcKey === dcKey && meterCheckingRows.length) return meterCheckingRows;
+            const cfg = meterCheckingConfig[dcKey];
+            if (!cfg || !cfg.consumerCsvUrl) return [];
+            const cacheKey = `seoni-meter-checking-consumer-csv-v1-${dcKey}`;
+
+            if (!forceRefresh) {
+                try {
+                    const cachedText = localStorage.getItem(cacheKey) || "";
+                    if (isLikelyCsvPayload(cachedText)) {
+                        const rows = parseMeterCheckingConsumerCsv(cachedText);
+                        if (rows.length) {
+                            meterCheckingRows = rows;
+                            meterCheckingRowsLoadedDcKey = dcKey;
+                            loadRemoteText(cfg.consumerCsvUrl).then((fresh) => {
+                                if (isLikelyCsvPayload(fresh)) {
+                                    const freshRows = parseMeterCheckingConsumerCsv(fresh);
+                                    if (freshRows.length) {
+                                        meterCheckingRows = freshRows;
+                                        try { localStorage.setItem(cacheKey, fresh); } catch (_) {}
+                                    }
+                                }
+                            }).catch(() => {});
+                            return rows;
+                        }
+                    }
+                } catch (_) {}
+            }
+
+            try {
+                const rawCsv = await loadRemoteText(cfg.consumerCsvUrl);
+                const rows = isLikelyCsvPayload(rawCsv) ? parseMeterCheckingConsumerCsv(rawCsv) : [];
+                if (rows.length) {
+                    meterCheckingRows = rows;
+                    meterCheckingRowsLoadedDcKey = dcKey;
+                    try { localStorage.setItem(cacheKey, rawCsv); } catch (_) {}
+                }
+                return rows;
+            } catch (_) {
+                return meterCheckingRows;
+            }
+        }
+
+        function parseMeterCheckingStaffCsv(csvText) {
+            const lines = (csvText || "").split(/\r?\n/).filter((line) => line.trim());
+            return lines.slice(1).map((line) => (splitCsvLine(line)[0] || "").trim()).filter(Boolean);
+        }
+
+        async function loadMeterCheckingStaffNames(dcName = activeDC, forceRefresh = false) {
+            const dcKey = getMeterCheckingDcKey(dcName);
+            if (!forceRefresh && meterCheckingStaffLoadedDcKey === dcKey && meterCheckingStaffNames.length) return meterCheckingStaffNames;
+            const cfg = meterCheckingConfig[dcKey];
+            if (!cfg || !cfg.staffCsvUrl) return [];
+            // v2 (2026-09-10): cache-key version bump - purani (test ke waqt sirf 24
+            // naam wali) cached list ko automatically invalid karne ke liye, taaki sabke
+            // browser me fresh (48 naam wali) list dobara load ho jaye, kisi ko manually
+            // kuch clear na karna pade.
+            const staffCacheKey = `seoni-meter-checking-staff-csv-v2-${dcKey}`;
+
+            if (!forceRefresh) {
+                try {
+                    const cachedText = localStorage.getItem(staffCacheKey) || "";
+                    if (isLikelyCsvPayload(cachedText)) {
+                        const cachedNames = parseMeterCheckingStaffCsv(cachedText);
+                        if (cachedNames.length) {
+                            meterCheckingStaffNames = cachedNames;
+                            meterCheckingStaffLoadedDcKey = dcKey;
+                            loadRemoteText(cfg.staffCsvUrl).then((fresh) => {
+                                if (isLikelyCsvPayload(fresh)) {
+                                    const freshNames = parseMeterCheckingStaffCsv(fresh);
+                                    if (freshNames.length) {
+                                        meterCheckingStaffNames = freshNames;
+                                        try { localStorage.setItem(staffCacheKey, fresh); } catch (_) {}
+                                        populateMeterCheckingStaffOptions(freshNames);
+                                    }
+                                }
+                            }).catch(() => {});
+                            return cachedNames;
+                        }
+                    }
+                } catch (_) {}
+            }
+
+            try {
+                const rawCsv = await loadRemoteText(cfg.staffCsvUrl);
+                const names = isLikelyCsvPayload(rawCsv) ? parseMeterCheckingStaffCsv(rawCsv) : [];
+                if (names.length) {
+                    meterCheckingStaffNames = names;
+                    try { localStorage.setItem(staffCacheKey, rawCsv); } catch (_) {}
+                    meterCheckingStaffLoadedDcKey = dcKey;
+                }
+                return meterCheckingStaffNames;
+            } catch (_) {
+                return meterCheckingStaffNames;
+            }
+        }
+
+        // Staff list fetch ho rahe waqt input box me chhota spinner + "load ho rahi
+        // hai" wala placeholder dikhane ke liye (2026-09-10 addition) - taaki user ko
+        // pata chale ki list abhi load ho rahi hai, khaali box na lage.
+        function setMeterCheckingStaffLoadingState(isLoading) {
+            const input = document.getElementById("meter-checking-staff-input");
+            const chevron = document.getElementById("meter-checking-staff-chevron");
+            const spinner = document.getElementById("meter-checking-staff-spinner");
+            if (input) {
+                if (isLoading) {
+                    if (input.dataset.origPlaceholder === undefined) input.dataset.origPlaceholder = input.placeholder;
+                    input.placeholder = "Staff list load ho rahi hai...";
+                    input.disabled = true;
+                } else {
+                    if (input.dataset.origPlaceholder !== undefined) input.placeholder = input.dataset.origPlaceholder;
+                    input.disabled = false;
+                }
+            }
+            if (chevron) chevron.style.display = isLoading ? "none" : "";
+            if (spinner) spinner.style.display = isLoading ? "block" : "none";
+        }
+
+        function populateMeterCheckingStaffOptions(names) {
+            setMeterCheckingStaffLoadingState(false);
+            if (Array.isArray(names) && names.length) meterCheckingStaffNames = names;
+            renderMeterCheckingStaffDropdownList(meterCheckingStaffNames);
+            const reportSelect = document.getElementById("meter-checking-report-staff");
+            if (reportSelect) {
+                const current = reportSelect.value;
+                reportSelect.innerHTML = `<option value="">All Staff</option>` + meterCheckingStaffNames.map((n) => `<option value="${escapeHtml(n)}" ${n === current ? "selected" : ""}>${escapeHtml(n)}</option>`).join("");
+            }
+        }
+
+        function renderMeterCheckingStaffDropdownList(names) {
+            const dropdown = document.getElementById("meter-checking-staff-dropdown");
+            if (!dropdown) return;
+            if (!names || !names.length) {
+                dropdown.innerHTML = `<div class="option-item" style="opacity:0.6; cursor:default;">Staff list load nahi hui / khaali hai</div>`;
+                return;
+            }
+            dropdown.innerHTML = names.map((n) => `<div class="option-item" data-staff-name="${escapeHtml(n)}" onclick="selectMeterCheckingStaff(this)">${escapeHtml(n)}</div>`).join("");
+        }
+
+        function filterMeterCheckingStaffDropdown() {
+            const input = document.getElementById("meter-checking-staff-input");
+            const query = normalizeLookupValue(input?.value || "");
+            const filtered = query ? meterCheckingStaffNames.filter((n) => normalizeLookupValue(n).includes(query)) : meterCheckingStaffNames;
+            renderMeterCheckingStaffDropdownList(filtered);
+            const dropdown = document.getElementById("meter-checking-staff-dropdown");
+            if (dropdown) dropdown.style.display = "block";
+        }
+
+        function showMeterCheckingStaffDropdown() {
+            filterMeterCheckingStaffDropdown();
+        }
+
+        function hideMeterCheckingStaffDropdown() {
+            const dropdown = document.getElementById("meter-checking-staff-dropdown");
+            if (dropdown) dropdown.style.display = "none";
+        }
+
+        function selectMeterCheckingStaff(el) {
+            const name = el?.dataset?.staffName;
+            if (!name) return;
+            const input = document.getElementById("meter-checking-staff-input");
+            if (input) input.value = name;
+            hideMeterCheckingStaffDropdown();
+        }
+
+        function resetMeterCheckingSearch() {
+            currentMeterCheckingRecord = null;
+            meterCheckingPhoto1 = { base64: "", name: "" };
+            meterCheckingPhoto2 = { base64: "", name: "" };
+            meterCheckingPhoto3 = { base64: "", name: "" };
+            const ivrsInput = document.getElementById("meter-checking-search-ivrs");
+            const meterInput = document.getElementById("meter-checking-search-meter");
+            const searchBtn = document.getElementById("meter-checking-search-btn");
+            if (ivrsInput) { ivrsInput.value = ""; ivrsInput.style.display = ""; }
+            if (meterInput) { meterInput.value = ""; meterInput.style.display = ""; }
+            if (searchBtn) searchBtn.style.display = "";
+            const moreBtn = document.getElementById("meter-checking-search-more-btn");
+            if (moreBtn) moreBtn.style.display = "none";
+            const resultBox = document.getElementById("meter-checking-result-box");
+            const formBox = document.getElementById("meter-checking-form-box");
+            if (resultBox) { resultBox.style.display = "none"; resultBox.innerHTML = ""; }
+            if (formBox) formBox.style.display = "none";
+            ["meter-checking-staff-input", "meter-checking-phase-current", "meter-checking-remark"].forEach((id) => {
+                const el = document.getElementById(id);
+                if (el) el.value = "";
+            });
+            [1, 2, 3].forEach((n) => {
+                const status = document.getElementById(`meter-checking-photo${n}-status`);
+                if (status) { status.innerText = "Pending"; status.style.color = "#a16207"; }
+                const input = document.getElementById(`meter-checking-photo${n}`);
+                if (input) input.value = "";
+            });
+            hideMeterCheckingStaffDropdown();
+            if (ivrsInput) ivrsInput.focus();
+        }
+
+        function initMeterChecking() {
+            resetMeterCheckingSearch();
+            loadMeterCheckingConsumerData(activeDC).catch(() => {});
+            if (!meterCheckingStaffNames.length || meterCheckingStaffLoadedDcKey !== getMeterCheckingDcKey(activeDC)) {
+                setMeterCheckingStaffLoadingState(true);
+            }
+            loadMeterCheckingStaffNames(activeDC)
+                .then((names) => populateMeterCheckingStaffOptions(names))
+                .catch(() => setMeterCheckingStaffLoadingState(false));
+        }
+
+        function renderMeterCheckingConsumer(record) {
+            const resultBox = document.getElementById("meter-checking-result-box");
+            const formBox = document.getElementById("meter-checking-form-box");
+            if (!resultBox) return;
+            resultBox.innerHTML = `
+                <div style="background:linear-gradient(180deg,#fefce8 0%,#ffffff 100%); border:1.5px solid #fde047; border-radius:16px; padding:9px; text-align:left;">
+                    <div style="display:flex; justify-content:space-between; gap:7px; align-items:center; margin-bottom:6px; background:#fef9c3; border:1.5px solid #eab308; border-radius:12px; padding:7px 9px;">
+                        <span style="font-size:0.64rem; font-weight:950; color:#854d0e; letter-spacing:0.03em;">IVRS NO</span>
+                        <span style="flex:1; text-align:center; font-size:0.82rem; font-weight:950; color:#dc2626;">${escapeHtml(record.ivrsNo || "-")}</span>
+                    </div>
+                    <div style="background:#ffffff; border:1px solid #fde047; border-radius:13px; padding:7px 10px;">
+                        <div style="font-size:0.82rem; line-height:1.15; font-weight:950; color:#0f172a; text-align:center;">${escapeHtml(record.consumerName || "-")}</div>
+                        <div style="margin-top:2px; font-size:0.67rem; font-weight:850; color:#475569; text-align:center;">S/o ${escapeHtml(record.fatherName || "-")}</div>
+                    </div>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:7px;">
+                        ${renderRevenueMiniBox("Meter No", record.meterNo)}
+                        ${renderRevenueMiniBox("Mobile No", normalizeMobileDisplayValue(record.mobileNo))}
+                        ${renderRevenueMiniBox("Tariff Code", record.tariffCode)}
+                        ${renderRevenueMiniBox("Load", record.load)}
+                    </div>
+                </div>
+            `;
+            resultBox.style.display = "block";
+            if (formBox) formBox.style.display = "block";
+        }
+
+        async function searchMeterChecking() {
+            const ivrsInput = document.getElementById("meter-checking-search-ivrs");
+            const meterInput = document.getElementById("meter-checking-search-meter");
+            const ivrs = String(ivrsInput?.value || "").trim();
+            const meterNo = String(meterInput?.value || "").trim();
+            if (!ivrs && !meterNo) return showToast("IVRS No ya Meter No me se koi ek dalen", false);
+
+            const searchBtn = document.getElementById("meter-checking-search-btn");
+            const oldText = searchBtn ? searchBtn.innerText : "Search";
+            try {
+                setActionButtonState(searchBtn, "processing", oldText);
+                let rows = await loadMeterCheckingConsumerData(activeDC);
+                const matcher = (row) => (ivrs && row.ivrsNo === ivrs) || (meterNo && normalizeLookupValue(row.meterNo) === normalizeLookupValue(meterNo));
+                let found = rows.find(matcher);
+                if (!found) {
+                    rows = await loadMeterCheckingConsumerData(activeDC, true);
+                    found = rows.find(matcher);
+                }
+                if (!found) {
+                    const resultBox = document.getElementById("meter-checking-result-box");
+                    if (resultBox) {
+                        resultBox.innerHTML = `<div style="background:#fff1f2; border:1.5px solid #fda4af; border-radius:16px; padding:16px; color:#991b1b; font-weight:900; text-align:center;">Consumer Not Found in CSV</div>`;
+                        resultBox.style.display = "block";
+                    }
+                    return showToast("Consumer Not Found in CSV", false);
+                }
+                currentMeterCheckingRecord = found;
+                renderMeterCheckingConsumer(found);
+                if (ivrsInput) ivrsInput.style.display = "none";
+                if (meterInput) meterInput.style.display = "none";
+                if (searchBtn) searchBtn.style.display = "none";
+                const moreBtn = document.getElementById("meter-checking-search-more-btn");
+                if (moreBtn) moreBtn.style.display = "block";
+            } catch (_) {
+                showToast("Consumer Not Found in CSV", false);
+            } finally {
+                setActionButtonState(searchBtn, "idle", oldText || "Search");
+            }
+        }
+
+        async function handleMeterCheckingPhoto(index, input) {
+            const file = input?.files?.[0] || null;
+            const status = document.getElementById(`meter-checking-photo${index}-status`);
+            if (!file) return;
+            try {
+                if (status) { status.innerText = "Processing..."; status.style.color = "#a16207"; }
+                const base64 = await resizeImageForUpload(file, 1280, 0.78);
+                const photoObj = { base64, name: file.name || `meter-checking-photo${index}-${Date.now()}.jpg` };
+                if (index === 1) meterCheckingPhoto1 = photoObj;
+                else if (index === 2) meterCheckingPhoto2 = photoObj;
+                else meterCheckingPhoto3 = photoObj;
+                if (status) { status.innerText = "Ready"; status.style.color = "#166534"; }
+            } catch (_) {
+                if (status) { status.innerText = "Failed"; status.style.color = "#991b1b"; }
+                showToast("Photo process nahi ho payi", false);
+            }
+        }
+
+        async function submitMeterChecking() {
+            if (!currentMeterCheckingRecord) return showToast("Pehle consumer search karein", false);
+            const staffName = String(document.getElementById("meter-checking-staff-input")?.value || "").trim();
+            const phaseCurrent = String(document.getElementById("meter-checking-phase-current")?.value || "").trim();
+            const remark = String(document.getElementById("meter-checking-remark")?.value || "").trim();
+            if (!staffName) return showToast("Staff ka naam select karein", false);
+            if (!meterCheckingStaffNames.some((n) => normalizeLookupValue(n) === normalizeLookupValue(staffName))) {
+                return showToast("Staff list se hi valid naam select karein", false);
+            }
+            if (!phaseCurrent) return showToast("Phase Current dalen", false);
+            if (!remark) return showToast("Remark likhen", false);
+            if (!meterCheckingSubmitScriptUrl || meterCheckingSubmitScriptUrl.indexOf("PASTE_") === 0) {
+                return showToast("Submit script URL abhi set nahi hai", false);
+            }
+
+            const submitBtn = document.getElementById("meter-checking-submit-btn");
+            setActionButtonState(submitBtn, "processing", "Submit");
+            try {
+                const record = currentMeterCheckingRecord;
+                const payload = {
+                    action: "submitMeterChecking",
+                    dc_name: activeDC,
+                    ivrs_no: record.ivrsNo || "",
+                    meter_no: record.meterNo || "",
+                    consumer_name: record.consumerName || "",
+                    father_name: record.fatherName || "",
+                    mobile_no: record.mobileNo || "",
+                    tariff_code: record.tariffCode || "",
+                    load: record.load || "",
+                    staff_name: staffName,
+                    phase_current: phaseCurrent,
+                    remark: remark,
+                    photo1_base64: meterCheckingPhoto1.base64 || "",
+                    photo1_name: meterCheckingPhoto1.name || "",
+                    photo1_mime_type: "image/jpeg",
+                    photo2_base64: meterCheckingPhoto2.base64 || "",
+                    photo2_name: meterCheckingPhoto2.name || "",
+                    photo2_mime_type: "image/jpeg",
+                    photo3_base64: meterCheckingPhoto3.base64 || "",
+                    photo3_name: meterCheckingPhoto3.name || "",
+                    photo3_mime_type: "image/jpeg"
+                };
+                const response = await fetch(meterCheckingSubmitScriptUrl, {
+                    method: "POST",
+                    headers: { "Content-Type": "text/plain;charset=utf-8" },
+                    body: JSON.stringify(payload)
+                });
+                const responseText = await response.text();
+                let parsed = {};
+                try { parsed = JSON.parse(responseText || "{}"); } catch (_) {}
+                if (!response.ok || (parsed.status && parsed.status !== "success")) {
+                    throw new Error(parsed.message || "Meter Checking submit nahi ho payi");
+                }
+                setActionButtonState(submitBtn, "done", "Submit");
+                showToast(parsed.message || "Meter Checking data submit ho gaya", true);
+                resetMeterCheckingSearch();
+            } catch (error) {
+                setActionButtonState(submitBtn, "idle", "Submit");
+                showToast(error?.message || "Submit nahi ho paya", false);
+            }
+        }
+
+        // ----- Meeter Cheking Report (Date/Month wise, Staff wise) -----
+
+        function getMeterCheckingReportSheetName(dcName = activeDC) {
+            return `Script Meter Checking ${normalizeDcName(dcName)}`;
+        }
+
+        function getMeterCheckingReportCsvUrl(dcName = activeDC) {
+            return `https://docs.google.com/spreadsheets/d/${meterCheckingReportSpreadsheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(getMeterCheckingReportSheetName(dcName))}`;
+        }
+
+        function parseMeterCheckingReportCsv(csvText) {
+            const lines = (csvText || "").split(/\r?\n/).filter((line) => line.trim());
+            if (lines.length < 2) return [];
+            const headers = splitCsvLine(lines[0]).map((h) => normalizeLookupValue(h));
+            const idx = (aliases) => headers.findIndex((h) => aliases.includes(h));
+            const ivrsIdx = idx(["IVRSNO"]);
+            const meterIdx = idx(["METERNO"]);
+            const nameIdx = idx(["CONSUMERNAME"]);
+            const fatherIdx = idx(["FATHERNAME"]);
+            const mobileIdx = idx(["MOBILENO"]);
+            const tariffIdx = idx(["TARIFFCODE"]);
+            const loadIdx = idx(["LOAD"]);
+            const staffIdx = idx(["STAFFNAME"]);
+            const phaseIdx = idx(["PHASECURRENT"]);
+            const remarkIdx = idx(["REMARK"]);
+            const photo1Idx = idx(["PHOTO1"]);
+            const photo2Idx = idx(["PHOTO2"]);
+            const photo3Idx = idx(["PHOTO3"]);
+            const dateIdx = idx(["DATE"]);
+            const timeIdx = idx(["TIME"]);
+            return lines.slice(1).map((line) => {
+                const cols = splitCsvLine(line);
+                return {
+                    ivrsNo: String(cols[ivrsIdx] || "").trim(),
+                    meterNo: String(cols[meterIdx] || "").trim(),
+                    consumerName: String(cols[nameIdx] || "").trim(),
+                    fatherName: String(cols[fatherIdx] || "").trim(),
+                    mobileNo: String(cols[mobileIdx] || "").trim(),
+                    tariffCode: String(cols[tariffIdx] || "").trim(),
+                    load: String(cols[loadIdx] || "").trim(),
+                    staffName: String(cols[staffIdx] || "").trim(),
+                    phaseCurrent: String(cols[phaseIdx] || "").trim(),
+                    remark: String(cols[remarkIdx] || "").trim(),
+                    photo1: String(cols[photo1Idx] || "").trim(),
+                    photo2: String(cols[photo2Idx] || "").trim(),
+                    photo3: String(cols[photo3Idx] || "").trim(),
+                    date: String(cols[dateIdx] || "").trim(),
+                    time: String(cols[timeIdx] || "").trim()
+                };
+            }).filter((row) => row.ivrsNo || row.meterNo);
+        }
+
+        async function loadMeterCheckingReportRows(dcName = activeDC, forceRefresh = false) {
+            const dcKey = getMeterCheckingDcKey(dcName);
+            if (!forceRefresh && meterCheckingReportLoadedDcKey === dcKey) return meterCheckingReportRows;
+            try {
+                const rawCsv = await loadRemoteText(getMeterCheckingReportCsvUrl(dcName));
+                const rows = isLikelyCsvPayload(rawCsv) ? parseMeterCheckingReportCsv(rawCsv) : [];
+                meterCheckingReportRows = rows;
+                meterCheckingReportLoadedDcKey = dcKey;
+                return rows;
+            } catch (_) {
+                return meterCheckingReportRows;
+            }
+        }
+
+        // DD/MM/YYYY (jaisa backend likhta hai) -> YYYY-MM-DD, taaki date/month
+        // <input> values (jo ISO format me aate hain) se seedha compare ho sake.
+        function meterCheckingDateToIso(dateText) {
+            const parts = String(dateText || "").split("/");
+            if (parts.length !== 3) return "";
+            const [dd, mm, yyyy] = parts;
+            if (!dd || !mm || !yyyy) return "";
+            return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
+        }
+
+        function getMeterCheckingReportFilteredRows(rows) {
+            const staffFilter = document.getElementById("meter-checking-report-staff")?.value || "";
+            const periodValue = meterCheckingReportMode === "MONTHLY"
+                ? (document.getElementById("meter-checking-report-month")?.value || getTodayIsoDate().slice(0, 7))
+                : (document.getElementById("meter-checking-report-date")?.value || getTodayIsoDate());
+            return (rows || []).filter((row) => {
+                const iso = meterCheckingDateToIso(row.date);
+                if (!iso) return false;
+                const periodMatch = meterCheckingReportMode === "MONTHLY" ? iso.slice(0, 7) === periodValue : iso === periodValue;
+                if (!periodMatch) return false;
+                if (staffFilter && normalizeLookupValue(row.staffName) !== normalizeLookupValue(staffFilter)) return false;
+                return true;
+            });
+        }
+
+        function initMeterCheckingReport() {
+            meterCheckingReportLoadedDcKey = "";
+            const dateInput = document.getElementById("meter-checking-report-date");
+            const monthInput = document.getElementById("meter-checking-report-month");
+            if (dateInput && !dateInput.value) dateInput.value = getTodayIsoDate();
+            if (monthInput && !monthInput.value) monthInput.value = getTodayIsoDate().slice(0, 7);
+            loadMeterCheckingStaffNames(activeDC).then((names) => populateMeterCheckingStaffOptions(names)).finally(() => {
+                setMeterCheckingReportMode(meterCheckingReportMode || "DAILY");
+            });
+        }
+
+        function setMeterCheckingReportMode(mode) {
+            meterCheckingReportMode = mode === "MONTHLY" ? "MONTHLY" : "DAILY";
+            const dateInput = document.getElementById("meter-checking-report-date");
+            const monthInput = document.getElementById("meter-checking-report-month");
+            const dateBtn = document.getElementById("meter-checking-report-date-mode-btn");
+            const monthBtn = document.getElementById("meter-checking-report-month-mode-btn");
+            if (dateInput) dateInput.style.display = meterCheckingReportMode === "DAILY" ? "block" : "none";
+            if (monthInput) monthInput.style.display = meterCheckingReportMode === "MONTHLY" ? "block" : "none";
+            if (dateBtn) { dateBtn.style.background = meterCheckingReportMode === "DAILY" ? "#ca8a04" : "#fef9c3"; dateBtn.style.color = meterCheckingReportMode === "DAILY" ? "#ffffff" : "#854d0e"; }
+            if (monthBtn) { monthBtn.style.background = meterCheckingReportMode === "MONTHLY" ? "#ca8a04" : "#fef9c3"; monthBtn.style.color = meterCheckingReportMode === "MONTHLY" ? "#ffffff" : "#854d0e"; }
+            renderMeterCheckingReport();
+        }
+
+        async function renderMeterCheckingReport() {
+            const tableBox = document.getElementById("meter-checking-report-table");
+            if (!tableBox) return;
+            const rows = await loadMeterCheckingReportRows(activeDC);
+            const filtered = getMeterCheckingReportFilteredRows(rows);
+            const staffFilter = document.getElementById("meter-checking-report-staff")?.value || "";
+
+            if (meterCheckingReportMode === "MONTHLY") {
+                // Month-wise: date ke hisaab se group karke sirf count dikhate hain
+                // (staff filter select hone par "kis date pe kitne check kiye" wahi
+                // ask hai) - poora consumer-level data download me milega.
+                const byDate = {};
+                filtered.forEach((row) => {
+                    const key = row.date || "-";
+                    byDate[key] = (byDate[key] || 0) + 1;
+                });
+                const dateKeys = Object.keys(byDate).sort((a, b) => meterCheckingDateToIso(a).localeCompare(meterCheckingDateToIso(b)));
+                let html = `<div class="summary-wrapper"><div class="summary-table-header" style="grid-template-columns: 1.4fr 1fr;"><div>DATE</div><div>CHECKED COUNT</div></div>`;
+                if (!dateKeys.length) {
+                    html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div class="text-rose-600">Is month me koi data nahi mila.</div></div>`;
+                } else {
+                    dateKeys.forEach((key) => {
+                        html += `<div class="summary-table-row" style="grid-template-columns: 1.4fr 1fr;"><div>${escapeHtml(key)}</div><div class="font-black">${byDate[key]}</div></div>`;
+                    });
+                }
+                html += `</div><div class="summary-footer"><div class="font-black text-slate-800 text-center">TOTAL CHECKED${staffFilter ? ` - ${escapeHtml(staffFilter)}` : ""}</div><div class="mt-2 text-center text-[13px] font-black">${filtered.length}</div></div>`;
+                tableBox.innerHTML = html;
+            } else {
+                let html = `<div class="summary-wrapper"><div class="summary-table-header" style="grid-template-columns: 1fr 1fr 0.8fr;"><div>CONSUMER</div><div>STAFF</div><div>TIME</div></div>`;
+                if (!filtered.length) {
+                    html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div class="text-rose-600">Is date me koi data nahi mila.</div></div>`;
+                } else {
+                    filtered.forEach((row) => {
+                        html += `<div class="summary-table-row" style="grid-template-columns: 1fr 1fr 0.8fr;"><div>${escapeHtml(row.consumerName || "-")}<br><span style="font-size:0.56rem; color:#64748b;">IVRS: ${escapeHtml(row.ivrsNo)} / Meter: ${escapeHtml(row.meterNo)}</span></div><div class="font-black">${escapeHtml(row.staffName || "-")}</div><div>${escapeHtml(row.time || "-")}</div></div>`;
+                    });
+                }
+                html += `</div><div class="summary-footer"><div class="font-black text-slate-800 text-center">TOTAL CHECKED${staffFilter ? ` - ${escapeHtml(staffFilter)}` : ""}</div><div class="mt-2 text-center text-[13px] font-black">${filtered.length}</div></div>`;
+                tableBox.innerHTML = html;
+            }
+        }
+
+        function setMeterCheckingReportDownloadState(isDownloading, message = "") {
+            const status = document.getElementById("meter-checking-report-download-status");
+            const buttons = document.querySelectorAll("#meter-checking-report-view .btn-export-row, #meter-checking-report-pdf-btn, #meter-checking-report-excel-btn");
+            buttons.forEach((button) => {
+                if (!button || button.tagName !== "BUTTON") return;
+                button.disabled = isDownloading;
+                button.style.opacity = isDownloading ? "0.65" : "1";
+                button.style.pointerEvents = isDownloading ? "none" : "auto";
+            });
+            if (status) {
+                status.style.display = message ? "block" : "none";
+                status.textContent = message;
+            }
+        }
+
+        async function downloadMeterCheckingReport(fmt) {
+            const downloadTypeLabel = fmt === "PDF" ? "PDF" : "Excel";
+            setMeterCheckingReportDownloadState(true, `${downloadTypeLabel} downloading... kripya wait kijiye`);
+            try {
+                const rows = await loadMeterCheckingReportRows(activeDC, true);
+                const filtered = getMeterCheckingReportFilteredRows(rows);
+                if (!filtered.length) { setMeterCheckingReportDownloadState(false, "Download ke liye data nahi hai"); return; }
+                const staffFilter = document.getElementById("meter-checking-report-staff")?.value || "";
+                const headers = ["DATE", "TIME", "IVRS NO", "METER NO", "CONSUMER NAME", "FATHER NAME", "MOBILE NO", "TARIFF CODE", "LOAD", "STAFF NAME", "PHASE CURRENT", "REMARK"];
+                const bodyRows = filtered.map((row) => [
+                    row.date, row.time, row.ivrsNo, row.meterNo, row.consumerName, row.fatherName, row.mobileNo, row.tariffCode, row.load, row.staffName, row.phaseCurrent, row.remark
+                ]);
+                const periodLabel = meterCheckingReportMode === "MONTHLY"
+                    ? (document.getElementById("meter-checking-report-month")?.value || getTodayIsoDate().slice(0, 7))
+                    : (document.getElementById("meter-checking-report-date")?.value || getTodayIsoDate());
+                const reportTitle = `Meeter Cheking Report - DC ${activeDC}${staffFilter ? ` - ${staffFilter}` : ""}`;
+                const fileName = `${reportTitle}-${periodLabel}`.replace(/[\\/:*?"<>|]+/g, "_");
+                if (fmt === "PDF") {
+                    if (!window.jspdf?.jsPDF) { setMeterCheckingReportDownloadState(false, "PDF library load nahi hui"); return; }
+                    const { jsPDF } = window.jspdf;
+                    const doc = new jsPDF({ orientation: "landscape" });
+                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
+                    doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 12, { align: "center" });
+                    doc.setFontSize(9); doc.text(`Period: ${periodLabel}`, 148, 19, { align: "center" });
+                    doc.autoTable({ startY: 25, head: [headers], body: bodyRows, theme: "grid", styles: { fontSize: 6, cellPadding: 1, overflow: "linebreak" }, headStyles: { fillColor: [161, 98, 7] } });
+                    savePdfDocumentForDevice(doc, `${fileName}.pdf`);
+                } else {
+                    const csvSafe = (value) => { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
+                    const csv = [[reportTitle], [`Period: ${periodLabel}`], [], headers, ...bodyRows].map((row) => row.map(csvSafe).join(",")).join("\n");
+                    const link = document.createElement("a");
+                    link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+                    link.download = `${fileName}.csv`;
+                    link.click();
+                }
+                setTimeout(() => setMeterCheckingReportDownloadState(false, `${downloadTypeLabel} download ho chuki hai`), 500);
+            } catch (error) {
+                setMeterCheckingReportDownloadState(false, "Download nahi ho paya");
+                showToast(error?.message || "Meeter Cheking report download nahi ho payi", false);
+            }
+        }
+
+        function openMeterCheckingReport() {
+            closeHeaderMenu();
+            switchView("meter-checking-report");
+        }
+        // ===== End Meeter Cheking =====
+
         function switchView(id) {
             if (!suppressHistoryPush) {
                 try { history.pushState({ appView: id }, "", ""); } catch (_) {}
@@ -18093,6 +18751,17 @@
                 }
                 if (id === "dc-dashboard") {
                     checkRevenueUploadFreshness();
+                    updateMeterCheckingButtonVisibility();
+                    if (isMeterCheckingAvailableForDc(activeDC)) {
+                        loadMeterCheckingConsumerData(activeDC).catch(() => {});
+                        loadMeterCheckingStaffNames(activeDC).catch(() => {});
+                    }
+                }
+                if (id === "meter-checking") {
+                    initMeterChecking();
+                }
+                if (id === "meter-checking-report") {
+                    initMeterCheckingReport();
                 }
                 if (id === "bill-calculator") {
                     resetBillCalculator();
@@ -18130,6 +18799,8 @@
                 if (id === "revenue-pending-list") headerTitle = "PENDING DO LIST";
                 if (id === "revenue-paid-upload") headerTitle = "ADMIN UPLOAD CASH LIST";
                 if (id === "revenue-message-login") headerTitle = "SEND MESSAGE";
+                if (id === "meter-checking") headerTitle = "MEETER CHEKING";
+                if (id === "meter-checking-report") headerTitle = "MEETER CHEKING REPORT";
                 if (id === "material-list") headerTitle = "MATERIAL LIST";
                 if (id === "material-receive") headerTitle = "MATERIAL RECEIVE";
                 if (id === "material-issue") headerTitle = "MATERIAL ISSUE";
@@ -18148,11 +18819,13 @@
                 const mobileUpdateMenuVisible = (id === "mobile-update");
                 const vrMenuVisible = (id === "vr-calculation");
                 const dcDashboardMenuVisible = (id === "dc-dashboard");
-                if (headerMenuWrap) headerMenuWrap.style.display = (revenueMenuVisible || mobileUpdateMenuVisible || vrMenuVisible || dcDashboardMenuVisible || id === "subdn-chhapara") ? "block" : "none";
+                const meterCheckingMenuVisible = (id === "meter-checking");
+                if (headerMenuWrap) headerMenuWrap.style.display = (revenueMenuVisible || mobileUpdateMenuVisible || vrMenuVisible || dcDashboardMenuVisible || meterCheckingMenuVisible || id === "subdn-chhapara") ? "block" : "none";
                 document.querySelectorAll(".revenue-header-menu-item").forEach((item) => item.style.display = revenueMenuVisible ? "block" : "none");
                 document.querySelectorAll(".mobile-update-header-menu-item").forEach((item) => item.style.display = mobileUpdateMenuVisible ? "block" : "none");
                 document.querySelectorAll(".vr-header-menu-item").forEach((item) => item.style.display = vrMenuVisible ? "block" : "none");
                 document.querySelectorAll(".dc-dashboard-header-menu-item").forEach((item) => item.style.display = dcDashboardMenuVisible ? "block" : "none");
+                document.querySelectorAll(".meter-checking-header-menu-item").forEach((item) => item.style.display = meterCheckingMenuVisible ? "block" : "none");
                 const staffAdminMenuItem = document.getElementById("staff-admin-header-menu-item");
                 if (staffAdminMenuItem) staffAdminMenuItem.style.display = id === "subdn-chhapara" ? "block" : "none";
                 const excelToolAdminMenuItem = document.getElementById("excel-tool-admin-header-menu-item");
