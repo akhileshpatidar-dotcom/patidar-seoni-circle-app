@@ -18131,30 +18131,109 @@
             }).filter((row) => row.ivrsNo || row.meterNo);
         }
 
+        // BUG FIX (2026-09-11, user-reported: "search 1 sec me aata tha ab 5-10
+        // sec lag rahe hai"): Consumer CSV (SEONI (T) jaisi bade DC me ~35,000+
+        // rows, ~3MB+) pehle SIRF localStorage me cache hota tha. localStorage
+        // ka poore origin ke liye ek chhota (~5-10MB) quota hota hai, jo
+        // Revenue module ke apne bahut saare caches (har DC ka paid-category
+        // cache, staff cache, report cache waghera) ke saath jaldi bhar jaata
+        // hai. Quota bharne par localStorage.setItem() SILENTLY FAIL ho jaata
+        // (try/catch me pakड़ा jaata, koi error nahi dikhta) - matlab cache
+        // kabhi save hi nahi ho pata, aur HAR search 25-30 second wali POORI
+        // CSV fetch karta (jaisa live test me confirm hua: cache khaali hone
+        // par 26.7 sec, cache hone par 0.05 sec). IndexedDB ka quota bahut
+        // zyada bada hota hai (localStorage jaisi tight limit nahi) - isliye
+        // ab yeh CSV IndexedDB me (parsed rows ke roop me) cache karte hain,
+        // taaki cache reliably bana rahe aur search hamesha fast (~1 sec) ho.
+        const meterCheckingConsumerDbName = "seoni-meter-checking-consumer-db-v1";
+        const meterCheckingConsumerStoreName = "consumer-csv";
+
+        function openMeterCheckingConsumerDb() {
+            return new Promise((resolve, reject) => {
+                if (!window.indexedDB) return reject(new Error("IndexedDB unavailable"));
+                const request = indexedDB.open(meterCheckingConsumerDbName, 1);
+                request.onupgradeneeded = () => {
+                    const db = request.result;
+                    if (!db.objectStoreNames.contains(meterCheckingConsumerStoreName)) {
+                        db.createObjectStore(meterCheckingConsumerStoreName, { keyPath: "dc_key" });
+                    }
+                };
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error || new Error("Meter Checking consumer database open failed"));
+            });
+        }
+
+        async function getMeterCheckingConsumerRowsFromDb_(dcKey) {
+            try {
+                const db = await openMeterCheckingConsumerDb();
+                const record = await new Promise((resolve, reject) => {
+                    const transaction = db.transaction(meterCheckingConsumerStoreName, "readonly");
+                    const request = transaction.objectStore(meterCheckingConsumerStoreName).get(dcKey);
+                    request.onsuccess = () => resolve(request.result || null);
+                    request.onerror = () => reject(request.error || new Error("Meter Checking consumer database read failed"));
+                });
+                db.close();
+                return Array.isArray(record?.rows) ? record.rows : null;
+            } catch (_) {
+                return null;
+            }
+        }
+
+        async function saveMeterCheckingConsumerRowsToDb_(dcKey, rows) {
+            try {
+                const db = await openMeterCheckingConsumerDb();
+                await new Promise((resolve, reject) => {
+                    const transaction = db.transaction(meterCheckingConsumerStoreName, "readwrite");
+                    transaction.oncomplete = () => resolve();
+                    transaction.onerror = () => reject(transaction.error || new Error("Meter Checking consumer database write failed"));
+                    transaction.objectStore(meterCheckingConsumerStoreName).put({ dc_key: dcKey, rows, savedAt: Date.now() });
+                });
+                db.close();
+            } catch (_) {}
+        }
+
         async function loadMeterCheckingConsumerData(dcName = activeDC, forceRefresh = false) {
             const dcKey = getMeterCheckingDcKey(dcName);
             if (!forceRefresh && meterCheckingRowsLoadedDcKey === dcKey && meterCheckingRows.length) return meterCheckingRows;
             const cfg = meterCheckingConfig[dcKey];
             if (!cfg || !cfg.consumerCsvUrl) return [];
-            const cacheKey = `seoni-meter-checking-consumer-csv-v1-${dcKey}`;
+            const legacyCacheKey = `seoni-meter-checking-consumer-csv-v1-${dcKey}`;
+
+            const refreshInBackground = () => {
+                loadRemoteText(cfg.consumerCsvUrl).then((fresh) => {
+                    if (isLikelyCsvPayload(fresh)) {
+                        const freshRows = parseMeterCheckingConsumerCsv(fresh);
+                        if (freshRows.length) {
+                            meterCheckingRows = freshRows;
+                            saveMeterCheckingConsumerRowsToDb_(dcKey, freshRows);
+                        }
+                    }
+                }).catch(() => {});
+            };
 
             if (!forceRefresh) {
+                const dbRows = await getMeterCheckingConsumerRowsFromDb_(dcKey);
+                if (Array.isArray(dbRows) && dbRows.length) {
+                    meterCheckingRows = dbRows;
+                    meterCheckingRowsLoadedDcKey = dcKey;
+                    refreshInBackground();
+                    return dbRows;
+                }
+                // Purane (IndexedDB laane se pehle wale) localStorage cache se ek
+                // baar migrate kar lete hain, taaki jin devices par pehle se yeh
+                // cache bana hua hai unhe bhi turant fast result mile - phir usko
+                // localStorage se hata dete hain (IndexedDB me chala gaya, ab
+                // dobara zaroorat nahi, isse quota bhi thoda khaali hota hai).
                 try {
-                    const cachedText = localStorage.getItem(cacheKey) || "";
+                    const cachedText = localStorage.getItem(legacyCacheKey) || "";
                     if (isLikelyCsvPayload(cachedText)) {
                         const rows = parseMeterCheckingConsumerCsv(cachedText);
                         if (rows.length) {
                             meterCheckingRows = rows;
                             meterCheckingRowsLoadedDcKey = dcKey;
-                            loadRemoteText(cfg.consumerCsvUrl).then((fresh) => {
-                                if (isLikelyCsvPayload(fresh)) {
-                                    const freshRows = parseMeterCheckingConsumerCsv(fresh);
-                                    if (freshRows.length) {
-                                        meterCheckingRows = freshRows;
-                                        try { localStorage.setItem(cacheKey, fresh); } catch (_) {}
-                                    }
-                                }
-                            }).catch(() => {});
+                            saveMeterCheckingConsumerRowsToDb_(dcKey, rows);
+                            try { localStorage.removeItem(legacyCacheKey); } catch (_) {}
+                            refreshInBackground();
                             return rows;
                         }
                     }
@@ -18167,7 +18246,8 @@
                 if (rows.length) {
                     meterCheckingRows = rows;
                     meterCheckingRowsLoadedDcKey = dcKey;
-                    try { localStorage.setItem(cacheKey, rawCsv); } catch (_) {}
+                    saveMeterCheckingConsumerRowsToDb_(dcKey, rows);
+                    try { localStorage.removeItem(legacyCacheKey); } catch (_) {}
                 }
                 return rows;
             } catch (_) {
