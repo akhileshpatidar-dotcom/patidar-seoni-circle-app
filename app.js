@@ -18330,6 +18330,14 @@
                 const el = document.getElementById(id);
                 if (el) el.value = "";
             });
+            // Phase/Neutral Current text box sirf dropdown se ek option select karne
+            // par hi khulta hai (khaali manually bhi fill hota hai) - naya search shuru
+            // hone par usko wapas chhupa dete hain taaki dobara dropdown select hi
+            // pehla step rahe.
+            ["meter-checking-phase-current", "meter-checking-neutral-current"].forEach((id) => {
+                const el = document.getElementById(id);
+                if (el) el.style.display = "none";
+            });
             [1, 2, 3].forEach((n) => {
                 const status = document.getElementById(`meter-checking-photo${n}-status`);
                 if (status) { status.innerText = "Pending"; status.style.color = "#a16207"; }
@@ -18693,6 +18701,76 @@
             }
         }
 
+        // ===== Meeter Cheking Report PDF - Hindi/Devanagari REMARK fix =====
+        // jsPDF khud complex-script (Devanagari) text-shaping support nahi karta -
+        // font embed kar bhi den to matra reorder / conjuncts (jaise "क्ष") galat
+        // dikhte. ASLI FIX: jis REMARK cell me Hindi text hai, usko browser ke
+        // apne Canvas 2D API se draw karke (jo real OS text-shaping engine use
+        // karta hai - Windows par "Nirmala UI", Android par "Noto Sans
+        // Devanagari") ek chhoti image bana lete hain, aur PDF me us cell ke
+        // upar wahi image chipka dete hain - taaki Hindi bilkul sahi (jaisa type
+        // kiya) dikhe. Pure English/number wale remarks normal PDF text hi
+        // rehte hain (extra kaam ki zaroorat nahi).
+        function meterCheckingCellHasDevanagari_(text) {
+            return /[ऀ-ॿ]/.test(String(text || ""));
+        }
+
+        function renderMeterCheckingHindiCellImage_(text, cellWidthMm, cellHeightMm) {
+            const scale = 6; // crisp raster taaki PDF zoom karne par bhi saaf dikhe
+            const widthPx = Math.max(24, Math.round(cellWidthMm * scale));
+            const heightPx = Math.max(24, Math.round(cellHeightMm * scale));
+            const canvas = document.createElement("canvas");
+            canvas.width = widthPx;
+            canvas.height = heightPx;
+            const ctx = canvas.getContext("2d");
+            ctx.fillStyle = "#000000";
+            ctx.textBaseline = "top";
+            const padPx = 2 * scale;
+            const maxWidth = Math.max(4, widthPx - padPx * 2);
+            const fontStack = `"Noto Sans Devanagari","Nirmala UI","Mangal",sans-serif`;
+            const words = String(text).split(/\s+/).filter(Boolean);
+            let fontSizePx = Math.max(8, Math.round(heightPx * 0.3));
+            let lines = [words.join(" ") || ""];
+            for (; fontSizePx >= 6; fontSizePx--) {
+                ctx.font = `400 ${fontSizePx}px ${fontStack}`;
+                lines = [];
+                let current = "";
+                words.forEach((word) => {
+                    const test = current ? `${current} ${word}` : word;
+                    if (!current || ctx.measureText(test).width <= maxWidth) {
+                        current = test;
+                    } else {
+                        lines.push(current);
+                        current = word;
+                    }
+                });
+                if (current) lines.push(current);
+                const lineHeight = fontSizePx * 1.25;
+                if (lines.length * lineHeight <= heightPx - padPx * 2 || fontSizePx <= 6) break;
+            }
+            ctx.font = `400 ${fontSizePx}px ${fontStack}`;
+            const lineHeight = fontSizePx * 1.25;
+            const totalTextHeight = lines.length * lineHeight;
+            const startY = Math.max(padPx * 0.5, (heightPx - totalTextHeight) / 2);
+            lines.forEach((line, i) => {
+                ctx.fillText(line, padPx, startY + i * lineHeight, maxWidth);
+            });
+            return canvas.toDataURL("image/png");
+        }
+
+        function drawMeterCheckingHindiCell_(doc, cellData) {
+            const { x, y, width, height } = cellData.cell;
+            doc.setFillColor(255, 255, 255);
+            doc.rect(x, y, width, height, "F");
+            doc.setDrawColor(0, 0, 0);
+            doc.setLineWidth(0.1);
+            doc.rect(x, y, width, height, "S");
+            try {
+                const imgData = renderMeterCheckingHindiCellImage_(String(cellData.cell.raw ?? ""), width, height);
+                doc.addImage(imgData, "PNG", x + 0.4, y + 0.3, Math.max(0.1, width - 0.8), Math.max(0.1, height - 0.6));
+            } catch (_) {}
+        }
+
         async function downloadMeterCheckingReport(fmt) {
             const downloadTypeLabel = fmt === "PDF" ? "PDF" : "Excel";
             setMeterCheckingReportDownloadState(true, `${downloadTypeLabel} downloading... kripya wait kijiye`);
@@ -18717,7 +18795,17 @@
                     doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
                     doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 12, { align: "center" });
                     doc.setFontSize(9); doc.text(`Period: ${periodLabel}`, 148, 19, { align: "center" });
-                    doc.autoTable({ startY: 25, head: [headers], body: bodyRows, theme: "grid", styles: { fontSize: 6, cellPadding: 1, overflow: "linebreak" }, headStyles: { fillColor: [161, 98, 7] } });
+                    const remarkColIndex = headers.length - 1;
+                    doc.autoTable({
+                        startY: 25, head: [headers], body: bodyRows, theme: "grid",
+                        styles: { fontSize: 6, cellPadding: 1, overflow: "linebreak" },
+                        headStyles: { fillColor: [111, 66, 38] },
+                        didDrawCell: (cellData) => {
+                            if (cellData.section === "body" && cellData.column.index === remarkColIndex && meterCheckingCellHasDevanagari_(cellData.cell.raw)) {
+                                drawMeterCheckingHindiCell_(doc, cellData);
+                            }
+                        }
+                    });
                     savePdfDocumentForDevice(doc, `${fileName}.pdf`);
                 } else {
                     const csvSafe = (value) => { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
@@ -18829,7 +18917,7 @@
                     doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
                     doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 105, 14, { align: "center" });
                     doc.setFontSize(9); doc.text(`Date: ${todayLabel}`, 105, 21, { align: "center" });
-                    doc.autoTable({ startY: 27, head: [headers], body: bodyRows, theme: "grid", styles: { fontSize: 8, cellPadding: 2 }, headStyles: { fillColor: [161, 98, 7] } });
+                    doc.autoTable({ startY: 27, head: [headers], body: bodyRows, theme: "grid", styles: { fontSize: 8, cellPadding: 2 }, headStyles: { fillColor: [111, 66, 38] } });
                     savePdfDocumentForDevice(doc, `${fileName}.pdf`);
                 } else {
                     const csvSafe = (value) => { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
