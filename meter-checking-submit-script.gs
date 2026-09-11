@@ -16,7 +16,7 @@ const METER_CHECKING_SPREADSHEET_ID = "1LtBrMNlTtX89pTBK8IZWL4ILLYu3WvjQ532JpInp
 
 const METER_CHECKING_HEADERS = [
   "IVRS NO", "METER NO", "CONSUMER NAME", "FATHER NAME", "MOBILE NO", "TARIFF CODE", "LOAD",
-  "STAFF NAME", "PHASE CURRENT", "REMARK", "PHOTO 1", "PHOTO 2", "PHOTO 3", "DATE", "TIME"
+  "STAFF NAME", "POLE NUMBER", "PHASE CURRENT", "NEUTRAL CURRENT", "REMARK", "PHOTO 1", "PHOTO 2", "PHOTO 3", "DATE", "TIME"
 ];
 
 function doPost(e) {
@@ -55,8 +55,44 @@ function getOrCreateMeterCheckingSheet_(dcName) {
     headerRange.setValues([METER_CHECKING_HEADERS]);
     headerRange.setFontWeight("bold").setBackground("#fef9c3").setHorizontalAlignment("center").setVerticalAlignment("middle");
     sheet.setFrozenRows(1);
+  } else {
+    ensureMeterCheckingHeaders_(sheet);
   }
   return sheet;
+}
+
+// USER REQUEST (2026-09-11): "POLE NUMBER" aur "NEUTRAL CURRENT" naye columns
+// add kiye - lekin DC ke sheet tabs pehle se ban chuke hain (purane 15-column
+// header ke saath, kai rows data ke saath). Sirf header row me naam likh dena
+// kaafi nahi hai (data columns match nahi karenge) - isliye jis DC ke sheet me
+// yeh naye headers abhi tak nahi hain, wahan sahi jagah par (STAFF NAME ke
+// baad POLE NUMBER, PHASE CURRENT ke baad NEUTRAL CURRENT) ek NAYA BLANK
+// COLUMN insert karte hain (insertColumnAfter) - isse saari purani rows ka
+// data apne aap sahi column me shift ho jaata hai, koi purana data corrupt
+// nahi hota. Naye DC/sheet ke liye yeh function kabhi trigger hi nahi hota
+// (upar wale "if (!sheet)" branch me hi sahi header order se ban jaata hai).
+function ensureMeterCheckingHeaders_(sheet) {
+  let headers = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getValues()[0]
+    .map(function(h) { return meterCheckingClean_(h).toUpperCase(); });
+
+  if (headers.indexOf("POLE NUMBER") === -1) {
+    const staffIdx = headers.indexOf("STAFF NAME"); // 0-based
+    const insertAfterCol = staffIdx > -1 ? staffIdx + 1 : headers.length; // 1-based
+    sheet.insertColumnAfter(insertAfterCol);
+    sheet.getRange(1, insertAfterCol + 1).setValue("POLE NUMBER");
+    headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0]
+      .map(function(h) { return meterCheckingClean_(h).toUpperCase(); });
+  }
+
+  if (headers.indexOf("NEUTRAL CURRENT") === -1) {
+    const phaseIdx = headers.indexOf("PHASE CURRENT"); // 0-based
+    const insertAfterCol = phaseIdx > -1 ? phaseIdx + 1 : headers.length; // 1-based
+    sheet.insertColumnAfter(insertAfterCol);
+    sheet.getRange(1, insertAfterCol + 1).setValue("NEUTRAL CURRENT");
+  }
+
+  const headerRange = sheet.getRange(1, 1, 1, sheet.getLastColumn());
+  headerRange.setFontWeight("bold").setBackground("#fef9c3").setHorizontalAlignment("center").setVerticalAlignment("middle");
 }
 
 // STM Complaint script (savePhotoIfProvided_) jaisa hi pattern - base64 ko
@@ -76,10 +112,39 @@ function saveMeterCheckingPhoto_(base64, fileName, mimeType) {
   return file.getUrl();
 }
 
+// USER REQUEST (2026-09-11): agar isi IVRS No ka meter check pehle (kabhi
+// bhi, kisi bhi date par) is DC ke sheet me already submit ho chuka hai, to
+// dobara submit block karke "Already Submitted" bata diya jaaye - taaki ek
+// hi consumer ka meter baar-baar (galti se) check/submit na ho jaaye.
+function isMeterCheckingAlreadySubmitted_(sheet, ivrsNo) {
+  const targetIvrs = meterCheckingClean_(ivrsNo);
+  if (!targetIvrs) return false;
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return false;
+  const ivrsColValues = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  return ivrsColValues.some(function(row) { return meterCheckingClean_(row[0]) === targetIvrs; });
+}
+
 function submitMeterChecking_(data) {
   const dcName = meterCheckingClean_(data.dc_name) || "SEONI (T)";
   const sheet = getOrCreateMeterCheckingSheet_(dcName);
 
+  // Lock: agar isi IVRS ke 2 submit (galti se) ek saath (near-simultaneous)
+  // aa jayen, to dono ek saath duplicate-check pass karke dono add na ho
+  // jayen - lock ke andar hi check + row-add dono karte hain.
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    if (isMeterCheckingAlreadySubmitted_(sheet, data.ivrs_no)) {
+      return { status: "error", message: "Already Submitted" };
+    }
+    return submitMeterCheckingRow_(sheet, data);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function submitMeterCheckingRow_(sheet, data) {
   const photo1Link = saveMeterCheckingPhoto_(data.photo1_base64, data.photo1_name, data.photo1_mime_type);
   const photo2Link = saveMeterCheckingPhoto_(data.photo2_base64, data.photo2_name, data.photo2_mime_type);
   const photo3Link = saveMeterCheckingPhoto_(data.photo3_base64, data.photo3_name, data.photo3_mime_type);
@@ -98,7 +163,9 @@ function submitMeterChecking_(data) {
     meterCheckingClean_(data.tariff_code),
     meterCheckingClean_(data.load),
     meterCheckingClean_(data.staff_name),
+    meterCheckingClean_(data.pole_number),
     meterCheckingClean_(data.phase_current),
+    meterCheckingClean_(data.neutral_current),
     meterCheckingClean_(data.remark),
     photo1Link,
     photo2Link,

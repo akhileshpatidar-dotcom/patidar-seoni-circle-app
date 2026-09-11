@@ -18326,7 +18326,7 @@
             const formBox = document.getElementById("meter-checking-form-box");
             if (resultBox) { resultBox.style.display = "none"; resultBox.innerHTML = ""; }
             if (formBox) formBox.style.display = "none";
-            ["meter-checking-staff-input", "meter-checking-phase-current", "meter-checking-remark"].forEach((id) => {
+            ["meter-checking-staff-input", "meter-checking-pole-number", "meter-checking-phase-current-dropdown", "meter-checking-phase-current", "meter-checking-neutral-current-dropdown", "meter-checking-neutral-current", "meter-checking-remark"].forEach((id) => {
                 const el = document.getElementById(id);
                 if (el) el.value = "";
             });
@@ -18438,13 +18438,17 @@
         async function submitMeterChecking() {
             if (!currentMeterCheckingRecord) return showToast("Pehle consumer search karein", false);
             const staffName = String(document.getElementById("meter-checking-staff-input")?.value || "").trim();
+            const poleNumber = String(document.getElementById("meter-checking-pole-number")?.value || "").trim();
             const phaseCurrent = String(document.getElementById("meter-checking-phase-current")?.value || "").trim();
+            const neutralCurrent = String(document.getElementById("meter-checking-neutral-current")?.value || "").trim();
             const remark = String(document.getElementById("meter-checking-remark")?.value || "").trim();
             if (!staffName) return showToast("Staff ka naam select karein", false);
             if (!meterCheckingStaffNames.some((n) => normalizeLookupValue(n) === normalizeLookupValue(staffName))) {
                 return showToast("Staff list se hi valid naam select karein", false);
             }
+            if (!poleNumber) return showToast("Pole Number dalen", false);
             if (!phaseCurrent) return showToast("Phase Current dalen", false);
+            if (!neutralCurrent) return showToast("Neutral Current dalen", false);
             if (!remark) return showToast("Remark likhen", false);
             if (!meterCheckingSubmitScriptUrl || meterCheckingSubmitScriptUrl.indexOf("PASTE_") === 0) {
                 return showToast("Submit script URL abhi set nahi hai", false);
@@ -18465,7 +18469,9 @@
                     tariff_code: record.tariffCode || "",
                     load: record.load || "",
                     staff_name: staffName,
+                    pole_number: poleNumber,
                     phase_current: phaseCurrent,
+                    neutral_current: neutralCurrent,
                     remark: remark,
                     photo1_base64: meterCheckingPhoto1.base64 || "",
                     photo1_name: meterCheckingPhoto1.name || "",
@@ -18525,7 +18531,9 @@
             // yahan accept karte hain taaki chahe header kuch bhi ho, staff column
             // sahi se mil jaaye.
             const staffIdx = idx(["STAFFNAME", "NAMEOFSTAFF"]);
+            const poleIdx = idx(["POLENUMBER"]);
             const phaseIdx = idx(["PHASECURRENT"]);
+            const neutralIdx = idx(["NEUTRALCURRENT"]);
             const remarkIdx = idx(["REMARK"]);
             const photo1Idx = idx(["PHOTO1"]);
             const photo2Idx = idx(["PHOTO2"]);
@@ -18543,7 +18551,9 @@
                     tariffCode: String(cols[tariffIdx] || "").trim(),
                     load: String(cols[loadIdx] || "").trim(),
                     staffName: String(cols[staffIdx] || "").trim(),
+                    poleNumber: String(cols[poleIdx] || "").trim(),
                     phaseCurrent: String(cols[phaseIdx] || "").trim(),
+                    neutralCurrent: String(cols[neutralIdx] || "").trim(),
                     remark: String(cols[remarkIdx] || "").trim(),
                     photo1: String(cols[photo1Idx] || "").trim(),
                     photo2: String(cols[photo2Idx] || "").trim(),
@@ -18691,9 +18701,9 @@
                 const filtered = getMeterCheckingReportFilteredRows(rows);
                 if (!filtered.length) { setMeterCheckingReportDownloadState(false, "Download ke liye data nahi hai"); return; }
                 const staffFilter = document.getElementById("meter-checking-report-staff")?.value || "";
-                const headers = ["DATE", "TIME", "IVRS NO", "METER NO", "CONSUMER NAME", "FATHER NAME", "MOBILE NO", "TARIFF CODE", "LOAD", "STAFF NAME", "PHASE CURRENT", "REMARK"];
+                const headers = ["DATE", "TIME", "IVRS NO", "METER NO", "CONSUMER NAME", "FATHER NAME", "MOBILE NO", "TARIFF CODE", "LOAD", "STAFF NAME", "POLE NUMBER", "PHASE CURRENT", "NEUTRAL CURRENT", "REMARK"];
                 const bodyRows = filtered.map((row) => [
-                    row.date, row.time, row.ivrsNo, row.meterNo, row.consumerName, row.fatherName, row.mobileNo, row.tariffCode, row.load, row.staffName, row.phaseCurrent, row.remark
+                    row.date, row.time, row.ivrsNo, row.meterNo, row.consumerName, row.fatherName, row.mobileNo, row.tariffCode, row.load, row.staffName, row.poleNumber, row.phaseCurrent, row.neutralCurrent, row.remark
                 ]);
                 const periodLabel = meterCheckingReportMode === "MONTHLY"
                     ? (document.getElementById("meter-checking-report-month")?.value || getTodayIsoDate().slice(0, 7))
