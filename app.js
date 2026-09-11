@@ -18293,7 +18293,16 @@
         }
 
         function showMeterCheckingStaffDropdown() {
-            filterMeterCheckingStaffDropdown();
+            // BUG FIX (user reported): pehle yeh filterMeterCheckingStaffDropdown()
+            // ko hi call karta tha, jo current input.value (jo ek baar naam select
+            // karne ke bad us naam se bhar jaata hai) se list ko filter kar deta
+            // tha - isliye dobara click/focus karne par sirf wahi ek naam dikhta
+            // tha, sabhi naam gayab ho jaate the. Ab focus/click par HAMESHA POORI
+            // list dikhate hain; filter sirf tab lagta hai jab user khud type
+            // karta hai (oninput -> filterMeterCheckingStaffDropdown()).
+            renderMeterCheckingStaffDropdownList(meterCheckingStaffNames);
+            const dropdown = document.getElementById("meter-checking-staff-dropdown");
+            if (dropdown) dropdown.style.display = "block";
         }
 
         function hideMeterCheckingStaffDropdown() {
@@ -18307,6 +18316,32 @@
             const input = document.getElementById("meter-checking-staff-input");
             if (input) input.value = name;
             hideMeterCheckingStaffDropdown();
+        }
+
+        // USER CORRECTION (2026-09-11): pehle Phase Current aur Neutral Current
+        // dono ke apne-apne alag "Quick Select" number-dropdown (0 se 20 tak,
+        // 0.5 step) the - user ne isko "badi gadbad" bataya. Naya (sahi) design:
+        // EK hi "Phase/Neutral Current" dropdown hai jisme sirf 2 option hain -
+        // "Phase Current" ya "Neutral Current" - staff pehle YEH CHUNTA HAI ki
+        // abhi kis current ki reading bharni hai, uske bad sirf usi wale ki
+        // text box khulti hai (dusri wali chhup jaati hai, lekin uska pehle se
+        // bhara value delete nahi hota) - taaki staff dropdown se dobara select
+        // karke dono reading bhar sake. Text box khud already digit+decimal
+        // (inputmode="decimal" jo mobile par numeric dial-pad kholta hai) tak
+        // restricted hai.
+        function onMeterCheckingCurrentTypeChange(type) {
+            const phaseBox = document.getElementById("meter-checking-phase-current");
+            const neutralBox = document.getElementById("meter-checking-neutral-current");
+            if (type === "phase") {
+                if (neutralBox) neutralBox.style.display = "none";
+                if (phaseBox) { phaseBox.style.display = "block"; phaseBox.focus(); }
+            } else if (type === "neutral") {
+                if (phaseBox) phaseBox.style.display = "none";
+                if (neutralBox) { neutralBox.style.display = "block"; neutralBox.focus(); }
+            } else {
+                if (phaseBox) phaseBox.style.display = "none";
+                if (neutralBox) neutralBox.style.display = "none";
+            }
         }
 
         function resetMeterCheckingSearch() {
@@ -18326,7 +18361,7 @@
             const formBox = document.getElementById("meter-checking-form-box");
             if (resultBox) { resultBox.style.display = "none"; resultBox.innerHTML = ""; }
             if (formBox) formBox.style.display = "none";
-            ["meter-checking-staff-input", "meter-checking-pole-number", "meter-checking-phase-current-dropdown", "meter-checking-phase-current", "meter-checking-neutral-current-dropdown", "meter-checking-neutral-current", "meter-checking-remark"].forEach((id) => {
+            ["meter-checking-staff-input", "meter-checking-pole-number", "meter-checking-current-type-dropdown", "meter-checking-phase-current", "meter-checking-neutral-current", "meter-checking-remark"].forEach((id) => {
                 const el = document.getElementById(id);
                 if (el) el.value = "";
             });
@@ -18340,7 +18375,7 @@
             });
             [1, 2, 3].forEach((n) => {
                 const status = document.getElementById(`meter-checking-photo${n}-status`);
-                if (status) { status.innerText = "Pending"; status.style.color = "#a16207"; }
+                if (status) { status.innerText = "Pending"; status.style.color = "#7a5233"; }
                 const input = document.getElementById(`meter-checking-photo${n}`);
                 if (input) input.value = "";
             });
@@ -18364,12 +18399,12 @@
             const formBox = document.getElementById("meter-checking-form-box");
             if (!resultBox) return;
             resultBox.innerHTML = `
-                <div style="background:linear-gradient(180deg,#fefce8 0%,#ffffff 100%); border:1.5px solid #fde047; border-radius:16px; padding:9px; text-align:left;">
-                    <div style="display:flex; justify-content:space-between; gap:7px; align-items:center; margin-bottom:6px; background:#fef9c3; border:1.5px solid #eab308; border-radius:12px; padding:7px 9px;">
-                        <span style="font-size:0.64rem; font-weight:950; color:#854d0e; letter-spacing:0.03em;">IVRS NO</span>
+                <div style="background:linear-gradient(180deg,#f5ede1 0%,#ffffff 100%); border:1.5px solid #a9744f; border-radius:16px; padding:9px; text-align:left;">
+                    <div style="display:flex; justify-content:space-between; gap:7px; align-items:center; margin-bottom:6px; background:#ecdfc9; border:1.5px solid #8b5a2b; border-radius:12px; padding:7px 9px;">
+                        <span style="font-size:0.64rem; font-weight:950; color:#5c3a21; letter-spacing:0.03em;">IVRS NO</span>
                         <span style="flex:1; text-align:center; font-size:0.82rem; font-weight:950; color:#dc2626;">${escapeHtml(record.ivrsNo || "-")}</span>
                     </div>
-                    <div style="background:#ffffff; border:1px solid #fde047; border-radius:13px; padding:7px 10px;">
+                    <div style="background:#ffffff; border:1px solid #a9744f; border-radius:13px; padding:7px 10px;">
                         <div style="font-size:0.82rem; line-height:1.15; font-weight:950; color:#0f172a; text-align:center;">${escapeHtml(record.consumerName || "-")}</div>
                         <div style="margin-top:2px; font-size:0.67rem; font-weight:850; color:#475569; text-align:center;">S/o ${escapeHtml(record.fatherName || "-")}</div>
                     </div>
@@ -18430,7 +18465,7 @@
             const status = document.getElementById(`meter-checking-photo${index}-status`);
             if (!file) return;
             try {
-                if (status) { status.innerText = "Processing..."; status.style.color = "#a16207"; }
+                if (status) { status.innerText = "Processing..."; status.style.color = "#7a5233"; }
                 const base64 = await resizeImageForUpload(file, 1280, 0.78);
                 const photoObj = { base64, name: file.name || `meter-checking-photo${index}-${Date.now()}.jpg` };
                 if (index === 1) meterCheckingPhoto1 = photoObj;
@@ -18630,8 +18665,8 @@
             const monthBtn = document.getElementById("meter-checking-report-month-mode-btn");
             if (dateInput) dateInput.style.display = meterCheckingReportMode === "DAILY" ? "block" : "none";
             if (monthInput) monthInput.style.display = meterCheckingReportMode === "MONTHLY" ? "block" : "none";
-            if (dateBtn) { dateBtn.style.background = meterCheckingReportMode === "DAILY" ? "#ca8a04" : "#fef9c3"; dateBtn.style.color = meterCheckingReportMode === "DAILY" ? "#ffffff" : "#854d0e"; }
-            if (monthBtn) { monthBtn.style.background = meterCheckingReportMode === "MONTHLY" ? "#ca8a04" : "#fef9c3"; monthBtn.style.color = meterCheckingReportMode === "MONTHLY" ? "#ffffff" : "#854d0e"; }
+            if (dateBtn) { dateBtn.style.background = meterCheckingReportMode === "DAILY" ? "#6f4226" : "#ecdfc9"; dateBtn.style.color = meterCheckingReportMode === "DAILY" ? "#ffffff" : "#5c3a21"; }
+            if (monthBtn) { monthBtn.style.background = meterCheckingReportMode === "MONTHLY" ? "#6f4226" : "#ecdfc9"; monthBtn.style.color = meterCheckingReportMode === "MONTHLY" ? "#ffffff" : "#5c3a21"; }
             renderMeterCheckingReport();
         }
 
