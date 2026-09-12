@@ -3366,6 +3366,13 @@
             // alag lagta tha (data same hone ke bawajood). Ab Freeze Report
             // bhi Live jaisa hi - sabse bada bakayadar (frozen pending
             // amount ke hisab se) sabse upar - dikhayega.
+            // USER REQUEST (2026-09-12): Payment-status ke hisaab se rows ko
+            // group/reorder NAHI karna - Top 20/50 (aur baaki categories) ka
+            // sequence bilkul wahi rahega jo sirf frozen pending amount ke
+            // descending order se banta hai (Live Report jaisa), chahe wo row
+            // baad me PAID ho gaya ho ya PART PAID - uski position nahi
+            // badlegi, sirf uska status COLOUR (PAID=green, PART PAID=red)
+            // alag dikhega taaki pehchana ja sake.
             const rowsWithStatusUnsorted = getFreezeFilteredRowsWithStatus(scopedRowsWithStatus);
             const rowsWithStatus = rowsWithStatusUnsorted.slice().sort((a, b) => Number(b.pending_amount || 0) - Number(a.pending_amount || 0));
             let paidCount = 0, paidAmount = 0, totalFrozenAmount = 0;
@@ -3507,6 +3514,75 @@
             return "PENDING";
         }
 
+        // USER REQUEST (2026-09-12): NP3 / NP6 / Since Connection ki list nikalते
+        // waqt, list ke UPAR ek chhota summary bhi dikhe - DC scope me HQ-wise,
+        // Division scope me DC-wise, aur Circle scope me DC-wise + har Division
+        // ka Division Total + sabse aakhir me ek Grand Total row. Yeh ek hi
+        // shared builder/renderer hai jo Live Non-Payee report aur Freeze Report
+        // (NP3/NP6/Since Connection categories) dono me reuse hota hai - caller
+        // sirf normalizedRows [{dcName, hqName, pendingAmount}] pass karta hai.
+        function buildRevenueNonPayeeGroupSummary(normalizedRows) {
+            const sumByKey = (list, keyFn) => {
+                const map = {};
+                (list || []).forEach((r) => {
+                    const key = keyFn(r) || "-";
+                    if (!map[key]) map[key] = { name: key, count: 0, pendingTotal: 0 };
+                    map[key].count += 1;
+                    map[key].pendingTotal += Number(r.pendingAmount || 0);
+                });
+                return map;
+            };
+
+            if (activeViewLevel === "DC") {
+                const map = sumByKey(normalizedRows, (r) => normalizeHqName(r.hqName) || "GENERAL");
+                const rows = Object.values(map).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+                return { colLabel: revenueHqLabelUpper(), rows };
+            }
+
+            if (activeViewLevel === "DIVISION") {
+                const map = sumByKey(normalizedRows, (r) => normalizeDcName(r.dcName) || "-");
+                const rows = getDivisionDcNames(activeDiv).map((dcName) => {
+                    const key = normalizeDcName(dcName);
+                    return map[key] || { name: key, count: 0, pendingTotal: 0 };
+                });
+                return { colLabel: "DC NAME", rows };
+            }
+
+            // CIRCLE: DC-wise, division-wise SUB_TOTAL rows, aur last me GRAND TOTAL.
+            const map = sumByKey(normalizedRows, (r) => normalizeDcName(r.dcName) || "-");
+            const rows = [];
+            let grandCount = 0, grandPending = 0;
+            Object.keys(divisionConfigs).forEach((divisionName) => {
+                const dcRows = getDivisionDcNames(divisionName).map((dcName) => {
+                    const key = normalizeDcName(dcName);
+                    return map[key] || { name: key, count: 0, pendingTotal: 0 };
+                });
+                rows.push(...dcRows);
+                const divCount = dcRows.reduce((s, r) => s + r.count, 0);
+                const divPending = dcRows.reduce((s, r) => s + r.pendingTotal, 0);
+                grandCount += divCount; grandPending += divPending;
+                rows.push({ name: getDivisionTotalLabel(divisionName), count: divCount, pendingTotal: divPending, type: "SUB_TOTAL" });
+            });
+            rows.push({ name: "GRAND TOTAL", count: grandCount, pendingTotal: grandPending, type: "GRAND_TOTAL" });
+            return { colLabel: "DC NAME", rows };
+        }
+
+        function renderRevenueNonPayeeGroupSummaryHtml(normalizedRows) {
+            const summary = buildRevenueNonPayeeGroupSummary(normalizedRows);
+            let html = `<div style="font-size:0.62rem; font-weight:900; color:#9f1239; text-align:center; margin-top:10px;">${escapeHtml(summary.colLabel)} WISE SUMMARY</div>
+                <div class="summary-wrapper" style="margin-top:6px;"><div class="summary-table-header" style="grid-template-columns: 1.5fr 0.75fr 1fr;"><div>${escapeHtml(summary.colLabel)}</div><div>COUNT</div><div>PENDING</div></div>`;
+            if (!summary.rows.length) {
+                html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div class="text-rose-600">Data nahi mila.</div></div>`;
+            } else {
+                summary.rows.forEach((row) => {
+                    const rowClass = (row.type === "SUB_TOTAL" || row.type === "GRAND_TOTAL") ? " blue-bold" : "";
+                    html += `<div class="summary-table-row${rowClass}" style="grid-template-columns: 1.5fr 0.75fr 1fr;"><div>${escapeHtml(row.name)}</div><div class="font-black">${row.count}</div><div class="text-rose-700 font-black">${formatProgressReportAmount(row.pendingTotal)}</div></div>`;
+                });
+            }
+            html += `</div>`;
+            return html;
+        }
+
         function renderRevenueProgressFreezeSummaryHtml() {
             const categorySelectHtml = `
                 <select onchange="setProgressFreezeCategory(this.value)" style="width:100%; height:44px; margin:8px auto 0; display:block; border:1.5px solid #0891b2; border-radius:12px; padding:0 12px; font-size:0.78rem; font-weight:900; color:#0f172a; background:#ffffff;">
@@ -3598,6 +3674,7 @@
                     <div style="background:#ecfdf5; border-radius:12px; padding:8px 4px; text-align:center;"><div style="font-size:0.54rem; font-weight:850; color:#166534; text-transform:uppercase;">Paid Amount (since freeze)</div><div style="font-size:0.85rem; font-weight:950; color:#166534; margin-top:2px;">${formatProgressReportAmount(t.paidAmount)}</div></div>
                     <div style="background:#fff1f2; border-radius:12px; padding:8px 4px; text-align:center;"><div style="font-size:0.54rem; font-weight:850; color:#9f1239; text-transform:uppercase;">Frozen Total Amount</div><div style="font-size:0.85rem; font-weight:950; color:#9f1239; margin-top:2px;">${formatProgressReportAmount(t.totalFrozenAmount)}</div></div>
                 </div>
+                ${!isFreezeCategoryDefaultersType() ? renderRevenueNonPayeeGroupSummaryHtml(data.rowsWithStatus.map((r) => ({ dcName: r.dc_name, hqName: r.hq_name, pendingAmount: r.pending_amount }))) : ""}
                 <div class="btn-export-row" style="margin-top:10px;">
                     <button class="btn-unique btn-excel-unique" onclick="downloadRevenueFreezeReport('XLS')">Freeze Report Excel</button>
                     <button class="btn-unique btn-pdf-unique" onclick="downloadRevenueFreezeReport('PDF')">Freeze Report PDF</button>
@@ -3613,7 +3690,13 @@
                     if (showDcColumn) cells.push(`<div>${escapeHtml(r.dc_name || "-")}</div>`);
                     cells.push(`<div>${escapeHtml(r.consumer_name || "-")}<br><span style="font-size:0.56rem; color:#64748b;">${escapeHtml(r.hq_name || "")} / ${escapeHtml(r.village || "")}</span></div>`);
                     const paidStatusLabel = escapeHtml(getFreezeRowStatusLabel(r));
-                    cells.push(`<div class="font-black" style="color:${r.isPaidNow ? "#166534" : "#9f1239"};">${paidStatusLabel}</div>`);
+                    // USER REQUEST (2026-09-12): PAID wale row ka status text
+                    // GREEN me, PART PAID wale row ka status text RED me dikhe
+                    // (pure PENDING - koi payment nahi - normal/default colour
+                    // me hi rahega). Row ki POSITION/sequence isse bilkul nahi
+                    // badalta, sirf colour se pehchana jaata hai.
+                    const statusColor = r.isPaidNow ? "#166534" : (r.paidAmountNow > 0 ? "#dc2626" : "#1e293b");
+                    cells.push(`<div class="font-black" style="color:${statusColor};">${paidStatusLabel}</div>`);
                     cells.push(`<div class="font-black">${formatProgressReportAmount(r.isPaidNow ? r.paidAmountNow : r.remainingPending)}</div>`);
                     html += `<div class="summary-table-row" style="grid-template-columns: ${showDcColumn ? "0.8fr 1.2fr 0.8fr 1fr" : "1.4fr 0.8fr 1fr"};">${cells.join("")}</div>`;
                 });
@@ -3633,6 +3716,15 @@
             try {
                 const showDcColumn = activeViewLevel !== "DC";
                 const headers = [...(showDcColumn ? ["DC NAME"] : []), "IVRS NO", "CONSUMER NAME", "HQ", "VILLAGE", "MOBILE NO", "STATUS", "AMOUNT"];
+                // USER REQUEST (2026-09-12): PAID row GREEN me, PART PAID row
+                // RED me dikhna chahiye (PDF me actual colour se, CSV/"Excel"
+                // me chunki plain text file hoti hai colour support nahi
+                // karti - isliye wahan alag "**"/"++" marker laga kar visually
+                // alag kiya gaya hai). Row ka POSITION (sequence) isse bilkul
+                // nahi badalta - sirf STATUS cell ka colour/marker alag hai.
+                const statusColIndex = showDcColumn ? 6 : 5;
+                // 2 = fully PAID (green), 1 = PART PAID (red), 0 = pure PENDING (default)
+                const paymentStateFlags = data.rowsWithStatus.map((r) => (r.isPaidNow ? 2 : (r.paidAmountNow > 0 ? 1 : 0)));
                 const bodyRows = data.rowsWithStatus.map((r) => [
                     ...(showDcColumn ? [r.dc_name || ""] : []),
                     r.ivrs_no || "", r.consumer_name || "", r.hq_name || "", r.village || "", r.mobile_no || "",
@@ -3650,9 +3742,29 @@
                     doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
                     doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 12, { align: "center" });
                     doc.setFontSize(9); doc.text(freezeLine, 148, 19, { align: "center" });
-                    doc.autoTable({ startY: 25, head: [headers], body: bodyRows, theme: "grid", styles: { fontSize: 6, cellPadding: 1, overflow: "linebreak" }, headStyles: { fillColor: [8, 145, 178] } });
+                    doc.autoTable({
+                        startY: 25, head: [headers], body: bodyRows, theme: "grid",
+                        styles: { fontSize: 6, cellPadding: 1, overflow: "linebreak" },
+                        headStyles: { fillColor: [8, 145, 178] },
+                        didParseCell: function (hookData) {
+                            if (hookData.section === "body" && hookData.column.index === statusColIndex) {
+                                const state = paymentStateFlags[hookData.row.index];
+                                if (state === 2) { hookData.cell.styles.textColor = [22, 101, 52]; hookData.cell.styles.fontStyle = "bold"; }
+                                else if (state === 1) { hookData.cell.styles.textColor = [220, 38, 38]; hookData.cell.styles.fontStyle = "bold"; }
+                            }
+                        }
+                    });
                     savePdfDocumentForDevice(doc, `${fileName}.pdf`);
                 } else {
+                    // CSV plain text hai, colour nahi ho sakta - isliye PAID
+                    // rows ke STATUS ke aage-peeche "++" aur PART PAID rows ke
+                    // aage-peeche "**" laga diya taaki Excel me khulne par bhi
+                    // wo alag pehchane ja sakein.
+                    bodyRows.forEach((row, i) => {
+                        const state = paymentStateFlags[i];
+                        if (state === 2) row[statusColIndex] = `++ ${row[statusColIndex]} ++`;
+                        else if (state === 1) row[statusColIndex] = `** ${row[statusColIndex]} **`;
+                    });
                     const csvSafe = (value) => { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
                     const csv = [[reportTitle], [`Scope: ${scope}`], [freezeLine], [], headers, ...bodyRows].map((row) => row.map(csvSafe).join(",")).join("\n");
                     const link = document.createElement("a");
@@ -4724,6 +4836,7 @@
                     <div style="background:#fff1f2; border-radius:12px; padding:8px 4px; text-align:center;"><div style="font-size:0.54rem; font-weight:850; color:#9f1239; text-transform:uppercase;">Consumers</div><div style="font-size:0.95rem; font-weight:950; color:#9f1239; margin-top:2px;">${rows.length}</div></div>
                     <div style="background:#fff1f2; border-radius:12px; padding:8px 4px; text-align:center;"><div style="font-size:0.54rem; font-weight:850; color:#9f1239; text-transform:uppercase;">Total Pending</div><div style="font-size:0.85rem; font-weight:950; color:#9f1239; margin-top:2px;">${formatProgressReportAmount(totalPending)}</div></div>
                 </div>
+                ${renderRevenueNonPayeeGroupSummaryHtml(rows)}
                 <div class="btn-export-row" style="margin-top:10px;">
                     <button class="btn-unique btn-excel-unique" onclick="downloadProgressRevenueReportBox('XLS')">${escapeHtml(getProgressRevenueReportTypeLabel())} Excel</button>
                     <button class="btn-unique btn-pdf-unique" onclick="downloadProgressRevenueReportBox('PDF')">${escapeHtml(getProgressRevenueReportTypeLabel())} PDF</button>
