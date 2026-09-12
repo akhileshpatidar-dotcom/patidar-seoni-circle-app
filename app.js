@@ -3327,11 +3327,23 @@
             if (error || !active) return { active: active || null, error: !!error, rowsWithStatus: [], totals: null };
             const scopedRows = getRevenueFreezeRowsInScope(allRows);
             const paidIndex = buildRevenueFreezePaidIndex(active.freeze_date);
+            // USER-REPORTED BUG (2026-09-12): Freeze report kisi consumer ko
+            // "PAID" dikha raha tha jabki Live Revenue Report (usi din, usi
+            // consumer ka) use abhi bhi "PENDING" dikha raha tha - wajah: yahan
+            // "koi bhi payment record mil gaya (chahe part-payment ho) matlab
+            // PAID" maan liya jaata tha, jabki Live report me part-payment
+            // hone par bhi consumer PENDING hi rehta hai (bacha hua bakaya kam
+            // hokar). Ab dono jagah same logic: sirf tabhi "PAID" jab paid
+            // amount, frozen pending amount ko POORA cover kar de - warna
+            // "PENDING" hi rahega, bas bacha hua (reduced) bakaya dikhega.
             const scopedRowsWithStatus = scopedRows.map((r) => {
                 const key = normalizeDcName(r.dc_name) + "|" + normalizeRevenueIvrs(r.ivrs_no);
                 const info = paidIndex[key];
-                const isPaid = !!info;
-                return { ...r, isPaidNow: isPaid, paidAmountNow: info ? info.paidAmount : 0 };
+                const paidAmountNow = info ? info.paidAmount : 0;
+                const frozenPending = Number(r.pending_amount || 0);
+                const remainingPending = Math.max(0, frozenPending - paidAmountNow);
+                const isPaid = paidAmountNow > 0 && remainingPending <= 0;
+                return { ...r, isPaidNow: isPaid, paidAmountNow, remainingPending };
             });
             // USER REQUEST (2026-09-12): HQ/Village/Category/Net Bill Slab/Govt-
             // NonGovt (NP3/6/Since Connection) ya Govt-NonGovt (Top 20/50) filter
@@ -3568,7 +3580,7 @@
                     if (showDcColumn) cells.push(`<div>${escapeHtml(r.dc_name || "-")}</div>`);
                     cells.push(`<div>${escapeHtml(r.consumer_name || "-")}<br><span style="font-size:0.56rem; color:#64748b;">${escapeHtml(r.hq_name || "")} / ${escapeHtml(r.village || "")}</span></div>`);
                     cells.push(`<div class="font-black" style="color:${r.isPaidNow ? "#166534" : "#9f1239"};">${r.isPaidNow ? "PAID" : "PENDING"}</div>`);
-                    cells.push(`<div class="font-black">${formatProgressReportAmount(r.isPaidNow ? r.paidAmountNow : r.pending_amount)}</div>`);
+                    cells.push(`<div class="font-black">${formatProgressReportAmount(r.isPaidNow ? r.paidAmountNow : r.remainingPending)}</div>`);
                     html += `<div class="summary-table-row" style="grid-template-columns: ${showDcColumn ? "0.8fr 1.2fr 0.8fr 1fr" : "1.4fr 0.8fr 1fr"};">${cells.join("")}</div>`;
                 });
                 if (data.rowsWithStatus.length > 200) {
@@ -3590,7 +3602,7 @@
                 const bodyRows = data.rowsWithStatus.map((r) => [
                     ...(showDcColumn ? [r.dc_name || ""] : []),
                     r.ivrs_no || "", r.consumer_name || "", r.hq_name || "", r.village || "", r.mobile_no || "",
-                    r.isPaidNow ? "PAID" : "PENDING", formatProgressReportAmount(r.isPaidNow ? r.paidAmountNow : r.pending_amount)
+                    r.isPaidNow ? "PAID" : "PENDING", formatProgressReportAmount(r.isPaidNow ? r.paidAmountNow : r.remainingPending)
                 ]);
                 const scope = activeViewLevel === "DC" ? `DC - ${activeDC}` : (activeViewLevel === "DIVISION" ? activeDiv : "SEONI CIRCLE");
                 const reportTitle = `Revenue Freeze Report - ${getRevenueFreezeCategoryLabel(progressFreezeCategory)} - ${scope}`;
