@@ -170,7 +170,11 @@
         // baad) ab tak bhugtan kar diya hai. DC/Division/Circle - sabhi jagah
         // isi ek hi shared dropdown/state se available hai (jaise baaki 8
         // report types).
-        let progressFreezeCategory = "NP3";
+        // USER REQUEST (2026-09-12): "Revenue Freeze Report" chunte hi seedha
+        // NP3 auto-select/auto-sync NAHI hona chahiye - khaali/placeholder se
+        // shuru hoga, sirf jab user is dropdown se khud koi report chunega
+        // tabhi sync hogi (upar wale "Choose Report Type" jaisa hi flow).
+        let progressFreezeCategory = "";
         let progressFreezeLoading = false;
         let progressFreezeActiveFreeze = null;
         let revenueFreezeSnapshotCache = {};
@@ -2196,7 +2200,18 @@
                 return;
             }
             if (summaryModule === "FREEZE") {
-                refreshFreezeModuleSummary();
+                // USER REQUEST (2026-09-12): "Revenue Freeze Report" chunte hi
+                // seedha NP3 (aur uske filters) khul jaate the, jabki yahan bhi
+                // ek DUSRA "Choose Report Type" dropdown (5 report) sirf khaali
+                // dikhna chahiye tha - koi bhi sync tabhi ho jab is dropdown se
+                // khud koi report chuna jaaye. Isliye category ko khaali reset
+                // karke SEEDHA (bina kisi fetch/active-freeze-check ke) chooser
+                // render karte hain.
+                progressFreezeCategory = "";
+                resetFreezeFilterState();
+                lastRevenueProgressFreezeResult = null;
+                const body = document.getElementById("summary-content");
+                if (body) body.innerHTML = renderFreezeModuleSummaryHtml();
                 return;
             }
             refreshSummary();
@@ -2868,8 +2883,48 @@
                 const np6 = buildRevenueNonPayeeRows("DAILY", "", "6M");
                 const sinceConn = buildRevenueNonPayeeRows("DAILY", "", "SINCE_CONNECTION");
                 const allConsumerRows = buildRevenueHqVillageConsumerRows("DAILY", "");
-                const top50 = allConsumerRows.filter((r) => r.pendingAmount > 0).sort((a, b) => b.pendingAmount - a.pendingAmount).slice(0, 50);
-                const top20 = top50.slice(0, 20);
+                // USER-REPORTED BUG (2026-09-12): Pehle saari 24 DC ke consumers
+                // ko EK SAATH milakar sirf EK global Top 50 list banti thi -
+                // isse chhoti/kam-defaulter DC (jinke consumer overall top-50 me
+                // jagah hi nahi bana paate) ka Freeze Report me Top 20/50 khaali
+                // ya bahut kam dikhta tha (jaise Kurai DC me sirf 2 consumer),
+                // jabki live "Top 20/50 Defaulters" report hamesha PER-DC/scope
+                // hi dikhati hai. Fix: har DC ka apna ALAG Top 50 (usi me se
+                // Top 20) nikalte hain, phir sabko jodte hain - taaki DC/
+                // Division/Circle kisi bhi level par har DC apna sahi Top 20/50
+                // dikhaye, live report jaisa hi.
+                const top50 = [];
+                const top20 = [];
+                allDcs.forEach((dcName) => {
+                    const dcTop50 = allConsumerRows
+                        .filter((r) => r.pendingAmount > 0 && normalizeDcName(r.dcName) === normalizeDcName(dcName))
+                        .sort((a, b) => b.pendingAmount - a.pendingAmount)
+                        .slice(0, 50);
+                    top50.push(...dcTop50);
+                    top20.push(...dcTop50.slice(0, 20));
+                });
+
+                // USER REQUEST (2026-09-12): "Har report apni-apni scope par apna
+                // hi target de" - DC apna Top 50 (upar bana chuke), Division apna
+                // Top 50 (us Division ki saari DC milakar ek hi list, jaise
+                // Seoni Division ke 15 DC ya Lakhnadon Division ke 9 DC), aur
+                // Circle apna Top 50 (saari 24 DC milakar ek hi list) - bilkul
+                // Live "Top 20/50 Defaulters" report jaisa hi (jo bhi scope ho,
+                // sirf usi scope ka ek global Top-N). Jis DC ka data abhi live
+                // nahi/available nahi, wo apne aap in list se bahar rahegi.
+                const topDivision50 = [];
+                const topDivision20 = [];
+                Object.keys(divisionConfigs).forEach((divisionName) => {
+                    const divDcSet = new Set(getDivisionDcNames(divisionName).map((dc) => normalizeDcName(dc)));
+                    const divTop50 = allConsumerRows
+                        .filter((r) => r.pendingAmount > 0 && divDcSet.has(normalizeDcName(r.dcName)))
+                        .sort((a, b) => b.pendingAmount - a.pendingAmount)
+                        .slice(0, 50);
+                    topDivision50.push(...divTop50);
+                    topDivision20.push(...divTop50.slice(0, 20));
+                });
+                const topCircle50 = allConsumerRows.filter((r) => r.pendingAmount > 0).sort((a, b) => b.pendingAmount - a.pendingAmount).slice(0, 50);
+                const topCircle20 = topCircle50.slice(0, 20);
 
                 const nowIso = getTodayIsoDate();
                 const freezeId = "FRZ-" + nowIso;
@@ -2889,8 +2944,12 @@
                     { key: "NP3", label: "Non Payee 3M", rows: toFreezeRows(np3) },
                     { key: "NP6", label: "Non Payee 6M", rows: toFreezeRows(np6) },
                     { key: "SINCE_CONNECTION", label: "Since Connection", rows: toFreezeRows(sinceConn) },
-                    { key: "TOP20", label: "Top 20", rows: toFreezeRows(top20) },
-                    { key: "TOP50", label: "Top 50", rows: toFreezeRows(top50) }
+                    { key: "TOP20", label: "Top 20 (DC)", rows: toFreezeRows(top20) },
+                    { key: "TOP50", label: "Top 50 (DC)", rows: toFreezeRows(top50) },
+                    { key: "TOP20_DIVISION", label: "Top 20 (Division)", rows: toFreezeRows(topDivision20) },
+                    { key: "TOP50_DIVISION", label: "Top 50 (Division)", rows: toFreezeRows(topDivision50) },
+                    { key: "TOP20_CIRCLE", label: "Top 20 (Circle)", rows: toFreezeRows(topCircle20) },
+                    { key: "TOP50_CIRCLE", label: "Top 50 (Circle)", rows: toFreezeRows(topCircle50) }
                 ];
 
                 // NOTE (fixed 2026-09-12): 24 DC ka poora data ek hi Apps Script call me
@@ -2984,6 +3043,19 @@
                                 </div>
                                 <button class="btn-unique" style="background:${f.status === "UNFROZEN" ? "#0d9488" : "#b91c1c"}; color:#fff; padding:6px 12px; font-size:0.62rem; border-radius:10px; border:none;" onclick="toggleFreezeStatus('${escapeHtml(f.freeze_id)}', '${f.status === "UNFROZEN" ? "ACTIVE" : "UNFROZEN"}')">${f.status === "UNFROZEN" ? "Reactivate (All DC)" : "Unfreeze (All DC)"}</button>
                             </div>
+                            ${(() => {
+                                // USER REQUEST (2026-09-12): App band-khol karne (ya Admin
+                                // panel dobara khulne) ke baad bhi is freeze ka last upload
+                                // summary (kis category me kitne consumer save hue, sabhi
+                                // DC milakar) dikhna chahiye - ab yeh FREEZE INDEX sheet me
+                                // hi permanently save hai, sirf is session ki memory me nahi.
+                                const c = f.counts || {};
+                                const hasCounts = (c.NP3 || c.NP6 || c.SINCE_CONNECTION || c.TOP20 || c.TOP50);
+                                if (!hasCounts) return "";
+                                return `<div style="margin-top:8px; padding:8px 10px; background:#ecfeff; border-radius:10px; font-size:0.6rem; font-weight:800; color:#0e7490;">
+                                    Last Upload - Non Payee 3M: ${Number(c.NP3 || 0)}, 6M: ${Number(c.NP6 || 0)}, Since Connection: ${Number(c.SINCE_CONNECTION || 0)}, Top 20: ${Number(c.TOP20 || 0)}, Top 50: ${Number(c.TOP50 || 0)}
+                                </div>`;
+                            })()}
                             <div style="margin-top:10px; padding-top:10px; border-top:1px dashed #cbd5e1;">
                                 <div style="font-size:0.58rem; font-weight:800; color:#475569; margin-bottom:4px;">Ek particular DC ko unfreeze/reactivate karein (baaki DC disturb nahi honge):</div>
                                 <select id="${selectId}" style="width:100%; height:38px; border:1.5px solid #94a3b8; border-radius:10px; padding:0 10px; font-size:0.68rem; font-weight:800; color:#0f172a;">
@@ -3280,6 +3352,24 @@
             return `${activeViewLevel}|${activeDC}|${activeDiv}|${progressFreezeCategory}`;
         }
 
+        // USER REQUEST (2026-09-12): "Har report apni-apni scope par apna hi
+        // Top 20/50 target de" - jaise Live Top Defaulters report DC par sirf
+        // usi DC ka, Division par sirf usi Division (uski saari DC milakar) ka,
+        // aur Circle par saari 24 DC milakar ek hi global Top 20/50 dikhati
+        // hai - Freeze Report ko bhi bilkul waisa hi banana tha. Isliye Top20/
+        // Top50 categories teen alag "flavours" me save hoti hain
+        // (runRevenueFreezeNow me) - yeh function current scope ke hisaab se
+        // sahi flavour chunta hai; NP3/NP6/SINCE_CONNECTION me koi Top-N limit
+        // nahi hai isliye unhe kisi scope-specific flavour ki zaroorat nahi.
+        function getEffectiveFreezeFetchCategory(category) {
+            if (category === "TOP20" || category === "TOP50") {
+                if (activeViewLevel === "DIVISION") return category + "_DIVISION";
+                if (activeViewLevel === "CIRCLE") return category + "_CIRCLE";
+                return category; // DC level - per-DC Top 20/50, jaisa pehle se hai
+            }
+            return category;
+        }
+
         async function loadRevenueProgressFreezeData() {
             progressFreezeLoading = true;
             const myToken = ++revenueFreezeSyncToken;
@@ -3292,7 +3382,8 @@
             try {
                 const active = await ensureRevenueFreezeActiveInfo();
                 if (active) {
-                    const { rows, dcStatusMap } = await fetchRevenueFreezeSnapshotRowsForScope(active.freeze_id, progressFreezeCategory);
+                    const fetchCategory = getEffectiveFreezeFetchCategory(progressFreezeCategory);
+                    const { rows, dcStatusMap } = await fetchRevenueFreezeSnapshotRowsForScope(active.freeze_id, fetchCategory);
                     await warmRevenueCategoryUploadedPaidCache();
                     lastRevenueProgressFreezeResult = { active, rows, dcStatusMap };
                 } else {
@@ -3336,9 +3427,21 @@
             loadRevenueProgressFreezeData();
         }
 
+        // USER REQUEST (2026-09-12): Sirf jab is dropdown se khud koi VALID
+        // report chuna jaaye tabhi sync ho - "Choose Report Type" (khaali
+        // value) chunne/dobara khulne par koi fetch nahi, seedha placeholder
+        // par wapas.
         function setProgressFreezeCategory(value) {
             const valid = ["NP3", "NP6", "SINCE_CONNECTION", "TOP20", "TOP50"];
-            progressFreezeCategory = valid.includes(value) ? value : "NP3";
+            if (!valid.includes(value)) {
+                progressFreezeCategory = "";
+                resetFreezeFilterState();
+                lastRevenueProgressFreezeResult = null;
+                const body = document.getElementById("summary-content");
+                if (body) body.innerHTML = renderFreezeModuleSummaryHtml();
+                return;
+            }
+            progressFreezeCategory = value;
             resetFreezeFilterState();
             lastRevenueProgressFreezeResult = null;
             loadRevenueProgressFreezeData();
@@ -3347,12 +3450,19 @@
         function renderRevenueProgressFreezeSummaryHtml() {
             const categorySelectHtml = `
                 <select onchange="setProgressFreezeCategory(this.value)" style="width:100%; height:44px; margin:8px auto 0; display:block; border:1.5px solid #0891b2; border-radius:12px; padding:0 12px; font-size:0.78rem; font-weight:900; color:#0f172a; background:#ffffff;">
+                    <option value="" ${progressFreezeCategory === "" ? "selected" : ""} disabled style="color:#64748b; background:#f1f5f9;">Choose Report Type</option>
                     <option value="NP3" ${progressFreezeCategory === "NP3" ? "selected" : ""}>Non Payee From 3 Month</option>
                     <option value="NP6" ${progressFreezeCategory === "NP6" ? "selected" : ""}>Non Payee From 6 Month</option>
                     <option value="SINCE_CONNECTION" ${progressFreezeCategory === "SINCE_CONNECTION" ? "selected" : ""}>Non Payee From Date of Connection</option>
                     <option value="TOP20" ${progressFreezeCategory === "TOP20" ? "selected" : ""}>Top 20 Defaulters</option>
                     <option value="TOP50" ${progressFreezeCategory === "TOP50" ? "selected" : ""}>Top 50 Defaulters</option>
                 </select>`;
+            // USER REQUEST (2026-09-12): Jab tak is dropdown se koi report na
+            // chuna jaaye, koi bhi sync/fetch nahi - seedha ek placeholder
+            // message dikhega (jaise upar wale "Choose Report Type" ka flow).
+            if (!progressFreezeCategory) {
+                return `${categorySelectHtml}<div style="text-align:center; color:#64748b; font-size:0.72rem; font-weight:800; padding:20px 0;">Upar diye gaye dropdown se report type chunein.</div>`;
+            }
             if (progressFreezeLoading || !lastRevenueProgressFreezeResult) {
                 return `${categorySelectHtml}<div style="text-align:center; font-size:0.72rem; font-weight:900; color:#1d4ed8; padding:20px 0;">Freeze data load ho raha hai...</div>`;
             }
