@@ -98,7 +98,7 @@
         // USER REQUEST (2026-09-12): Revenue Freeze Tracking - alag standalone
         // backend (freeze-tracking-submit-script.gs), apni khud ki alag Google
         // Sheet ke saath. Deploy karne ke baad, Web App URL yahan paste karein.
-        const revenueFreezeTrackingScriptUrl = "PASTE_YOUR_FREEZE_TRACKING_SCRIPT_URL_HERE";
+        const revenueFreezeTrackingScriptUrl = "https://script.google.com/macros/s/AKfycbypwV1gNeDWkwupfH7Ms8kT-SnqVcwClzHU6Kw2CbYoWuha96MKpqyXgWJrSa2Qe_9K/exec";
         const meterCheckingReportSpreadsheetId = "1LtBrMNlTtX89pTBK8IZWL4ILLYu3WvjQ532JpInps0s";
         const revenueCollectionCsvUrls = {
             "CHHAPARA1": "https://docs.google.com/spreadsheets/d/1ehSaUQyrV1ZzwH0lbdhLdXRYkPdapdm5hhu0Gz0vulk/export?format=csv&gid=0",
