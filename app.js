@@ -2964,11 +2964,26 @@
                         method: "POST",
                         headers: { "Content-Type": "text/plain;charset=UTF-8" },
                         body: JSON.stringify({ action: "saveFreezeSnapshot", freeze_id: freezeId, freeze_label: freezeLabel, freeze_date: nowIso, category: cat.key, rows: cat.rows })
-                    }, 240000);
+                    // PERFORMANCE FIX (2026-09-12) ke saath saath, ek genuine
+                    // SAME-DAY RE-RUN (jab purana data hatana bhi padta hai) ab
+                    // bhi thoda dheema ho sakta hai - Apps Script ka khud ka hard
+                    // execution limit 6 minute (360s) hai, isliye client timeout
+                    // usse thoda kam (5.5 minute) rakha hai taaki server ko poora
+                    // mauka mile, lekin browser hamesha ke liye atka na rahe.
+                    }, 330000);
                     const text = await response.text();
                     let parsed = {};
                     try { parsed = JSON.parse(text || "{}"); } catch (_) {}
-                    if (!response.ok || parsed.status === "error") throw new Error(parsed.message || `Freeze save fail (${cat.label})`);
+                    // USER-REPORTED (2026-09-12): "Freeze save fail (Non Payee 6M)" jaisa
+                    // generic message dikh raha tha, jisse asli wajah pata nahi chalti thi -
+                    // ab agar backend se JSON ki jagah kuch aur (HTML error page, quota/
+                    // timeout error, redeploy-needed page) ya galat HTTP status aaye, to
+                    // uska ek chhota sa raw preview aur HTTP status bhi error message me
+                    // dikhega - taaki asli wajah pata chal sake.
+                    if (!response.ok || parsed.status === "error") {
+                        const rawSnippet = String(text || "").replace(/\s+/g, " ").trim().slice(0, 180);
+                        throw new Error(parsed.message || `Freeze save fail (${cat.label}) - HTTP ${response.status}${rawSnippet ? ": " + rawSnippet : ""}`);
+                    }
                     categoriesDone += 1;
                     setStatus(`${Math.round((categoriesDone / categories.length) * 100)}% ho gaya...`, false);
                 }
