@@ -2159,6 +2159,29 @@
             document.getElementById("progress-mobile-btn").classList.toggle("active", module === "MOBILE");
             document.getElementById("progress-revenue-btn").classList.toggle("active", module === "REVENUE");
             document.getElementById("progress-lok-btn").classList.toggle("active", module === "LOK_ADALAT");
+            // Freeze button ka apna cyan theme inline style se hai (Mobile/Revenue
+            // ke lal ".active" gradient se alag dikhna chahiye) - isliye yahan
+            // classList.toggle ki jagah seedha style set karte hain, warna inline
+            // style CSS ".active" class ko override kar deta (specificity issue).
+            const freezeBtn = document.getElementById("progress-freeze-btn");
+            if (freezeBtn) {
+                const isFreezeActive = module === "FREEZE";
+                freezeBtn.style.background = isFreezeActive ? "linear-gradient(135deg, #22d3ee 0%, #0891b2 100%)" : "#ecfeff";
+                freezeBtn.style.color = isFreezeActive ? "#ffffff" : "#0e7490";
+                freezeBtn.style.borderColor = isFreezeActive ? "#0891b2" : "#67e8f9";
+            }
+            // Revenue Freeze Report ko Daily/Monthly date-selection ki zaroorat
+            // nahi (freeze khud ek fixed date par bana hota hai) - isliye us tab
+            // par jaate hi report-type-box aur date input chhupa dete hain.
+            const reportTypeBox = document.getElementById("progress-report-type-box");
+            const dateWrap = document.getElementById("progress-report-date-wrap");
+            const isFreeze = module === "FREEZE";
+            if (reportTypeBox) reportTypeBox.style.display = isFreeze ? "none" : "";
+            if (dateWrap) dateWrap.style.display = isFreeze ? "none" : "";
+            if (isFreeze) {
+                refreshFreezeModuleSummary();
+                return;
+            }
             refreshSummary();
         }
 
@@ -2846,6 +2869,11 @@
             }
         }
 
+        // USER REQUEST (2026-09-12): "All DC" wala bulk Freeze/Unfreeze button
+        // pehle jaisa hi rehta hai, lekin ab har freeze card me ek DC dropdown
+        // (sabhi DC + unka current status) bhi hai - taaki kisi EK particular DC
+        // ko unfreeze/reactivate karne se baaki DC ka frozen data bilkul disturb
+        // na ho.
         async function loadFreezeAdminList() {
             const listBox = document.getElementById("freeze-admin-list");
             if (!listBox) return;
@@ -2862,15 +2890,50 @@
                     return;
                 }
                 freezes.sort((a, b) => String(b.freeze_date || "").localeCompare(String(a.freeze_date || "")));
-                listBox.innerHTML = freezes.map((f) => `
-                    <div style="border:1.5px solid #e2e8f0; border-radius:12px; padding:10px; margin-top:8px; display:flex; justify-content:space-between; align-items:center; gap:8px;">
-                        <div>
-                            <div style="font-size:0.72rem; font-weight:900; color:#0f172a;">${escapeHtml(f.freeze_label || f.freeze_id)}</div>
-                            <div style="font-size:0.6rem; color:${f.status === "UNFROZEN" ? "#9f1239" : "#166534"}; font-weight:800;">${escapeHtml(f.status || "ACTIVE")}</div>
+
+                // Har freeze ki individual DC overrides bhi le aao (dropdown me
+                // current status dikhane ke liye) - jis DC ki koi alag override
+                // save nahi hui, wo us freeze ki overall/bulk status hi dikhayegi.
+                const dcStatusByFreeze = {};
+                await Promise.all(freezes.map(async (f) => {
+                    try {
+                        const dcParsed = await loadRemoteJson(`${revenueFreezeTrackingScriptUrl}?action=listFreezeDcStatus&freeze_id=${encodeURIComponent(f.freeze_id)}`);
+                        const overrideMap = {};
+                        (Array.isArray(dcParsed?.dc_status) ? dcParsed.dc_status : []).forEach((d) => { overrideMap[normalizeDcName(d.dc_name)] = d.status; });
+                        dcStatusByFreeze[f.freeze_id] = overrideMap;
+                    } catch (_) {
+                        dcStatusByFreeze[f.freeze_id] = {};
+                    }
+                }));
+
+                const allDcs = getAllDcNames();
+                listBox.innerHTML = freezes.map((f) => {
+                    const overrideMap = dcStatusByFreeze[f.freeze_id] || {};
+                    const selectId = `freeze-dc-select-${f.freeze_id}`.replace(/[^a-zA-Z0-9_-]/g, "_");
+                    const dcOptionsHtml = allDcs.map((dc) => {
+                        const norm = normalizeDcName(dc);
+                        const dcStatus = overrideMap[norm] || f.status || "ACTIVE";
+                        return `<option value="${escapeHtml(norm)}" data-status="${escapeHtml(dcStatus)}">${escapeHtml(norm)} - ${dcStatus === "UNFROZEN" ? "Unfrozen" : "Active"}</option>`;
+                    }).join("");
+                    return `
+                        <div style="border:1.5px solid #e2e8f0; border-radius:12px; padding:10px; margin-top:8px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+                                <div>
+                                    <div style="font-size:0.72rem; font-weight:900; color:#0f172a;">${escapeHtml(f.freeze_label || f.freeze_id)}</div>
+                                    <div style="font-size:0.6rem; color:${f.status === "UNFROZEN" ? "#9f1239" : "#166534"}; font-weight:800;">All DC: ${escapeHtml(f.status || "ACTIVE")}</div>
+                                </div>
+                                <button class="btn-unique" style="background:${f.status === "UNFROZEN" ? "#0d9488" : "#b91c1c"}; color:#fff; padding:6px 12px; font-size:0.62rem; border-radius:10px; border:none;" onclick="toggleFreezeStatus('${escapeHtml(f.freeze_id)}', '${f.status === "UNFROZEN" ? "ACTIVE" : "UNFROZEN"}')">${f.status === "UNFROZEN" ? "Reactivate (All DC)" : "Unfreeze (All DC)"}</button>
+                            </div>
+                            <div style="margin-top:10px; padding-top:10px; border-top:1px dashed #cbd5e1;">
+                                <div style="font-size:0.58rem; font-weight:800; color:#475569; margin-bottom:4px;">Ek particular DC ko unfreeze/reactivate karein (baaki DC disturb nahi honge):</div>
+                                <select id="${selectId}" style="width:100%; height:38px; border:1.5px solid #94a3b8; border-radius:10px; padding:0 10px; font-size:0.68rem; font-weight:800; color:#0f172a;">
+                                    ${dcOptionsHtml}
+                                </select>
+                                <button class="btn-unique" style="width:100%; margin-top:6px; background:#0891b2; color:#fff; padding:7px 12px; font-size:0.62rem; border-radius:10px; border:none;" onclick="const sel = document.getElementById('${selectId}'); const opt = sel.selectedOptions[0]; toggleFreezeDcStatus('${escapeHtml(f.freeze_id)}', sel.value, opt.dataset.status === 'UNFROZEN' ? 'ACTIVE' : 'UNFROZEN')">Selected DC Unfreeze/Reactivate</button>
+                            </div>
                         </div>
-                        <button class="btn-unique" style="background:${f.status === "UNFROZEN" ? "#0d9488" : "#b91c1c"}; color:#fff; padding:6px 12px; font-size:0.62rem; border-radius:10px; border:none;" onclick="toggleFreezeStatus('${escapeHtml(f.freeze_id)}', '${f.status === "UNFROZEN" ? "ACTIVE" : "UNFROZEN"}')">${f.status === "UNFROZEN" ? "Reactivate" : "Unfreeze"}</button>
-                    </div>
-                `).join("");
+                    `;
+                }).join("");
             } catch (error) {
                 listBox.innerHTML = `<div style="text-align:center; color:#991b1b; font-size:0.68rem;">List load nahi ho payi</div>`;
             }
@@ -2887,12 +2950,34 @@
                 let parsed = {};
                 try { parsed = JSON.parse(text || "{}"); } catch (_) {}
                 if (!response.ok || parsed.status === "error") throw new Error(parsed.message || "Update fail");
-                showToast("Status update ho gaya", true);
+                showToast("Status update ho gaya (sabhi DC)", true);
                 progressFreezeActiveFreeze = null;
                 revenueFreezeSnapshotCache = {};
                 await loadFreezeAdminList();
             } catch (error) {
                 showToast("Status update nahi ho paya", false);
+            }
+        }
+
+        // Sirf ek specific DC ki freeze status badalta hai - baaki DC (chahe
+        // "All DC" status kuch bhi ho) bilkul disturb nahi hote.
+        async function toggleFreezeDcStatus(freezeId, dcName, newStatus) {
+            try {
+                const response = await fetchWithTimeout(revenueFreezeTrackingScriptUrl, {
+                    method: "POST",
+                    headers: { "Content-Type": "text/plain;charset=UTF-8" },
+                    body: JSON.stringify({ action: "setFreezeDcStatus", freeze_id: freezeId, dc_name: dcName, status: newStatus })
+                }, 20000);
+                const text = await response.text();
+                let parsed = {};
+                try { parsed = JSON.parse(text || "{}"); } catch (_) {}
+                if (!response.ok || parsed.status === "error") throw new Error(parsed.message || "Update fail");
+                showToast(`${dcName} - status update ho gaya`, true);
+                progressFreezeActiveFreeze = null;
+                revenueFreezeSnapshotCache = {};
+                await loadFreezeAdminList();
+            } catch (error) {
+                showToast("DC status update nahi ho paya", false);
             }
         }
 
@@ -2940,14 +3025,22 @@
         // function parallel (max 5 ek saath) call karke merge karti hai - us
         // scope me jitni zyada DC hongi utna hi zyada samay lagega (Circle sabse
         // dheema, DC sabse fast) - yeh expected/accepted trade-off hai.
+        // USER REQUEST (2026-09-12): Ab har DC ki apni ALAG unfreeze/reactivate
+        // status ho sakti hai (Admin panel se DC select karke) - isliye backend
+        // ab { rows, dc_status } dono deta hai. dc_status "UNFROZEN" ho to us DC
+        // ka data Division/Circle level merge me shaamil NAHI hota (baaki DC par
+        // koi asar nahi), aur DC-level report me us DC ke liye seedha "yeh DC
+        // unfreeze hai" message dikhta hai.
         async function fetchRevenueFreezeSnapshotRows(freezeId, category, dcName) {
             const normalizedDc = normalizeDcName(dcName);
             const cacheKey = freezeId + "|" + category + "|" + normalizedDc;
             if (revenueFreezeSnapshotCache[cacheKey]) return revenueFreezeSnapshotCache[cacheKey];
             const parsed = await loadRemoteJson(`${revenueFreezeTrackingScriptUrl}?action=getFreezeSnapshot&freeze_id=${encodeURIComponent(freezeId)}&category=${encodeURIComponent(category)}&dc_name=${encodeURIComponent(normalizedDc)}`);
             const rows = Array.isArray(parsed?.rows) ? parsed.rows : [];
-            revenueFreezeSnapshotCache[cacheKey] = rows;
-            return rows;
+            const dcStatus = String(parsed?.dc_status || "").trim() || "ACTIVE";
+            const result = { rows, dc_status: dcStatus };
+            revenueFreezeSnapshotCache[cacheKey] = result;
+            return result;
         }
 
         function getRevenueFreezeTargetDcs() {
@@ -2961,14 +3054,21 @@
         // level me sirf 1 fetch, Division/Circle me kai fetch (parallel, max 5).
         // Jo DC ki tab hi nahi hai (kabhi live nahi hui ya us category me kabhi
         // koi consumer nahi tha), uska seedha khaali [] aata hai - error nahi.
+        // Jo DC individually UNFROZEN hai, uske rows merge me shaamil nahi hote
+        // (Division/Circle report se wo DC hat jaata hai, baaki sab same rahta
+        // hai) - dcStatusMap se pata chal jaata hai ki kaunsi DC unfrozen thi.
         async function fetchRevenueFreezeSnapshotRowsForScope(freezeId, category) {
             const targetDcs = getRevenueFreezeTargetDcs();
             const merged = [];
+            const dcStatusMap = {};
             await runWithConcurrencyLimit_(targetDcs, 5, async (dcName) => {
-                const rows = await fetchRevenueFreezeSnapshotRows(freezeId, category, dcName);
-                rows.forEach((r) => merged.push({ ...r, dc_name: normalizeDcName(dcName) }));
+                const normalizedDc = normalizeDcName(dcName);
+                const { rows, dc_status } = await fetchRevenueFreezeSnapshotRows(freezeId, category, dcName);
+                dcStatusMap[normalizedDc] = dc_status;
+                if (dc_status === "UNFROZEN") return;
+                rows.forEach((r) => merged.push({ ...r, dc_name: normalizedDc }));
             });
-            return merged;
+            return { rows: merged, dcStatusMap };
         }
 
         function getRevenueFreezeRowsInScope(rows) {
@@ -3027,25 +3127,50 @@
             };
         }
 
+        // USER REQUEST (2026-09-12): Revenue Freeze Report ab Daily Progress ke
+        // "Revenue Report" dropdown ke ANDAR nahi, balki Mobile/Revenue tabs ke
+        // UPAR apna ek ALAG, seedha tab hai - click karte hi (bina kisi Daily/
+        // Monthly date-selection ke) turant fetch ho jaata hai. Isse fetching
+        // fast hoti hai kyonki Revenue module ki poori Category/Target/Staff
+        // sync (jo Revenue tab kholte hi chal jaati hai) is se pehle chalani
+        // nahi padti - seedha freeze data hi mangte hain.
         async function loadRevenueProgressFreezeData() {
             progressFreezeLoading = true;
-            const body = document.getElementById("progress-revenue-body");
-            if (body) body.innerHTML = renderProgressRevenueBodyInner();
+            const body = document.getElementById("summary-content");
+            if (body) body.innerHTML = renderFreezeModuleSummaryHtml();
             try {
                 const active = await ensureRevenueFreezeActiveInfo();
                 if (active) {
-                    const rows = await fetchRevenueFreezeSnapshotRowsForScope(active.freeze_id, progressFreezeCategory);
+                    const { rows, dcStatusMap } = await fetchRevenueFreezeSnapshotRowsForScope(active.freeze_id, progressFreezeCategory);
                     await warmRevenueCategoryUploadedPaidCache();
-                    lastRevenueProgressFreezeResult = { active, rows };
+                    lastRevenueProgressFreezeResult = { active, rows, dcStatusMap };
                 } else {
-                    lastRevenueProgressFreezeResult = { active: null, rows: [] };
+                    lastRevenueProgressFreezeResult = { active: null, rows: [], dcStatusMap: {} };
                 }
             } catch (_) {
                 lastRevenueProgressFreezeResult = { active: null, rows: [], error: true };
             }
             progressFreezeLoading = false;
-            const bodyAfter = document.getElementById("progress-revenue-body");
-            if (bodyAfter) bodyAfter.innerHTML = renderProgressRevenueBodyInner();
+            const bodyAfter = document.getElementById("summary-content");
+            if (bodyAfter) bodyAfter.innerHTML = renderFreezeModuleSummaryHtml();
+        }
+
+        function renderFreezeModuleSummaryHtml() {
+            return `
+                <div style="border:1.5px dashed #67e8f9; background:#ecfeff; border-radius:16px; padding:10px; margin-top:4px;">
+                    ${renderRevenueProgressFreezeSummaryHtml()}
+                </div>
+            `;
+        }
+
+        // "Revenue Freeze Report" top-level tab select hone par ise call karte
+        // hain - Mobile/Revenue jaisa refreshSummary() (jo Daily/Monthly date +
+        // poori sync chain se guzarta hai) bilkul nahi chalata, seedha freeze
+        // data load karta hai.
+        function refreshFreezeModuleSummary() {
+            updateProgressReportScopeTitle();
+            lastRevenueProgressFreezeResult = null;
+            loadRevenueProgressFreezeData();
         }
 
         function setProgressFreezeCategory(value) {
@@ -3073,6 +3198,13 @@
             }
             if (!data.active) {
                 return `${categorySelectHtml}<div style="text-align:center; color:#9f1239; font-size:0.72rem; margin-top:10px;">Abhi tak koi Freeze active nahi hai. Sub DN Chhapara ke Admin panel se "🔒 ADMIN FREEZE CONTROL" me Freeze Now karein.</div>`;
+            }
+            // Is DC ko Admin ne individually UNFREEZE kiya ho sakta hai (baaki DC
+            // ka data disturb kiye bina) - aisi surat me DC-level report yahi
+            // saaf message dikhati hai, aur Division/Circle report se yeh DC
+            // apne aap merge se bahar rehti hai (fetchRevenueFreezeSnapshotRowsForScope).
+            if (activeViewLevel === "DC" && (lastRevenueProgressFreezeResult?.dcStatusMap?.[normalizeDcName(activeDC)] === "UNFROZEN")) {
+                return `${categorySelectHtml}<div style="text-align:center; color:#9f1239; font-size:0.72rem; margin-top:10px;">Is DC (${escapeHtml(activeDC)}) ko is Freeze se individually UNFREEZE kiya gaya hai. Admin panel se "Reactivate" karke dubara chalu karein.</div>`;
             }
             const showDcColumn = activeViewLevel !== "DC";
             const t = data.totals;
@@ -4290,18 +4422,13 @@
         }
 
         function setProgressRevenueReportType(value) {
-            const validValues = ["STAFF", "CATEGORY", "TARGET", "DEFAULTERS", "NONPAYEE_3M", "NONPAYEE_6M", "NONPAYEE_SINCE_CONNECTION", "PAIDCOUNT", "REVENUE_FREEZE"];
+            const validValues = ["STAFF", "CATEGORY", "TARGET", "DEFAULTERS", "NONPAYEE_3M", "NONPAYEE_6M", "NONPAYEE_SINCE_CONNECTION", "PAIDCOUNT"];
             progressRevenueReportType = validValues.includes(value) ? value : "STAFF";
             resetProgressNonPayeeFilterState();
             progressDefaultersGovtFilter = "";
             progressTargetGovtFilter = "";
             progressStaffTypeFilter = "";
             progressPaidCountFilter = "";
-            if (progressRevenueReportType === "REVENUE_FREEZE") {
-                lastRevenueProgressFreezeResult = null;
-                loadRevenueProgressFreezeData();
-                return;
-            }
             const body = document.getElementById("progress-revenue-body");
             if (body) body.innerHTML = renderProgressRevenueBodyInner();
         }
@@ -4328,7 +4455,6 @@
             if (progressRevenueReportType === "NONPAYEE_6M") return "Non Payee From 6 Month";
             if (progressRevenueReportType === "NONPAYEE_SINCE_CONNECTION") return "Non Payee From Date of Connection";
             if (progressRevenueReportType === "PAIDCOUNT") return "Paid Count Summary";
-            if (progressRevenueReportType === "REVENUE_FREEZE") return `Revenue Freeze Report - ${getRevenueFreezeCategoryLabel(progressFreezeCategory)}`;
             return "Category Wise";
         }
 
@@ -4437,7 +4563,7 @@
             // download karne ke liye poori list scroll na karni pade. Isliye yahan (list ke baad)
             // dobara buttons nahi jodte, warna do baar dikhte. Baaki Category/Target/Defaulters
             // pehle jaisे hi (bodyHtml ke NEECHE) buttons rakhte hain - wahan list chhoti hoti hai.
-            const isNonPayeeType = ["NONPAYEE_3M", "NONPAYEE_6M", "NONPAYEE_SINCE_CONNECTION", "REVENUE_FREEZE"].includes(progressRevenueReportType);
+            const isNonPayeeType = ["NONPAYEE_3M", "NONPAYEE_6M", "NONPAYEE_SINCE_CONNECTION"].includes(progressRevenueReportType);
             if (progressRevenueReportType === "TARGET") {
                 // USER REQUEST (2026-08-13): Govt/Non-Govt filter - jab select ho, tab
                 // hi tree ko us filter ke saath dobara (local, bina naye fetch ke)
@@ -4458,8 +4584,6 @@
                 bodyHtml = renderRevenueProgressNonPayeeSummaryHtml(data.mode || "DAILY", data.filterValue || "", "SINCE_CONNECTION");
             } else if (progressRevenueReportType === "PAIDCOUNT") {
                 bodyHtml = renderRevenueProgressPaidCountSummaryHtml(data.hqVillageSummaryData);
-            } else if (progressRevenueReportType === "REVENUE_FREEZE") {
-                bodyHtml = renderRevenueProgressFreezeSummaryHtml();
             } else {
                 bodyHtml = data.hqVillageSummaryData ? renderRevenueProgressHqVillageSummaryHtml(data.hqVillageSummaryData) : `<div style="font-size:0.75rem; font-weight:950; color:#1d4ed8; text-align:center;">Category Wise Paid/Unpaid Summary</div>`;
             }
@@ -4478,7 +4602,7 @@
         }
 
         function renderProgressRevenueBodyInner() {
-            if (["CATEGORY", "TARGET", "DEFAULTERS", "NONPAYEE_3M", "NONPAYEE_6M", "NONPAYEE_SINCE_CONNECTION", "PAIDCOUNT", "REVENUE_FREEZE"].includes(progressRevenueReportType)) {
+            if (["CATEGORY", "TARGET", "DEFAULTERS", "NONPAYEE_3M", "NONPAYEE_6M", "NONPAYEE_SINCE_CONNECTION", "PAIDCOUNT"].includes(progressRevenueReportType)) {
                 return renderRevenueProgressNonStaffBoxHtml();
             }
             const staffData = lastRevenueProgressStaffData || { rows: [], label: "" };
@@ -4498,7 +4622,6 @@
                     <option value="NONPAYEE_6M" ${progressRevenueReportType === "NONPAYEE_6M" ? "selected" : ""}>Non Payee From 6 Month</option>
                     <option value="NONPAYEE_SINCE_CONNECTION" ${progressRevenueReportType === "NONPAYEE_SINCE_CONNECTION" ? "selected" : ""}>Non Payee From Date of Connection</option>
                     <option value="PAIDCOUNT" ${progressRevenueReportType === "PAIDCOUNT" ? "selected" : ""}>Paid Count Summary</option>
-                    <option value="REVENUE_FREEZE" ${progressRevenueReportType === "REVENUE_FREEZE" ? "selected" : ""}>🧊 Revenue Freeze Report</option>
                 </select>
             `;
             return `${selectHtml}<div id="progress-revenue-body">${renderProgressRevenueBodyInner()}</div>`;
@@ -4588,6 +4711,12 @@
         }
 
         async function refreshSummary() {
+            // Kisi bhi wajah se refreshSummary() call ho (DC/Division/Circle pick,
+            // date change, wapas is view par aana) jab tak "Revenue Freeze Report"
+            // tab active hai, seedha usi ke refresh path par bhej dete hain - iski
+            // apni Daily/Monthly date-based logic bilkul nahi chalti (freeze usse
+            // independent hai).
+            if (summaryModule === "FREEZE") return refreshFreezeModuleSummary();
             updateProgressReportScopeTitle();
             const refreshToken = ++summaryRefreshToken;
             const moduleAtStart = summaryModule;
