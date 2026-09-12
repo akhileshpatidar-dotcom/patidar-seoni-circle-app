@@ -175,6 +175,13 @@
         let progressFreezeActiveFreeze = null;
         let revenueFreezeSnapshotCache = {};
         let lastRevenueProgressFreezeResult = null;
+        // USER REQUEST (2026-09-12): Ek baar Freeze Report scope+category ke
+        // liye fetch ho jaaye, uske baad Mobile/Revenue par jaake wapas Freeze
+        // par aane par dobara fetch NAHI hona chahiye - isliye last successful
+        // load ka "scope key" yaad rakhte hain; wahi scope+category dubara
+        // select ho to seedha cached result hi dikha dete hain.
+        let lastRevenueProgressFreezeScopeKey = null;
+        let revenueFreezeSyncToken = 0;
 
         // ===== Meeter Cheking state (2026-09-10) =====
         let meterCheckingRows = [], meterCheckingRowsLoadedDcKey = "";
@@ -2154,22 +2161,17 @@
             }));
         }
 
+        // USER REQUEST (2026-09-12): Mobile/Revenue/Freeze ab teeno alag button ki
+        // jagah ek hi "Choose Report Type" dropdown se select hote hain - isse
+        // DC/Division/Circle sabhi scope me EK JAISA flow rehta hai (koi alag size/
+        // style ka button nahi), aur screen me summary content ke liye jyada jagah
+        // bachti hai.
         function setProgressModule(module) {
             summaryModule = module;
-            document.getElementById("progress-mobile-btn").classList.toggle("active", module === "MOBILE");
-            document.getElementById("progress-revenue-btn").classList.toggle("active", module === "REVENUE");
-            document.getElementById("progress-lok-btn").classList.toggle("active", module === "LOK_ADALAT");
-            // Freeze button ka apna cyan theme inline style se hai (Mobile/Revenue
-            // ke lal ".active" gradient se alag dikhna chahiye) - isliye yahan
-            // classList.toggle ki jagah seedha style set karte hain, warna inline
-            // style CSS ".active" class ko override kar deta (specificity issue).
-            const freezeBtn = document.getElementById("progress-freeze-btn");
-            if (freezeBtn) {
-                const isFreezeActive = module === "FREEZE";
-                freezeBtn.style.background = isFreezeActive ? "linear-gradient(135deg, #22d3ee 0%, #0891b2 100%)" : "#ecfeff";
-                freezeBtn.style.color = isFreezeActive ? "#ffffff" : "#0e7490";
-                freezeBtn.style.borderColor = isFreezeActive ? "#0891b2" : "#67e8f9";
-            }
+            const typeSelect = document.getElementById("progress-report-type-select");
+            if (typeSelect && typeSelect.value !== module) typeSelect.value = module;
+            const lokBtn = document.getElementById("progress-lok-btn");
+            if (lokBtn) lokBtn.classList.toggle("active", module === "LOK_ADALAT");
             // Revenue Freeze Report ko Daily/Monthly date-selection ki zaroorat
             // nahi (freeze khud ek fixed date par bana hota hai) - isliye us tab
             // par jaate hi report-type-box aur date input chhupa dete hain.
@@ -2860,6 +2862,8 @@
                 showToast("Freeze ho gaya", true);
                 progressFreezeActiveFreeze = null;
                 revenueFreezeSnapshotCache = {};
+                lastRevenueProgressFreezeResult = null;
+                lastRevenueProgressFreezeScopeKey = null;
                 await loadFreezeAdminList();
             } catch (error) {
                 setStatus("Freeze nahi ho paya: " + (error?.message || "error"), false);
@@ -2953,6 +2957,8 @@
                 showToast("Status update ho gaya (sabhi DC)", true);
                 progressFreezeActiveFreeze = null;
                 revenueFreezeSnapshotCache = {};
+                lastRevenueProgressFreezeResult = null;
+                lastRevenueProgressFreezeScopeKey = null;
                 await loadFreezeAdminList();
             } catch (error) {
                 showToast("Status update nahi ho paya", false);
@@ -2975,6 +2981,8 @@
                 showToast(`${dcName} - status update ho gaya`, true);
                 progressFreezeActiveFreeze = null;
                 revenueFreezeSnapshotCache = {};
+                lastRevenueProgressFreezeResult = null;
+                lastRevenueProgressFreezeScopeKey = null;
                 await loadFreezeAdminList();
             } catch (error) {
                 showToast("DC status update nahi ho paya", false);
@@ -3134,10 +3142,22 @@
         // fast hoti hai kyonki Revenue module ki poori Category/Target/Staff
         // sync (jo Revenue tab kholte hi chal jaati hai) is se pehle chalani
         // nahi padti - seedha freeze data hi mangte hain.
+        // Current DC/Division/Circle scope + freeze category ka ek "key" - jab tak
+        // yeh badle nahi, dobara fetch ki zaroorat nahi (Mobile/Revenue ghoom kar
+        // Freeze par wapas aane par bhi purana data seedha dikh jaata hai).
+        function getRevenueFreezeScopeKey() {
+            return `${activeViewLevel}|${activeDC}|${activeDiv}|${progressFreezeCategory}`;
+        }
+
         async function loadRevenueProgressFreezeData() {
             progressFreezeLoading = true;
+            const myToken = ++revenueFreezeSyncToken;
+            const isStillValid = () => myToken === revenueFreezeSyncToken;
             const body = document.getElementById("summary-content");
-            if (body) body.innerHTML = renderFreezeModuleSummaryHtml();
+            // USER REQUEST (2026-09-12): Freeze report me bhi Mobile/Revenue jaisa hi
+            // "SYNCING ALL DC DATA... x%" progress-bar animation dikhna chahiye (pehle
+            // yahan sirf plain "Freeze data load ho raha hai..." text tha).
+            const progress = body ? renderSyncingProgress(body, isStillValid) : null;
             try {
                 const active = await ensureRevenueFreezeActiveInfo();
                 if (active) {
@@ -3151,6 +3171,9 @@
                 lastRevenueProgressFreezeResult = { active: null, rows: [], error: true };
             }
             progressFreezeLoading = false;
+            lastRevenueProgressFreezeScopeKey = getRevenueFreezeScopeKey();
+            if (!isStillValid()) return; // beech me hi koi aur scope/category select ho gaya
+            if (progress) await progress.finish();
             const bodyAfter = document.getElementById("summary-content");
             if (bodyAfter) bodyAfter.innerHTML = renderFreezeModuleSummaryHtml();
         }
@@ -3163,12 +3186,21 @@
             `;
         }
 
-        // "Revenue Freeze Report" top-level tab select hone par ise call karte
+        // "Revenue Freeze Report" dropdown option select hone par ise call karte
         // hain - Mobile/Revenue jaisa refreshSummary() (jo Daily/Monthly date +
         // poori sync chain se guzarta hai) bilkul nahi chalata, seedha freeze
-        // data load karta hai.
+        // data load karta hai. USER REQUEST (2026-09-12): Agar isi scope
+        // (DC/Division/Circle) aur isi category ke liye data pehle se load ho
+        // chuka hai, to dobara fetch NAHI karte - seedha cached result dikha
+        // dete hain (Mobile/Revenue par jaake wapas Freeze par aane par bhi).
         function refreshFreezeModuleSummary() {
             updateProgressReportScopeTitle();
+            const scopeKey = getRevenueFreezeScopeKey();
+            if (lastRevenueProgressFreezeResult && lastRevenueProgressFreezeScopeKey === scopeKey) {
+                const body = document.getElementById("summary-content");
+                if (body) body.innerHTML = renderFreezeModuleSummaryHtml();
+                return;
+            }
             lastRevenueProgressFreezeResult = null;
             loadRevenueProgressFreezeData();
         }
