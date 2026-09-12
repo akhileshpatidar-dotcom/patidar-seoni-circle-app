@@ -3308,6 +3308,10 @@
         // aage naye consumer daily upload me paid dikhenge, wo bhi apne aap is
         // hisaab me add hote jaayenge (yeh function har report load par current
         // cached data se dobara banta hai).
+        // USER REQUEST (2026-09-12): "PAID" ke saath payment ki date bhi dikhe
+        // ("PAID (DD/MM/YYYY)") - isliye har consumer ka SABSE HALIYA (latest)
+        // payment date bhi yahin track karte hain (jaisa amount ko sum karte
+        // hain, date me sabse aage wali date rakhte hain).
         function buildRevenueFreezePaidIndex(freezeDateIso) {
             const idx = {};
             getRevenueCategoryPaymentSourceRows().forEach((row) => {
@@ -3315,8 +3319,14 @@
                 const ivrs = getRevenueUploadedPaidRowIvrs(row);
                 if (!dc || !ivrs) return;
                 const key = dc + "|" + ivrs;
-                if (!idx[key]) idx[key] = { paidAmount: 0 };
+                if (!idx[key]) idx[key] = { paidAmount: 0, lastPaidDate: "" };
                 idx[key].paidAmount += getRevenueUploadedPaidRowAmount(row);
+                const rowDate = normalizeRevenueReportDate(getRevenueUploadedPaidRowDate(row));
+                if (rowDate) {
+                    const newKey = revenueDateSortKey_(rowDate);
+                    const oldKey = revenueDateSortKey_(idx[key].lastPaidDate);
+                    if (newKey && (!oldKey || newKey > oldKey)) idx[key].lastPaidDate = rowDate;
+                }
             });
             return idx;
         }
@@ -3343,7 +3353,7 @@
                 const frozenPending = Number(r.pending_amount || 0);
                 const remainingPending = Math.max(0, frozenPending - paidAmountNow);
                 const isPaid = paidAmountNow > 0 && remainingPending <= 0;
-                return { ...r, isPaidNow: isPaid, paidAmountNow, remainingPending };
+                return { ...r, isPaidNow: isPaid, paidAmountNow, remainingPending, paidDateNow: info ? info.lastPaidDate : "" };
             });
             // USER REQUEST (2026-09-12): HQ/Village/Category/Net Bill Slab/Govt-
             // NonGovt (NP3/6/Since Connection) ya Govt-NonGovt (Top 20/50) filter
@@ -3474,15 +3484,30 @@
             loadRevenueProgressFreezeData();
         }
 
+        // USER REQUEST (2026-09-12): "Part payment wala bhi date ke saath
+        // dikhna chahiye" - sirf poori tarah PAID hone par hi "PAID (date)"
+        // dikhta tha, part-payment (jo abhi bhi PENDING/reduced amount rehta
+        // hai) me date nahi dikhti thi. Ab dono jagah (screen + Excel/PDF)
+        // isi ek shared function se status-label banta hai - poora paid ho to
+        // "PAID (date)", part-payment ho to "PENDING - PART PAID (date)"
+        // (amount cell me pehle se bacha hua/reduced pending dikhta hai),
+        // aur koi payment hi na mila ho to seedha "PENDING".
+        function getFreezeRowStatusLabel(r) {
+            const dateSuffix = r.paidDateNow ? ` (${formatRevenueDateIndian(r.paidDateNow)})` : "";
+            if (r.isPaidNow) return `PAID${dateSuffix}`;
+            if (r.paidAmountNow > 0) return `PENDING - PART PAID${dateSuffix}`;
+            return "PENDING";
+        }
+
         function renderRevenueProgressFreezeSummaryHtml() {
             const categorySelectHtml = `
                 <select onchange="setProgressFreezeCategory(this.value)" style="width:100%; height:44px; margin:8px auto 0; display:block; border:1.5px solid #0891b2; border-radius:12px; padding:0 12px; font-size:0.78rem; font-weight:900; color:#0f172a; background:#ffffff;">
-                    <option value="" ${progressFreezeCategory === "" ? "selected" : ""} disabled style="color:#64748b; background:#f1f5f9;">Choose Report Type</option>
-                    <option value="NP3" ${progressFreezeCategory === "NP3" ? "selected" : ""}>Non Payee From 3 Month</option>
-                    <option value="NP6" ${progressFreezeCategory === "NP6" ? "selected" : ""}>Non Payee From 6 Month</option>
-                    <option value="SINCE_CONNECTION" ${progressFreezeCategory === "SINCE_CONNECTION" ? "selected" : ""}>Non Payee From Date of Connection</option>
-                    <option value="TOP20" ${progressFreezeCategory === "TOP20" ? "selected" : ""}>Top 20 Defaulters</option>
-                    <option value="TOP50" ${progressFreezeCategory === "TOP50" ? "selected" : ""}>Top 50 Defaulters</option>
+                    <option value="" ${progressFreezeCategory === "" ? "selected" : ""} disabled style="color:#64748b; background:#f1f5f9; font-weight:900;">Choose Report Type</option>
+                    <option value="NP3" ${progressFreezeCategory === "NP3" ? "selected" : ""} style="color:#1d4ed8; background:#eff6ff; font-weight:900;">Non Payee From 3 Month</option>
+                    <option value="NP6" ${progressFreezeCategory === "NP6" ? "selected" : ""} style="color:#7e22ce; background:#faf5ff; font-weight:900;">Non Payee From 6 Month</option>
+                    <option value="SINCE_CONNECTION" ${progressFreezeCategory === "SINCE_CONNECTION" ? "selected" : ""} style="color:#0e7490; background:#ecfeff; font-weight:900;">Non Payee From Date of Connection</option>
+                    <option value="TOP20" ${progressFreezeCategory === "TOP20" ? "selected" : ""} style="color:#c2410c; background:#fff7ed; font-weight:900;">Top 20 Defaulters</option>
+                    <option value="TOP50" ${progressFreezeCategory === "TOP50" ? "selected" : ""} style="color:#9f1239; background:#fff1f2; font-weight:900;">Top 50 Defaulters</option>
                 </select>`;
             // USER REQUEST (2026-09-12): Jab tak is dropdown se koi report na
             // chuna jaaye, koi bhi sync/fetch nahi - seedha ek placeholder
@@ -3579,7 +3604,8 @@
                     const cells = [];
                     if (showDcColumn) cells.push(`<div>${escapeHtml(r.dc_name || "-")}</div>`);
                     cells.push(`<div>${escapeHtml(r.consumer_name || "-")}<br><span style="font-size:0.56rem; color:#64748b;">${escapeHtml(r.hq_name || "")} / ${escapeHtml(r.village || "")}</span></div>`);
-                    cells.push(`<div class="font-black" style="color:${r.isPaidNow ? "#166534" : "#9f1239"};">${r.isPaidNow ? "PAID" : "PENDING"}</div>`);
+                    const paidStatusLabel = escapeHtml(getFreezeRowStatusLabel(r));
+                    cells.push(`<div class="font-black" style="color:${r.isPaidNow ? "#166534" : "#9f1239"};">${paidStatusLabel}</div>`);
                     cells.push(`<div class="font-black">${formatProgressReportAmount(r.isPaidNow ? r.paidAmountNow : r.remainingPending)}</div>`);
                     html += `<div class="summary-table-row" style="grid-template-columns: ${showDcColumn ? "0.8fr 1.2fr 0.8fr 1fr" : "1.4fr 0.8fr 1fr"};">${cells.join("")}</div>`;
                 });
@@ -3602,7 +3628,8 @@
                 const bodyRows = data.rowsWithStatus.map((r) => [
                     ...(showDcColumn ? [r.dc_name || ""] : []),
                     r.ivrs_no || "", r.consumer_name || "", r.hq_name || "", r.village || "", r.mobile_no || "",
-                    r.isPaidNow ? "PAID" : "PENDING", formatProgressReportAmount(r.isPaidNow ? r.paidAmountNow : r.remainingPending)
+                    getFreezeRowStatusLabel(r),
+                    formatProgressReportAmount(r.isPaidNow ? r.paidAmountNow : r.remainingPending)
                 ]);
                 const scope = activeViewLevel === "DC" ? `DC - ${activeDC}` : (activeViewLevel === "DIVISION" ? activeDiv : "SEONI CIRCLE");
                 const reportTitle = `Revenue Freeze Report - ${getRevenueFreezeCategoryLabel(progressFreezeCategory)} - ${scope}`;
@@ -17344,9 +17371,17 @@
                 tableBox.innerHTML = `<div style="background:#ecfdf5; border:1.5px solid #86efac; border-radius:14px; padding:14px; color:#047857; font-size:0.8rem; font-weight:900; text-align:center; margin-top:10px;">Is filter me koi bakaya consumer nahi mila.</div>`;
                 return;
             }
-            let html = `<div class="summary-wrapper"><div class="summary-table-header" style="grid-template-columns: 0.4fr 1.3fr 0.85fr 1fr;"><div>#</div><div>CONSUMER</div><div>MOBILE</div><div>PENDING</div></div>`;
+            // USER REQUEST (2026-09-12): Freeze Report (Division/Circle scope) me
+            // DC NAME column dikhta hai - Live Top 20/50 Defaulters report me bhi
+            // Division/Circle scope par wahi DC NAME column dikhna chahiye (DC
+            // scope par pehle jaisa hi, koi DC column nahi - us DC ke andar hi to
+            // ho, dobara likhna fizool hai).
+            const showDcColumn = activeViewLevel !== "DC";
+            const gridCols = showDcColumn ? "0.4fr 0.75fr 1.15fr 0.75fr 0.9fr" : "0.4fr 1.3fr 0.85fr 1fr";
+            let html = `<div class="summary-wrapper"><div class="summary-table-header" style="grid-template-columns: ${gridCols};"><div>#</div>${showDcColumn ? "<div>DC</div>" : ""}<div>CONSUMER</div><div>MOBILE</div><div>PENDING</div></div>`;
             rows.forEach((row, index) => {
-                html += `<div class="summary-table-row" style="grid-template-columns: 0.4fr 1.3fr 0.85fr 1fr;"><div class="font-black">${index + 1}</div><div>${escapeHtml(row.consumerName || "-")}<br><span style="font-size:0.58rem; color:#64748b;">${escapeHtml(row.hqName)} / ${escapeHtml(row.village)}</span></div><div style="font-size:0.68rem;">${escapeHtml(row.mobileNo || "-")}</div><div class="text-rose-700 font-black">${formatProgressReportAmount(row.pendingAmount)}</div></div>`;
+                const dcCell = showDcColumn ? `<div style="font-size:0.62rem; font-weight:850;">${escapeHtml(row.dcName || "-")}</div>` : "";
+                html += `<div class="summary-table-row" style="grid-template-columns: ${gridCols};"><div class="font-black">${index + 1}</div>${dcCell}<div>${escapeHtml(row.consumerName || "-")}<br><span style="font-size:0.58rem; color:#64748b;">${escapeHtml(row.hqName)} / ${escapeHtml(row.village)}</span></div><div style="font-size:0.68rem;">${escapeHtml(row.mobileNo || "-")}</div><div class="text-rose-700 font-black">${formatProgressReportAmount(row.pendingAmount)}</div></div>`;
             });
             html += `</div>`;
             tableBox.innerHTML = html;
@@ -17432,8 +17467,18 @@
             if (!rows.length) return showToast("Download ke liye data nahi hai", false);
             setRevenueDefaultersDownloadState(true, `${type === "PDF" ? "PDF" : "Excel"} download ho raha hai... kripya wait kijiye`, true);
             try {
-                const headers = ["RANK", "IVRS NO", "CONSUMER NAME", revenueHqLabelUpper(), revenueVillageLabelUpper(), "GOVT/NON GOVT", "MOBILE NO", "PENDING AMOUNT"];
-                const bodyRows = rows.map((row, index) => [index + 1, row.ivrsNo || "", row.consumerName || "", row.hqName || "", row.village || "", row.govtFlag ? "GOVT" : "NON GOVT", row.mobileNo || "", formatProgressReportAmount(row.pendingAmount)]);
+                // USER REQUEST (2026-09-12): Freeze Report ke Excel/PDF me Division/
+                // Circle scope par DC NAME column hota hai - Live Top 20/50
+                // Defaulters ke download me bhi wahi DC NAME column honi chahiye.
+                const showDcColumn = activeViewLevel !== "DC";
+                const headers = [
+                    "RANK", ...(showDcColumn ? ["DC NAME"] : []), "IVRS NO", "CONSUMER NAME",
+                    revenueHqLabelUpper(), revenueVillageLabelUpper(), "GOVT/NON GOVT", "MOBILE NO", "PENDING AMOUNT"
+                ];
+                const bodyRows = rows.map((row, index) => [
+                    index + 1, ...(showDcColumn ? [row.dcName || ""] : []), row.ivrsNo || "", row.consumerName || "",
+                    row.hqName || "", row.village || "", row.govtFlag ? "GOVT" : "NON GOVT", row.mobileNo || "", formatProgressReportAmount(row.pendingAmount)
+                ]);
                 const reportTitle = getRevenueDefaultersReportTitle();
                 const scopeLine = `Scope: ${activeViewLevel === "DC" ? `DC - ${activeDC}` : (activeViewLevel === "DIVISION" ? `Division - ${activeDiv}` : "Circle - SEONI CIRCLE")}`;
                 const periodLine = `Date: ${formatRevenueDateIndian(normalizeRevenueReportDate(document.getElementById("revenue-defaulters-date")?.value || getCurrentDateDDMMYYYY()))}`;
