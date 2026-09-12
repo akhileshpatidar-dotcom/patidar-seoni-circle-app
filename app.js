@@ -3359,7 +3359,15 @@
             // NonGovt (NP3/6/Since Connection) ya Govt-NonGovt (Top 20/50) filter
             // apply karke, totals bhi usi FILTERED list se nikalte hain - jaisa
             // Non-Payee/Top Defaulters reports me hota hai.
-            const rowsWithStatus = getFreezeFilteredRowsWithStatus(scopedRowsWithStatus);
+            // USER REQUEST (2026-09-12): Live Report me sabse jyada bakaya
+            // (pending amount) wala consumer sabse upar aata hai (descending
+            // sort). Freeze Report abhi tak DC-wise group order me hi
+            // dikhta tha (bina amount-sort ke), jisse dono reports ka order
+            // alag lagta tha (data same hone ke bawajood). Ab Freeze Report
+            // bhi Live jaisa hi - sabse bada bakayadar (frozen pending
+            // amount ke hisab se) sabse upar - dikhayega.
+            const rowsWithStatusUnsorted = getFreezeFilteredRowsWithStatus(scopedRowsWithStatus);
+            const rowsWithStatus = rowsWithStatusUnsorted.slice().sort((a, b) => Number(b.pending_amount || 0) - Number(a.pending_amount || 0));
             let paidCount = 0, paidAmount = 0, totalFrozenAmount = 0;
             rowsWithStatus.forEach((r) => {
                 if (r.isPaidNow) { paidCount += 1; paidAmount += r.paidAmountNow; }
