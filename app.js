@@ -141,7 +141,7 @@
             { type: "ISSUE", material: "LT Pin Insulator", qty: 20, date: "22/04/2026", note: "Village feeder replacement" }
         ];
 
-        let activeDiv = "", activeDC = "", activeGrad = "bg-teal-grad", summaryMode = "DAILY", summaryModule = "MOBILE", activeViewLevel = "", currentData = null, pendingLevel = "", dcCacheRaw = {}, dcCacheRows = {}, uiListSummary = [], grandTC = 0, grandTU = 0, grandTW = 0, courtCaseRaw = "", courtCaseCacheByDc = {}, courtCaseLines = [], courtCaseRecords = [], lokDistributedRows = [], lokDistributedLoaded = false, currentCourtRecord = null, receiverGeoData = null;
+        let activeDiv = "", activeDC = "", activeGrad = "bg-teal-grad", summaryMode = "DAILY", summaryModule = "", activeViewLevel = "", currentData = null, pendingLevel = "", dcCacheRaw = {}, dcCacheRows = {}, uiListSummary = [], grandTC = 0, grandTU = 0, grandTW = 0, courtCaseRaw = "", courtCaseCacheByDc = {}, courtCaseLines = [], courtCaseRecords = [], lokDistributedRows = [], lokDistributedLoaded = false, currentCourtRecord = null, receiverGeoData = null;
         // Progress Report (Daily Progress) ke Revenue tab me Category Wise ke saath-saath
         // Target vs Achievement aur Top 20/50 Defaulters bhi dropdown se select ho sakein -
         // teeno DC/Division/Circle scope automatically activeViewLevel se hi follow karte
@@ -1495,7 +1495,7 @@
             if (level === "CIRCLE" || level === "DIVISION" || level === "DC") {
                 activeViewLevel = level;
                 switchView("summary");
-                refreshSummary();
+                resetProgressReportTypeSelection();
                 // Daily Progress DC/Division/Circle - yahan bhi bina UI block kiye
                 // background me shared revenue cache warm kar dete hain (Live/TD
                 // Entries DC-agnostic hain - sabhi DC ka data ek saath aata hai, isliye
@@ -1548,7 +1548,7 @@
                     return;
                 }
                 switchView("summary");
-                refreshSummary();
+                resetProgressReportTypeSelection();
             } else {
                 showToast("Invalid Password!", false);
             }
@@ -2172,25 +2172,56 @@
         // DC/Division/Circle sabhi scope me EK JAISA flow rehta hai (koi alag size/
         // style ka button nahi), aur screen me summary content ke liye jyada jagah
         // bachti hai.
+        // USER REQUEST (2026-09-12): Dropdown khulte hi (Daily Progress screen par
+        // aate hi) koi report auto-select/auto-sync NAHI honi chahiye - dropdown
+        // "Choose Report Type" placeholder par khaali khula rahega, aur SIRF jab
+        // user khud 3 me se ek option chunega tabhi wo report sync hogi.
         function setProgressModule(module) {
-            summaryModule = module;
+            summaryModule = module || "";
             const typeSelect = document.getElementById("progress-report-type-select");
-            if (typeSelect && typeSelect.value !== module) typeSelect.value = module;
+            if (typeSelect && typeSelect.value !== summaryModule) typeSelect.value = summaryModule;
             const lokBtn = document.getElementById("progress-lok-btn");
             if (lokBtn) lokBtn.classList.toggle("active", module === "LOK_ADALAT");
-            // Revenue Freeze Report ko Daily/Monthly date-selection ki zaroorat
-            // nahi (freeze khud ek fixed date par bana hota hai) - isliye us tab
-            // par jaate hi report-type-box aur date input chhupa dete hain.
+            // Sirf Mobile/Revenue/Lok Adalat ko hi Daily/Monthly date-selection
+            // chahiye - Freeze ko nahi (khud fixed date par bana hota hai), aur
+            // jab tak kuch select hi nahi hua (placeholder) tab bhi nahi dikhna
+            // chahiye.
             const reportTypeBox = document.getElementById("progress-report-type-box");
             const dateWrap = document.getElementById("progress-report-date-wrap");
-            const isFreeze = module === "FREEZE";
-            if (reportTypeBox) reportTypeBox.style.display = isFreeze ? "none" : "";
-            if (dateWrap) dateWrap.style.display = isFreeze ? "none" : "";
-            if (isFreeze) {
+            const needsDateControls = module === "MOBILE" || module === "REVENUE" || module === "LOK_ADALAT";
+            if (reportTypeBox) reportTypeBox.style.display = needsDateControls ? "" : "none";
+            if (dateWrap) dateWrap.style.display = needsDateControls ? "" : "none";
+            if (!summaryModule) {
+                renderProgressReportPlaceholder();
+                return;
+            }
+            if (summaryModule === "FREEZE") {
                 refreshFreezeModuleSummary();
                 return;
             }
             refreshSummary();
+        }
+
+        // Jab tak dropdown se koi report type nahi chuna gaya, summary-content me
+        // yeh saaf message dikhta hai - koi bhi sync/fetch is waqt nahi chalti.
+        function renderProgressReportPlaceholder() {
+            const cont = document.getElementById("summary-content");
+            if (cont) cont.innerHTML = `<div style="text-align:center; color:#64748b; font-size:0.75rem; font-weight:800; padding:34px 14px;">Upar diye gaye dropdown se report type chunein.</div>`;
+        }
+
+        // DC/Division/Circle chunte hi Daily Progress screen khulti hai - yahan
+        // dropdown ko wapas khaali "Choose Report Type" par reset karte hain
+        // (koi report yaad nahi rakhi jaati), taaki koi bhi sync tabhi shuru ho
+        // jab user khud dropdown se select kare.
+        function resetProgressReportTypeSelection() {
+            summaryModule = "";
+            const typeSelect = document.getElementById("progress-report-type-select");
+            if (typeSelect) typeSelect.value = "";
+            const reportTypeBox = document.getElementById("progress-report-type-box");
+            const dateWrap = document.getElementById("progress-report-date-wrap");
+            if (reportTypeBox) reportTypeBox.style.display = "none";
+            if (dateWrap) dateWrap.style.display = "none";
+            renderProgressReportPlaceholder();
         }
 
         function parseSummarySelection(rawValue, mode) {
@@ -4887,6 +4918,10 @@
         }
 
         async function refreshSummary() {
+            // USER REQUEST (2026-09-12): Jab tak dropdown se koi report type select
+            // nahi hua (placeholder par khaali), koi bhi sync/fetch shuru nahi honi
+            // chahiye - isliye yahan seedha placeholder dikha kar ruk jaate hain.
+            if (!summaryModule) return renderProgressReportPlaceholder();
             // Kisi bhi wajah se refreshSummary() call ho (DC/Division/Circle pick,
             // date change, wapas is view par aana) jab tak "Revenue Freeze Report"
             // tab active hai, seedha usi ke refresh path par bhej dete hain - iski
