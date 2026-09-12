@@ -182,6 +182,12 @@
         // select ho to seedha cached result hi dikha dete hain.
         let lastRevenueProgressFreezeScopeKey = null;
         let revenueFreezeSyncToken = 0;
+        // USER REQUEST (2026-09-12): Freeze report me bhi Revenue ki Non-Payee
+        // (HQ/Village/Category/Net Bill Slab/Govt-NonGovt) aur Top Defaulters
+        // (Govt-NonGovt) wali SAME filter dropdowns honi chahiye - jo category
+        // active hai usi ke hisaab se sahi filter set dikhta hai.
+        let freezeNonPayeeFilterState = { dc: "", hq: "", village: "", category: "", slab: "", govt: "" };
+        let freezeDefaultersGovtFilter = "";
 
         // ===== Meeter Cheking state (2026-09-10) =====
         let meterCheckingRows = [], meterCheckingRowsLoadedDcKey = "";
@@ -2816,8 +2822,15 @@
             try {
                 const allDcs = getAllDcNames();
                 activeViewLevel = "CIRCLE"; activeDC = ""; activeDiv = "";
-                await ensureRevenueCategoryMasterDataLoaded(allDcs);
-                await warmRevenueCategoryUploadedPaidCache(true);
+                // NOTE (2026-09-12): Live "Top 20/50 Defaulters" screen inhi teeno ko
+                // saath me warm karta hai (ensureRevenueCategoryRawPaymentRowsLoaded
+                // pehle yahan miss thi) - taaki Freeze Now ke Top20/Top50 bhi bilkul
+                // wahi paid/pending data dekhein jo live report dikhati hai.
+                await Promise.all([
+                    ensureRevenueCategoryMasterDataLoaded(allDcs),
+                    ensureRevenueCategoryRawPaymentRowsLoaded(),
+                    warmRevenueCategoryUploadedPaidCache(true)
+                ]);
 
                 setStatus("Non-Payee / Top Defaulters lists ban rahi hain...", false);
                 const np3 = buildRevenueNonPayeeRows("DAILY", "", "3M");
@@ -2831,10 +2844,14 @@
                 const freezeId = "FRZ-" + nowIso;
                 const freezeLabel = formatRevenueDateIndian(normalizeRevenueReportDate(getCurrentDateDDMMYYYY()));
 
+                // USER REQUEST (2026-09-12): Freeze report me bhi Govt/Non-Govt filter
+                // chahiye (Revenue ke Non-Payee/Top Defaulters jaisa) - isliye ab
+                // govt_flag bhi save karte hain.
                 const toFreezeRows = (rows) => rows.map((r) => ({
                     dc_name: r.dcName || "", ivrs_no: r.ivrsNo || "", consumer_name: r.consumerName || "",
                     hq_name: r.hqName || "", village: r.village || "", mobile_no: r.mobileNo || "",
-                    tariff_category: r.tariffCategory || "", pending_amount: r.pendingAmount || 0
+                    tariff_category: r.tariffCategory || "", pending_amount: r.pendingAmount || 0,
+                    govt_flag: r.govtFlag ? "GOVT" : "NONGOVT"
                 }));
 
                 const categories = [
@@ -2845,20 +2862,28 @@
                     { key: "TOP50", label: "Top 50", rows: toFreezeRows(top50) }
                 ];
 
+                // NOTE (fixed 2026-09-12): 24 DC ka poora data ek hi Apps Script call me
+                // save karne me 90 second se zyada lag sakta hai - isliye 4 minute (240
+                // second) ka timeout diya hai. Saath hi ab % progress bhi dikhta hai
+                // (jaise Admin Cash List upload me dikhta hai), 100% hote hi success.
+                let categoriesDone = 0;
                 for (const cat of categories) {
-                    setStatus(`Server par "${cat.label}" (${cat.rows.length} consumer) save ho raha hai...`, false);
+                    const percentNow = Math.round((categoriesDone / categories.length) * 100);
+                    setStatus(`${percentNow}% - Server par "${cat.label}" (${cat.rows.length} consumer) save ho raha hai... kripya wait kijiye`, false);
                     const response = await fetchWithTimeout(revenueFreezeTrackingScriptUrl, {
                         method: "POST",
                         headers: { "Content-Type": "text/plain;charset=UTF-8" },
                         body: JSON.stringify({ action: "saveFreezeSnapshot", freeze_id: freezeId, freeze_label: freezeLabel, freeze_date: nowIso, category: cat.key, rows: cat.rows })
-                    }, 90000);
+                    }, 240000);
                     const text = await response.text();
                     let parsed = {};
                     try { parsed = JSON.parse(text || "{}"); } catch (_) {}
                     if (!response.ok || parsed.status === "error") throw new Error(parsed.message || `Freeze save fail (${cat.label})`);
+                    categoriesDone += 1;
+                    setStatus(`${Math.round((categoriesDone / categories.length) * 100)}% ho gaya...`, false);
                 }
 
-                setStatus(`Freeze ho gaya (${freezeLabel}) - Non Payee 3M: ${np3.length}, 6M: ${np6.length}, Since Connection: ${sinceConn.length}, Top 20: ${top20.length}, Top 50: ${top50.length}`, true);
+                setStatus(`✅ 100% - Freeze SUCCESSFUL (${freezeLabel}) - Non Payee 3M: ${np3.length}, 6M: ${np6.length}, Since Connection: ${sinceConn.length}, Top 20: ${top20.length}, Top 50: ${top50.length}`, true);
                 showToast("Freeze ho gaya", true);
                 progressFreezeActiveFreeze = null;
                 revenueFreezeSnapshotCache = {};
@@ -3088,21 +3113,89 @@
             return rows;
         }
 
-        // Freeze ke baad kisi bhi consumer ka "ab tak paid" status - us consumer
-        // ka koi bhi payment (part-payment bhi) jiski date freeze-date ke barabar
-        // ya baad ki ho, count ho jaata hai (freeze se PEHLE ke purane payments
-        // is me nahi ginte, warna wo consumer freeze list me hota hi nahi).
+        // USER REQUEST (2026-09-12): Freeze report bhi Non-Payee (HQ/Village/
+        // Category/Net Bill Slab/Govt-NonGovt) aur Top Defaulters (Govt-NonGovt)
+        // jaisi hi filter dropdown use kare - "revenue ki same format" jaisa
+        // pehle bhi kaha gaya tha.
+        function resetFreezeFilterState() {
+            freezeNonPayeeFilterState = { dc: "", hq: "", village: "", category: "", slab: "", govt: "" };
+            freezeDefaultersGovtFilter = "";
+        }
+
+        function isFreezeCategoryDefaultersType() {
+            return progressFreezeCategory === "TOP20" || progressFreezeCategory === "TOP50";
+        }
+
+        function setFreezeNonPayeeFilter(key, value) {
+            if (!(key in freezeNonPayeeFilterState)) return;
+            freezeNonPayeeFilterState[key] = value || "";
+            if (key === "dc") { freezeNonPayeeFilterState.hq = ""; freezeNonPayeeFilterState.village = ""; }
+            if (key === "hq") freezeNonPayeeFilterState.village = "";
+            const body = document.getElementById("summary-content");
+            if (body) body.innerHTML = renderFreezeModuleSummaryHtml();
+        }
+
+        function setFreezeDefaultersGovtFilter(value) {
+            freezeDefaultersGovtFilter = value || "";
+            const body = document.getElementById("summary-content");
+            if (body) body.innerHTML = renderFreezeModuleSummaryHtml();
+        }
+
+        function isFreezeNetBillInSlab(row, slabValue) {
+            if (!slabValue) return true;
+            const amount = Number(row.pending_amount || 0);
+            if (slabValue === "0-500") return amount >= 0 && amount <= 500;
+            if (slabValue === "500-1000") return amount > 500 && amount <= 1000;
+            if (slabValue === "1000-5000") return amount > 1000 && amount <= 5000;
+            if (slabValue === "5000-10000") return amount > 5000 && amount <= 10000;
+            if (slabValue === "10000-25000") return amount > 10000 && amount <= 25000;
+            if (slabValue === "25000+") return amount > 25000;
+            return true;
+        }
+
+        function buildFreezeOptionsHtml(values, selectedValue, placeholder) {
+            const options = [`<option value="">${escapeHtml(placeholder)}</option>`].concat(
+                (values || []).map((v) => `<option value="${escapeHtml(v)}" ${v === selectedValue ? "selected" : ""}>${escapeHtml(v)}</option>`)
+            );
+            return options.join("");
+        }
+
+        // Category ke hisaab se sahi filter set apply karke final rows deta hai -
+        // NP3/NP6/SINCE_CONNECTION me 5 filters (Non-Payee jaisa), TOP20/TOP50 me
+        // sirf Govt/Non-Govt (Top Defaulters jaisa).
+        function getFreezeFilteredRowsWithStatus(rowsWithStatus) {
+            if (isFreezeCategoryDefaultersType()) {
+                const g = freezeDefaultersGovtFilter;
+                if (!g) return rowsWithStatus;
+                return rowsWithStatus.filter((row) => (g === "GOVT" ? row.govt_flag === "GOVT" : row.govt_flag !== "GOVT"));
+            }
+            const f = freezeNonPayeeFilterState;
+            return rowsWithStatus.filter((row) => (
+                (!f.dc || normalizeDcName(row.dc_name) === normalizeDcName(f.dc))
+                && (!f.hq || normalizeLookupValue(row.hq_name) === normalizeLookupValue(f.hq))
+                && (!f.village || normalizeLookupValue(row.village) === normalizeLookupValue(f.village))
+                && (!f.category || normalizeLookupValue(row.tariff_category) === normalizeLookupValue(f.category))
+                && isFreezeNetBillInSlab(row, f.slab)
+                && (!f.govt || (f.govt === "GOVT" ? row.govt_flag === "GOVT" : row.govt_flag !== "GOVT"))
+            ));
+        }
+
+        // USER REQUEST (2026-09-12): Pehle sirf freeze-date ke BAAD ki date wale
+        // payment hi "Paid" count hote the - isse jo cash list PEHLE se upload
+        // thi (freeze se pehle ya turant baad ki), uska data compare hi nahi
+        // hota tha aur sab "Pending" dikhta tha. Ab koi date-filter nahi hai -
+        // jitni bhi cash list ka data currently system me hai (purani + naya
+        // daily upload, sabhi DC), sabhi consumer ke against jo bhi payment
+        // (part-payment bhi) mila, wo seedha "Paid" gina jaata hai. Jaise-jaise
+        // aage naye consumer daily upload me paid dikhenge, wo bhi apne aap is
+        // hisaab me add hote jaayenge (yeh function har report load par current
+        // cached data se dobara banta hai).
         function buildRevenueFreezePaidIndex(freezeDateIso) {
             const idx = {};
             getRevenueCategoryPaymentSourceRows().forEach((row) => {
                 const dc = getRevenueUploadedPaidRowDcName(row);
                 const ivrs = getRevenueUploadedPaidRowIvrs(row);
                 if (!dc || !ivrs) return;
-                const normalized = normalizeRevenueReportDate(getRevenueUploadedPaidRowDate(row));
-                const m = String(normalized || "").match(/^(\d{2})-(\d{2})-(\d{4})$/);
-                if (!m) return;
-                const iso = `${m[3]}-${m[2]}-${m[1]}`;
-                if (freezeDateIso && iso < freezeDateIso) return;
                 const key = dc + "|" + ivrs;
                 if (!idx[key]) idx[key] = { paidAmount: 0 };
                 idx[key].paidAmount += getRevenueUploadedPaidRowAmount(row);
@@ -3116,18 +3209,25 @@
             if (error || !active) return { active: active || null, error: !!error, rowsWithStatus: [], totals: null };
             const scopedRows = getRevenueFreezeRowsInScope(allRows);
             const paidIndex = buildRevenueFreezePaidIndex(active.freeze_date);
-            let paidCount = 0, paidAmount = 0, totalFrozenAmount = 0;
-            const rowsWithStatus = scopedRows.map((r) => {
+            const scopedRowsWithStatus = scopedRows.map((r) => {
                 const key = normalizeDcName(r.dc_name) + "|" + normalizeRevenueIvrs(r.ivrs_no);
                 const info = paidIndex[key];
                 const isPaid = !!info;
-                if (isPaid) { paidCount += 1; paidAmount += info.paidAmount; }
-                totalFrozenAmount += Number(r.pending_amount || 0);
                 return { ...r, isPaidNow: isPaid, paidAmountNow: info ? info.paidAmount : 0 };
             });
-            const totalCount = scopedRows.length;
+            // USER REQUEST (2026-09-12): HQ/Village/Category/Net Bill Slab/Govt-
+            // NonGovt (NP3/6/Since Connection) ya Govt-NonGovt (Top 20/50) filter
+            // apply karke, totals bhi usi FILTERED list se nikalte hain - jaisa
+            // Non-Payee/Top Defaulters reports me hota hai.
+            const rowsWithStatus = getFreezeFilteredRowsWithStatus(scopedRowsWithStatus);
+            let paidCount = 0, paidAmount = 0, totalFrozenAmount = 0;
+            rowsWithStatus.forEach((r) => {
+                if (r.isPaidNow) { paidCount += 1; paidAmount += r.paidAmountNow; }
+                totalFrozenAmount += Number(r.pending_amount || 0);
+            });
+            const totalCount = rowsWithStatus.length;
             return {
-                active, error: false, rowsWithStatus,
+                active, error: false, rowsWithStatus, allScopedRows: scopedRowsWithStatus,
                 totals: {
                     totalCount, paidCount, pendingCount: totalCount - paidCount, paidAmount, totalFrozenAmount,
                     paidPercent: totalCount ? ((paidCount / totalCount) * 100).toFixed(1) : "0.0"
@@ -3208,6 +3308,7 @@
         function setProgressFreezeCategory(value) {
             const valid = ["NP3", "NP6", "SINCE_CONNECTION", "TOP20", "TOP50"];
             progressFreezeCategory = valid.includes(value) ? value : "NP3";
+            resetFreezeFilterState();
             lastRevenueProgressFreezeResult = null;
             loadRevenueProgressFreezeData();
         }
@@ -3240,10 +3341,53 @@
             }
             const showDcColumn = activeViewLevel !== "DC";
             const t = data.totals;
+            // USER REQUEST (2026-09-12): "Revenue ki same format" - NP3/NP6/Since
+            // Connection me Non-Payee jaisa 5-filter set (HQ/Village/Category/Net
+            // Bill Slab/Govt-NonGovt, + DC jab scope DC na ho), aur Top 20/50 me
+            // Top Defaulters jaisa sirf Govt/Non-Govt filter.
+            const allScoped = data.allScopedRows || [];
+            let filterBlockHtml = "";
+            if (isFreezeCategoryDefaultersType()) {
+                filterBlockHtml = `
+                    <select onchange="setFreezeDefaultersGovtFilter(this.value)" style="width:100%; height:44px; margin:8px auto 0; display:block; border:1.5px solid #fda4af; border-radius:12px; padding:0 12px; font-size:0.76rem; font-weight:900; color:#0f172a; background:#ffffff;">
+                        <option value="">All (Govt + Non Govt)</option>
+                        <option value="GOVT" ${freezeDefaultersGovtFilter === "GOVT" ? "selected" : ""}>Govt</option>
+                        <option value="NONGOVT" ${freezeDefaultersGovtFilter === "NONGOVT" ? "selected" : ""}>Non Govt</option>
+                    </select>`;
+            } else {
+                const f = freezeNonPayeeFilterState;
+                const dcScoped = allScoped.filter((row) => !f.dc || normalizeDcName(row.dc_name) === normalizeDcName(f.dc));
+                const villageScoped = dcScoped.filter((row) => !f.hq || normalizeLookupValue(row.hq_name) === normalizeLookupValue(f.hq));
+                const dcOptionsHtml = buildFreezeOptionsHtml(getRevenueUniqueValues(allScoped, "dc_name"), f.dc, "All DC");
+                const hqOptionsHtml = buildFreezeOptionsHtml(getRevenueUniqueValues(dcScoped, "hq_name"), f.hq, revenueHqAllLabel(f.dc || activeDC));
+                const villageOptionsHtml = buildFreezeOptionsHtml(getRevenueUniqueValues(villageScoped, "village"), f.village, revenueVillageAllLabel(f.dc || activeDC));
+                const categoryOptionsHtml = buildFreezeOptionsHtml(getRevenueUniqueValues(allScoped, "tariff_category"), f.category, "All Categories");
+                const freezeSelectStyle = "width:100%; height:46px; margin:8px auto 0; display:block; border:1.5px solid #fb923c; border-radius:14px; padding:0 12px; font-size:0.8rem; font-weight:900; color:#0f172a; background:#ffffff;";
+                filterBlockHtml = `
+                    ${showDcColumn ? `<select onchange="setFreezeNonPayeeFilter('dc', this.value)" style="${freezeSelectStyle}">${dcOptionsHtml}</select>` : ""}
+                    <select onchange="setFreezeNonPayeeFilter('hq', this.value)" style="${freezeSelectStyle}">${hqOptionsHtml}</select>
+                    <select onchange="setFreezeNonPayeeFilter('village', this.value)" style="${freezeSelectStyle}">${villageOptionsHtml}</select>
+                    <select onchange="setFreezeNonPayeeFilter('category', this.value)" style="${freezeSelectStyle}">${categoryOptionsHtml}</select>
+                    <select onchange="setFreezeNonPayeeFilter('slab', this.value)" style="${freezeSelectStyle}">
+                        <option value="">All Net Bill Slabs</option>
+                        <option value="0-500" ${f.slab === "0-500" ? "selected" : ""}>₹0 - ₹500</option>
+                        <option value="500-1000" ${f.slab === "500-1000" ? "selected" : ""}>₹500 - ₹1,000</option>
+                        <option value="1000-5000" ${f.slab === "1000-5000" ? "selected" : ""}>₹1,000 - ₹5,000</option>
+                        <option value="5000-10000" ${f.slab === "5000-10000" ? "selected" : ""}>₹5,000 - ₹10,000</option>
+                        <option value="10000-25000" ${f.slab === "10000-25000" ? "selected" : ""}>₹10,000 - ₹25,000</option>
+                        <option value="25000+" ${f.slab === "25000+" ? "selected" : ""}>₹25,000 Above</option>
+                    </select>
+                    <select onchange="setFreezeNonPayeeFilter('govt', this.value)" style="${freezeSelectStyle}">
+                        <option value="">All (Govt + Non Govt)</option>
+                        <option value="GOVT" ${f.govt === "GOVT" ? "selected" : ""}>Govt</option>
+                        <option value="NONGOVT" ${f.govt === "NONGOVT" ? "selected" : ""}>Non Govt</option>
+                    </select>`;
+            }
             let html = `
                 <div style="font-size:0.75rem; font-weight:950; color:#0e7490; text-align:center;">Revenue Freeze Report - ${escapeHtml(getRevenueFreezeCategoryLabel(progressFreezeCategory))}</div>
                 <div style="font-size:0.6rem; font-weight:800; color:#64748b; text-align:center; margin-top:2px;">Freeze Date: ${escapeHtml(data.active.freeze_label || data.active.freeze_date || "")}</div>
                 ${categorySelectHtml}
+                ${filterBlockHtml}
                 <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:8px; width:100%; margin:10px auto 0;">
                     <div style="background:#f0fdfa; border-radius:12px; padding:8px 4px; text-align:center;"><div style="font-size:0.54rem; font-weight:850; color:#0e7490; text-transform:uppercase;">Total Frozen</div><div style="font-size:0.95rem; font-weight:950; color:#0e7490; margin-top:2px;">${t.totalCount}</div></div>
                     <div style="background:#ecfdf5; border-radius:12px; padding:8px 4px; text-align:center;"><div style="font-size:0.54rem; font-weight:850; color:#166534; text-transform:uppercase;">Paid Till Now</div><div style="font-size:0.95rem; font-weight:950; color:#166534; margin-top:2px;">${t.paidCount} (${t.paidPercent}%)</div></div>
