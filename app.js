@@ -95,6 +95,10 @@
             }
         };
         const meterCheckingSubmitScriptUrl = "https://script.google.com/macros/s/AKfycbwUxFlfDqzzcQvJgMe0umCwy73MOhP8ChX3Xd-wox7BOpsk6ttZsUazEzu6kyiRM9Yx/exec";
+        // USER REQUEST (2026-09-12): Revenue Freeze Tracking - alag standalone
+        // backend (freeze-tracking-submit-script.gs), apni khud ki alag Google
+        // Sheet ke saath. Deploy karne ke baad, Web App URL yahan paste karein.
+        const revenueFreezeTrackingScriptUrl = "PASTE_YOUR_FREEZE_TRACKING_SCRIPT_URL_HERE";
         const meterCheckingReportSpreadsheetId = "1LtBrMNlTtX89pTBK8IZWL4ILLYu3WvjQ532JpInps0s";
         const revenueCollectionCsvUrls = {
             "CHHAPARA1": "https://docs.google.com/spreadsheets/d/1ehSaUQyrV1ZzwH0lbdhLdXRYkPdapdm5hhu0Gz0vulk/export?format=csv&gid=0",
@@ -157,6 +161,20 @@
         // DC-wise summary; specific DC shows that DC's HQ-wise list). Same state
         // var reused for both levels since only one dropdown is ever active at a time.
         let progressPaidCountFilter = "";
+
+        // ===== Revenue Freeze Tracking state (2026-09-12) =====
+        // "REVENUE_FREEZE" 9th Revenue dropdown report - Non-Payee 3M/6M/Since
+        // Connection aur Top 20/50 Defaulters ka ek FROZEN (ek baar admin ne
+        // "Freeze Now" dabaya, us waqt ki) snapshot, jo kabhi khud badalta nahi -
+        // sirf yeh dikhata hai ki us frozen list me se kitno ne (freeze date ke
+        // baad) ab tak bhugtan kar diya hai. DC/Division/Circle - sabhi jagah
+        // isi ek hi shared dropdown/state se available hai (jaise baaki 8
+        // report types).
+        let progressFreezeCategory = "NP3";
+        let progressFreezeLoading = false;
+        let progressFreezeActiveFreeze = null;
+        let revenueFreezeSnapshotCache = {};
+        let lastRevenueProgressFreezeResult = null;
 
         // ===== Meeter Cheking state (2026-09-10) =====
         let meterCheckingRows = [], meterCheckingRowsLoadedDcKey = "";
@@ -1483,7 +1501,7 @@
         }
 
         function verifyPassword() {
-            const pws = { STOCK: "AE123", EXCEL_TOOL_ADMIN: "AE123", PANCHNAMA_TOOL_ADMIN: "AE123", ARRANGE_EXCEL_TOOL_ADMIN: "AE123", IMAGE_TO_EXCEL_TOOL_ADMIN: "AE123" };
+            const pws = { STOCK: "AE123", EXCEL_TOOL_ADMIN: "AE123", PANCHNAMA_TOOL_ADMIN: "AE123", ARRANGE_EXCEL_TOOL_ADMIN: "AE123", IMAGE_TO_EXCEL_TOOL_ADMIN: "AE123", FREEZE_ADMIN: "AE123" };
             if (document.getElementById("pwd-input").value === pws[pendingLevel]) {
                 activeViewLevel = pendingLevel;
                 closePwdModal();
@@ -1509,6 +1527,11 @@
                 if (pendingLevel === "IMAGE_TO_EXCEL_TOOL_ADMIN") {
                     initImageToExcelToolAdminUpload();
                     switchView("image-to-excel-tool-admin");
+                    return;
+                }
+                if (pendingLevel === "FREEZE_ADMIN") {
+                    initFreezeAdmin();
+                    switchView("freeze-admin");
                     return;
                 }
                 switchView("summary");
@@ -2738,6 +2761,402 @@
             return fetchUploadedPaidEntriesWithRetry_(dcName, attempts);
         }
 
+        // =====================================================================
+        // Revenue Freeze Tracking (2026-09-12)
+        // =====================================================================
+        // Admin ke "🧊 Freeze Now (All DC)" button se chalta hai - ALL 24 DC ka
+        // Non-Payee 3M/6M/Since Connection aur Top 20/50 Defaulters data ek
+        // sath (CIRCLE scope par) build karke, backend (freeze-tracking-submit-
+        // script.gs, apni alag Sheet) me snapshot save kar deta hai. Existing
+        // buildRevenueNonPayeeRows()/buildRevenueHqVillageConsumerRows() (jo
+        // normal live reports bhi use karte hain) yahan REUSE hoti hain - taaki
+        // freeze ka data bilkul wahi ho jo us waqt normal report dikha rahi
+        // thi. activeViewLevel/activeDC/activeDiv ko sirf computation ke liye
+        // temporarily "CIRCLE" kiya jaata hai, phir turant wapas restore ho
+        // jaata hai - user jis bhi screen par ho (Admin panel), wahi bana rahega.
+        async function runRevenueFreezeNow() {
+            if (!revenueFreezeTrackingScriptUrl || revenueFreezeTrackingScriptUrl.indexOf("PASTE_") === 0) {
+                return showToast("Freeze script URL abhi set nahi hai", false);
+            }
+            const statusBox = document.getElementById("freeze-admin-status");
+            const setStatus = (text, ok) => {
+                if (!statusBox) return;
+                statusBox.style.display = "block";
+                statusBox.style.background = ok ? "#ecfdf5" : "#eff6ff";
+                statusBox.style.color = ok ? "#047857" : "#1d4ed8";
+                statusBox.innerText = text;
+            };
+            setStatus("Sabhi DC ka data load ho raha hai... kripya wait kijiye", false);
+            const savedViewLevel = activeViewLevel, savedDC = activeDC, savedDiv = activeDiv;
+            try {
+                const allDcs = getAllDcNames();
+                activeViewLevel = "CIRCLE"; activeDC = ""; activeDiv = "";
+                await ensureRevenueCategoryMasterDataLoaded(allDcs);
+                await warmRevenueCategoryUploadedPaidCache(true);
+
+                setStatus("Non-Payee / Top Defaulters lists ban rahi hain...", false);
+                const np3 = buildRevenueNonPayeeRows("DAILY", "", "3M");
+                const np6 = buildRevenueNonPayeeRows("DAILY", "", "6M");
+                const sinceConn = buildRevenueNonPayeeRows("DAILY", "", "SINCE_CONNECTION");
+                const allConsumerRows = buildRevenueHqVillageConsumerRows("DAILY", "");
+                const top50 = allConsumerRows.filter((r) => r.pendingAmount > 0).sort((a, b) => b.pendingAmount - a.pendingAmount).slice(0, 50);
+                const top20 = top50.slice(0, 20);
+
+                const nowIso = getTodayIsoDate();
+                const freezeId = "FRZ-" + nowIso;
+                const freezeLabel = formatRevenueDateIndian(normalizeRevenueReportDate(getCurrentDateDDMMYYYY()));
+
+                const toFreezeRows = (rows) => rows.map((r) => ({
+                    dc_name: r.dcName || "", ivrs_no: r.ivrsNo || "", consumer_name: r.consumerName || "",
+                    hq_name: r.hqName || "", village: r.village || "", mobile_no: r.mobileNo || "",
+                    tariff_category: r.tariffCategory || "", pending_amount: r.pendingAmount || 0
+                }));
+
+                const categories = [
+                    { key: "NP3", label: "Non Payee 3M", rows: toFreezeRows(np3) },
+                    { key: "NP6", label: "Non Payee 6M", rows: toFreezeRows(np6) },
+                    { key: "SINCE_CONNECTION", label: "Since Connection", rows: toFreezeRows(sinceConn) },
+                    { key: "TOP20", label: "Top 20", rows: toFreezeRows(top20) },
+                    { key: "TOP50", label: "Top 50", rows: toFreezeRows(top50) }
+                ];
+
+                for (const cat of categories) {
+                    setStatus(`Server par "${cat.label}" (${cat.rows.length} consumer) save ho raha hai...`, false);
+                    const response = await fetchWithTimeout(revenueFreezeTrackingScriptUrl, {
+                        method: "POST",
+                        headers: { "Content-Type": "text/plain;charset=UTF-8" },
+                        body: JSON.stringify({ action: "saveFreezeSnapshot", freeze_id: freezeId, freeze_label: freezeLabel, freeze_date: nowIso, category: cat.key, rows: cat.rows })
+                    }, 90000);
+                    const text = await response.text();
+                    let parsed = {};
+                    try { parsed = JSON.parse(text || "{}"); } catch (_) {}
+                    if (!response.ok || parsed.status === "error") throw new Error(parsed.message || `Freeze save fail (${cat.label})`);
+                }
+
+                setStatus(`Freeze ho gaya (${freezeLabel}) - Non Payee 3M: ${np3.length}, 6M: ${np6.length}, Since Connection: ${sinceConn.length}, Top 20: ${top20.length}, Top 50: ${top50.length}`, true);
+                showToast("Freeze ho gaya", true);
+                progressFreezeActiveFreeze = null;
+                revenueFreezeSnapshotCache = {};
+                await loadFreezeAdminList();
+            } catch (error) {
+                setStatus("Freeze nahi ho paya: " + (error?.message || "error"), false);
+                showToast("Freeze nahi ho paya", false);
+            } finally {
+                activeViewLevel = savedViewLevel; activeDC = savedDC; activeDiv = savedDiv;
+            }
+        }
+
+        async function loadFreezeAdminList() {
+            const listBox = document.getElementById("freeze-admin-list");
+            if (!listBox) return;
+            if (!revenueFreezeTrackingScriptUrl || revenueFreezeTrackingScriptUrl.indexOf("PASTE_") === 0) {
+                listBox.innerHTML = `<div style="text-align:center; color:#991b1b; font-size:0.68rem;">Freeze script URL set nahi hai</div>`;
+                return;
+            }
+            listBox.innerHTML = `<div style="text-align:center; color:#64748b; font-size:0.68rem;">Loading...</div>`;
+            try {
+                const parsed = await loadRemoteJson(`${revenueFreezeTrackingScriptUrl}?action=listFreezes`);
+                const freezes = Array.isArray(parsed?.freezes) ? parsed.freezes : [];
+                if (!freezes.length) {
+                    listBox.innerHTML = `<div style="text-align:center; color:#64748b; font-size:0.68rem;">Abhi tak koi freeze nahi hua</div>`;
+                    return;
+                }
+                freezes.sort((a, b) => String(b.freeze_date || "").localeCompare(String(a.freeze_date || "")));
+                listBox.innerHTML = freezes.map((f) => `
+                    <div style="border:1.5px solid #e2e8f0; border-radius:12px; padding:10px; margin-top:8px; display:flex; justify-content:space-between; align-items:center; gap:8px;">
+                        <div>
+                            <div style="font-size:0.72rem; font-weight:900; color:#0f172a;">${escapeHtml(f.freeze_label || f.freeze_id)}</div>
+                            <div style="font-size:0.6rem; color:${f.status === "UNFROZEN" ? "#9f1239" : "#166534"}; font-weight:800;">${escapeHtml(f.status || "ACTIVE")}</div>
+                        </div>
+                        <button class="btn-unique" style="background:${f.status === "UNFROZEN" ? "#0d9488" : "#b91c1c"}; color:#fff; padding:6px 12px; font-size:0.62rem; border-radius:10px; border:none;" onclick="toggleFreezeStatus('${escapeHtml(f.freeze_id)}', '${f.status === "UNFROZEN" ? "ACTIVE" : "UNFROZEN"}')">${f.status === "UNFROZEN" ? "Reactivate" : "Unfreeze"}</button>
+                    </div>
+                `).join("");
+            } catch (error) {
+                listBox.innerHTML = `<div style="text-align:center; color:#991b1b; font-size:0.68rem;">List load nahi ho payi</div>`;
+            }
+        }
+
+        async function toggleFreezeStatus(freezeId, newStatus) {
+            try {
+                const response = await fetchWithTimeout(revenueFreezeTrackingScriptUrl, {
+                    method: "POST",
+                    headers: { "Content-Type": "text/plain;charset=UTF-8" },
+                    body: JSON.stringify({ action: "setFreezeStatus", freeze_id: freezeId, status: newStatus })
+                }, 20000);
+                const text = await response.text();
+                let parsed = {};
+                try { parsed = JSON.parse(text || "{}"); } catch (_) {}
+                if (!response.ok || parsed.status === "error") throw new Error(parsed.message || "Update fail");
+                showToast("Status update ho gaya", true);
+                progressFreezeActiveFreeze = null;
+                revenueFreezeSnapshotCache = {};
+                await loadFreezeAdminList();
+            } catch (error) {
+                showToast("Status update nahi ho paya", false);
+            }
+        }
+
+        function openFreezeAdmin() {
+            closeHeaderMenu();
+            askPassword("FREEZE_ADMIN");
+        }
+
+        function initFreezeAdmin() {
+            const statusBox = document.getElementById("freeze-admin-status");
+            if (statusBox) statusBox.style.display = "none";
+            loadFreezeAdminList();
+        }
+
+        // ----- Freeze Tracking Report (Daily Progress -> Revenue dropdown) -----
+        // Yeh "REVENUE_FREEZE" report type - DC/Division/Circle teeno level par
+        // (baaki 8 report type jaisa hi, shared dropdown se) available hai.
+        function getRevenueFreezeCategoryLabel(cat) {
+            if (cat === "NP6") return "Non Payee From 6 Month";
+            if (cat === "SINCE_CONNECTION") return "Non Payee From Date of Connection";
+            if (cat === "TOP20") return "Top 20 Defaulters";
+            if (cat === "TOP50") return "Top 50 Defaulters";
+            return "Non Payee From 3 Month";
+        }
+
+        async function ensureRevenueFreezeActiveInfo(forceRefresh = false) {
+            if (progressFreezeActiveFreeze && !forceRefresh) return progressFreezeActiveFreeze;
+            if (!revenueFreezeTrackingScriptUrl || revenueFreezeTrackingScriptUrl.indexOf("PASTE_") === 0) return null;
+            try {
+                const parsed = await loadRemoteJson(`${revenueFreezeTrackingScriptUrl}?action=listFreezes`);
+                const freezes = Array.isArray(parsed?.freezes) ? parsed.freezes : [];
+                const active = freezes.filter((f) => f.status !== "UNFROZEN").sort((a, b) => String(b.freeze_date || "").localeCompare(String(a.freeze_date || "")))[0] || null;
+                progressFreezeActiveFreeze = active;
+                return active;
+            } catch (_) {
+                return null;
+            }
+        }
+
+        // USER REQUEST (2026-09-12): Har DC ka freeze data backend par apni ALAG
+        // sheet tab me save hota hai (jaise PAID - {DC} pattern) - taaki DC-level
+        // report sirf apni ek chhoti tab padhe (fast). Isliye yahan ek baar me
+        // sirf EK DC ka data mangte hain; Division/Circle scope ke liye neeche
+        // fetchRevenueFreezeSnapshotRowsForScope() scope ki har DC ke liye yeh
+        // function parallel (max 5 ek saath) call karke merge karti hai - us
+        // scope me jitni zyada DC hongi utna hi zyada samay lagega (Circle sabse
+        // dheema, DC sabse fast) - yeh expected/accepted trade-off hai.
+        async function fetchRevenueFreezeSnapshotRows(freezeId, category, dcName) {
+            const normalizedDc = normalizeDcName(dcName);
+            const cacheKey = freezeId + "|" + category + "|" + normalizedDc;
+            if (revenueFreezeSnapshotCache[cacheKey]) return revenueFreezeSnapshotCache[cacheKey];
+            const parsed = await loadRemoteJson(`${revenueFreezeTrackingScriptUrl}?action=getFreezeSnapshot&freeze_id=${encodeURIComponent(freezeId)}&category=${encodeURIComponent(category)}&dc_name=${encodeURIComponent(normalizedDc)}`);
+            const rows = Array.isArray(parsed?.rows) ? parsed.rows : [];
+            revenueFreezeSnapshotCache[cacheKey] = rows;
+            return rows;
+        }
+
+        function getRevenueFreezeTargetDcs() {
+            if (activeViewLevel === "DC") return [activeDC].filter(Boolean);
+            if (activeViewLevel === "DIVISION") return getDivisionDcNames(activeDiv);
+            return getAllDcNames();
+        }
+
+        // Current scope (DC/Division/Circle) ki har DC ka snapshot alag-alag
+        // fetch karke, dc_name wapas jod kar ek hi merged array banata hai - DC
+        // level me sirf 1 fetch, Division/Circle me kai fetch (parallel, max 5).
+        // Jo DC ki tab hi nahi hai (kabhi live nahi hui ya us category me kabhi
+        // koi consumer nahi tha), uska seedha khaali [] aata hai - error nahi.
+        async function fetchRevenueFreezeSnapshotRowsForScope(freezeId, category) {
+            const targetDcs = getRevenueFreezeTargetDcs();
+            const merged = [];
+            await runWithConcurrencyLimit_(targetDcs, 5, async (dcName) => {
+                const rows = await fetchRevenueFreezeSnapshotRows(freezeId, category, dcName);
+                rows.forEach((r) => merged.push({ ...r, dc_name: normalizeDcName(dcName) }));
+            });
+            return merged;
+        }
+
+        function getRevenueFreezeRowsInScope(rows) {
+            if (activeViewLevel === "DC") return rows.filter((r) => normalizeDcName(r.dc_name) === normalizeDcName(activeDC));
+            if (activeViewLevel === "DIVISION") {
+                const dcSet = new Set(getDivisionDcNames(activeDiv).map((dc) => normalizeDcName(dc)));
+                return rows.filter((r) => dcSet.has(normalizeDcName(r.dc_name)));
+            }
+            return rows;
+        }
+
+        // Freeze ke baad kisi bhi consumer ka "ab tak paid" status - us consumer
+        // ka koi bhi payment (part-payment bhi) jiski date freeze-date ke barabar
+        // ya baad ki ho, count ho jaata hai (freeze se PEHLE ke purane payments
+        // is me nahi ginte, warna wo consumer freeze list me hota hi nahi).
+        function buildRevenueFreezePaidIndex(freezeDateIso) {
+            const idx = {};
+            getRevenueCategoryPaymentSourceRows().forEach((row) => {
+                const dc = getRevenueUploadedPaidRowDcName(row);
+                const ivrs = getRevenueUploadedPaidRowIvrs(row);
+                if (!dc || !ivrs) return;
+                const normalized = normalizeRevenueReportDate(getRevenueUploadedPaidRowDate(row));
+                const m = String(normalized || "").match(/^(\d{2})-(\d{2})-(\d{4})$/);
+                if (!m) return;
+                const iso = `${m[3]}-${m[2]}-${m[1]}`;
+                if (freezeDateIso && iso < freezeDateIso) return;
+                const key = dc + "|" + ivrs;
+                if (!idx[key]) idx[key] = { paidAmount: 0 };
+                idx[key].paidAmount += getRevenueUploadedPaidRowAmount(row);
+            });
+            return idx;
+        }
+
+        function computeRevenueFreezeReportData() {
+            if (!lastRevenueProgressFreezeResult) return null;
+            const { active, rows: allRows, error } = lastRevenueProgressFreezeResult;
+            if (error || !active) return { active: active || null, error: !!error, rowsWithStatus: [], totals: null };
+            const scopedRows = getRevenueFreezeRowsInScope(allRows);
+            const paidIndex = buildRevenueFreezePaidIndex(active.freeze_date);
+            let paidCount = 0, paidAmount = 0, totalFrozenAmount = 0;
+            const rowsWithStatus = scopedRows.map((r) => {
+                const key = normalizeDcName(r.dc_name) + "|" + normalizeRevenueIvrs(r.ivrs_no);
+                const info = paidIndex[key];
+                const isPaid = !!info;
+                if (isPaid) { paidCount += 1; paidAmount += info.paidAmount; }
+                totalFrozenAmount += Number(r.pending_amount || 0);
+                return { ...r, isPaidNow: isPaid, paidAmountNow: info ? info.paidAmount : 0 };
+            });
+            const totalCount = scopedRows.length;
+            return {
+                active, error: false, rowsWithStatus,
+                totals: {
+                    totalCount, paidCount, pendingCount: totalCount - paidCount, paidAmount, totalFrozenAmount,
+                    paidPercent: totalCount ? ((paidCount / totalCount) * 100).toFixed(1) : "0.0"
+                }
+            };
+        }
+
+        async function loadRevenueProgressFreezeData() {
+            progressFreezeLoading = true;
+            const body = document.getElementById("progress-revenue-body");
+            if (body) body.innerHTML = renderProgressRevenueBodyInner();
+            try {
+                const active = await ensureRevenueFreezeActiveInfo();
+                if (active) {
+                    const rows = await fetchRevenueFreezeSnapshotRowsForScope(active.freeze_id, progressFreezeCategory);
+                    await warmRevenueCategoryUploadedPaidCache();
+                    lastRevenueProgressFreezeResult = { active, rows };
+                } else {
+                    lastRevenueProgressFreezeResult = { active: null, rows: [] };
+                }
+            } catch (_) {
+                lastRevenueProgressFreezeResult = { active: null, rows: [], error: true };
+            }
+            progressFreezeLoading = false;
+            const bodyAfter = document.getElementById("progress-revenue-body");
+            if (bodyAfter) bodyAfter.innerHTML = renderProgressRevenueBodyInner();
+        }
+
+        function setProgressFreezeCategory(value) {
+            const valid = ["NP3", "NP6", "SINCE_CONNECTION", "TOP20", "TOP50"];
+            progressFreezeCategory = valid.includes(value) ? value : "NP3";
+            lastRevenueProgressFreezeResult = null;
+            loadRevenueProgressFreezeData();
+        }
+
+        function renderRevenueProgressFreezeSummaryHtml() {
+            const categorySelectHtml = `
+                <select onchange="setProgressFreezeCategory(this.value)" style="width:100%; height:44px; margin:8px auto 0; display:block; border:1.5px solid #0891b2; border-radius:12px; padding:0 12px; font-size:0.78rem; font-weight:900; color:#0f172a; background:#ffffff;">
+                    <option value="NP3" ${progressFreezeCategory === "NP3" ? "selected" : ""}>Non Payee From 3 Month</option>
+                    <option value="NP6" ${progressFreezeCategory === "NP6" ? "selected" : ""}>Non Payee From 6 Month</option>
+                    <option value="SINCE_CONNECTION" ${progressFreezeCategory === "SINCE_CONNECTION" ? "selected" : ""}>Non Payee From Date of Connection</option>
+                    <option value="TOP20" ${progressFreezeCategory === "TOP20" ? "selected" : ""}>Top 20 Defaulters</option>
+                    <option value="TOP50" ${progressFreezeCategory === "TOP50" ? "selected" : ""}>Top 50 Defaulters</option>
+                </select>`;
+            if (progressFreezeLoading || !lastRevenueProgressFreezeResult) {
+                return `${categorySelectHtml}<div style="text-align:center; font-size:0.72rem; font-weight:900; color:#1d4ed8; padding:20px 0;">Freeze data load ho raha hai...</div>`;
+            }
+            const data = computeRevenueFreezeReportData();
+            if (!data || data.error) {
+                return `${categorySelectHtml}<div style="text-align:center; color:#991b1b; font-size:0.72rem; margin-top:10px;">Freeze data load nahi ho payi</div>`;
+            }
+            if (!data.active) {
+                return `${categorySelectHtml}<div style="text-align:center; color:#9f1239; font-size:0.72rem; margin-top:10px;">Abhi tak koi Freeze active nahi hai. Sub DN Chhapara ke Admin panel se "🔒 ADMIN FREEZE CONTROL" me Freeze Now karein.</div>`;
+            }
+            const showDcColumn = activeViewLevel !== "DC";
+            const t = data.totals;
+            let html = `
+                <div style="font-size:0.75rem; font-weight:950; color:#0e7490; text-align:center;">Revenue Freeze Report - ${escapeHtml(getRevenueFreezeCategoryLabel(progressFreezeCategory))}</div>
+                <div style="font-size:0.6rem; font-weight:800; color:#64748b; text-align:center; margin-top:2px;">Freeze Date: ${escapeHtml(data.active.freeze_label || data.active.freeze_date || "")}</div>
+                ${categorySelectHtml}
+                <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:8px; width:100%; margin:10px auto 0;">
+                    <div style="background:#f0fdfa; border-radius:12px; padding:8px 4px; text-align:center;"><div style="font-size:0.54rem; font-weight:850; color:#0e7490; text-transform:uppercase;">Total Frozen</div><div style="font-size:0.95rem; font-weight:950; color:#0e7490; margin-top:2px;">${t.totalCount}</div></div>
+                    <div style="background:#ecfdf5; border-radius:12px; padding:8px 4px; text-align:center;"><div style="font-size:0.54rem; font-weight:850; color:#166534; text-transform:uppercase;">Paid Till Now</div><div style="font-size:0.95rem; font-weight:950; color:#166534; margin-top:2px;">${t.paidCount} (${t.paidPercent}%)</div></div>
+                    <div style="background:#fff1f2; border-radius:12px; padding:8px 4px; text-align:center;"><div style="font-size:0.54rem; font-weight:850; color:#9f1239; text-transform:uppercase;">Pending</div><div style="font-size:0.95rem; font-weight:950; color:#9f1239; margin-top:2px;">${t.pendingCount}</div></div>
+                </div>
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; width:100%; margin:8px auto 0;">
+                    <div style="background:#ecfdf5; border-radius:12px; padding:8px 4px; text-align:center;"><div style="font-size:0.54rem; font-weight:850; color:#166534; text-transform:uppercase;">Paid Amount (since freeze)</div><div style="font-size:0.85rem; font-weight:950; color:#166534; margin-top:2px;">${formatProgressReportAmount(t.paidAmount)}</div></div>
+                    <div style="background:#fff1f2; border-radius:12px; padding:8px 4px; text-align:center;"><div style="font-size:0.54rem; font-weight:850; color:#9f1239; text-transform:uppercase;">Frozen Total Amount</div><div style="font-size:0.85rem; font-weight:950; color:#9f1239; margin-top:2px;">${formatProgressReportAmount(t.totalFrozenAmount)}</div></div>
+                </div>
+                <div class="btn-export-row" style="margin-top:10px;">
+                    <button class="btn-unique btn-excel-unique" onclick="downloadRevenueFreezeReport('XLS')">Freeze Report Excel</button>
+                    <button class="btn-unique btn-pdf-unique" onclick="downloadRevenueFreezeReport('PDF')">Freeze Report PDF</button>
+                </div>
+                <div id="progress-category-download-status" style="display:none; text-align:center; font-weight:900; border-radius:14px; padding:8px 10px; width:100%; margin-top:8px;"></div>
+                <div class="summary-wrapper" style="margin-top:10px;"><div class="summary-table-header" style="grid-template-columns: ${showDcColumn ? "0.8fr 1.2fr 0.8fr 1fr" : "1.4fr 0.8fr 1fr"};">${showDcColumn ? "<div>DC</div>" : ""}<div>CONSUMER</div><div>STATUS</div><div>AMOUNT</div></div>
+            `;
+            if (!data.rowsWithStatus.length) {
+                html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div class="text-rose-600">Is scope me freeze me koi consumer nahi mila.</div></div>`;
+            } else {
+                data.rowsWithStatus.slice(0, 200).forEach((r) => {
+                    const cells = [];
+                    if (showDcColumn) cells.push(`<div>${escapeHtml(r.dc_name || "-")}</div>`);
+                    cells.push(`<div>${escapeHtml(r.consumer_name || "-")}<br><span style="font-size:0.56rem; color:#64748b;">${escapeHtml(r.hq_name || "")} / ${escapeHtml(r.village || "")}</span></div>`);
+                    cells.push(`<div class="font-black" style="color:${r.isPaidNow ? "#166534" : "#9f1239"};">${r.isPaidNow ? "PAID" : "PENDING"}</div>`);
+                    cells.push(`<div class="font-black">${formatProgressReportAmount(r.isPaidNow ? r.paidAmountNow : r.pending_amount)}</div>`);
+                    html += `<div class="summary-table-row" style="grid-template-columns: ${showDcColumn ? "0.8fr 1.2fr 0.8fr 1fr" : "1.4fr 0.8fr 1fr"};">${cells.join("")}</div>`;
+                });
+                if (data.rowsWithStatus.length > 200) {
+                    html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div style="text-align:center; color:#64748b; font-size:0.62rem; padding:6px;">... ${data.rowsWithStatus.length - 200} aur consumer, poori list Excel/PDF download me milegi</div></div>`;
+                }
+            }
+            html += `</div>`;
+            return html;
+        }
+
+        function downloadRevenueFreezeReport(fmt) {
+            const data = computeRevenueFreezeReportData();
+            if (!data || !data.active || !data.rowsWithStatus.length) return showToast("Download ke liye data nahi hai", false);
+            const downloadTypeLabel = fmt === "PDF" ? "PDF" : "Excel";
+            setProgressCategoryDownloadState(true, `${downloadTypeLabel} downloading... kripya wait kijiye`);
+            try {
+                const showDcColumn = activeViewLevel !== "DC";
+                const headers = [...(showDcColumn ? ["DC NAME"] : []), "IVRS NO", "CONSUMER NAME", "HQ", "VILLAGE", "MOBILE NO", "STATUS", "AMOUNT"];
+                const bodyRows = data.rowsWithStatus.map((r) => [
+                    ...(showDcColumn ? [r.dc_name || ""] : []),
+                    r.ivrs_no || "", r.consumer_name || "", r.hq_name || "", r.village || "", r.mobile_no || "",
+                    r.isPaidNow ? "PAID" : "PENDING", formatProgressReportAmount(r.isPaidNow ? r.paidAmountNow : r.pending_amount)
+                ]);
+                const scope = activeViewLevel === "DC" ? `DC - ${activeDC}` : (activeViewLevel === "DIVISION" ? activeDiv : "SEONI CIRCLE");
+                const reportTitle = `Revenue Freeze Report - ${getRevenueFreezeCategoryLabel(progressFreezeCategory)} - ${scope}`;
+                const freezeLine = `Freeze Date: ${data.active.freeze_label || data.active.freeze_date || ""}`;
+                const fileName = `${reportTitle}-${getTodayIsoDate()}`.replace(/[\\/:*?"<>|]+/g, "_");
+                if (fmt === "PDF") {
+                    if (!window.jspdf?.jsPDF) { setProgressCategoryDownloadState(false, "PDF library load nahi hui"); return; }
+                    const { jsPDF } = window.jspdf;
+                    const doc = new jsPDF({ orientation: "landscape" });
+                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
+                    doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 12, { align: "center" });
+                    doc.setFontSize(9); doc.text(freezeLine, 148, 19, { align: "center" });
+                    doc.autoTable({ startY: 25, head: [headers], body: bodyRows, theme: "grid", styles: { fontSize: 6, cellPadding: 1, overflow: "linebreak" }, headStyles: { fillColor: [8, 145, 178] } });
+                    savePdfDocumentForDevice(doc, `${fileName}.pdf`);
+                } else {
+                    const csvSafe = (value) => { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
+                    const csv = [[reportTitle], [`Scope: ${scope}`], [freezeLine], [], headers, ...bodyRows].map((row) => row.map(csvSafe).join(",")).join("\n");
+                    const link = document.createElement("a");
+                    link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+                    link.download = `${fileName}.csv`;
+                    link.click();
+                }
+                setTimeout(() => setProgressCategoryDownloadState(false, `${downloadTypeLabel} download ho chuki hai`), 500);
+            } catch (error) {
+                setProgressCategoryDownloadState(false, "Download nahi ho paya");
+                showToast(error?.message || "Freeze report download nahi ho payi", false);
+            }
+        }
+        // ===== End Revenue Freeze Tracking =====
+
         // Category Wise / Non-Payee / Target vs Achievement / Top Defaulters reports
         // ko per-consumer amount/date/category chahiye (sirf IVRS list se kaam nahi
         // chalega), lekin poori nested payment_rows duplication (jo purane endpoint
@@ -3871,13 +4290,18 @@
         }
 
         function setProgressRevenueReportType(value) {
-            const validValues = ["STAFF", "CATEGORY", "TARGET", "DEFAULTERS", "NONPAYEE_3M", "NONPAYEE_6M", "NONPAYEE_SINCE_CONNECTION", "PAIDCOUNT"];
+            const validValues = ["STAFF", "CATEGORY", "TARGET", "DEFAULTERS", "NONPAYEE_3M", "NONPAYEE_6M", "NONPAYEE_SINCE_CONNECTION", "PAIDCOUNT", "REVENUE_FREEZE"];
             progressRevenueReportType = validValues.includes(value) ? value : "STAFF";
             resetProgressNonPayeeFilterState();
             progressDefaultersGovtFilter = "";
             progressTargetGovtFilter = "";
             progressStaffTypeFilter = "";
             progressPaidCountFilter = "";
+            if (progressRevenueReportType === "REVENUE_FREEZE") {
+                lastRevenueProgressFreezeResult = null;
+                loadRevenueProgressFreezeData();
+                return;
+            }
             const body = document.getElementById("progress-revenue-body");
             if (body) body.innerHTML = renderProgressRevenueBodyInner();
         }
@@ -3904,6 +4328,7 @@
             if (progressRevenueReportType === "NONPAYEE_6M") return "Non Payee From 6 Month";
             if (progressRevenueReportType === "NONPAYEE_SINCE_CONNECTION") return "Non Payee From Date of Connection";
             if (progressRevenueReportType === "PAIDCOUNT") return "Paid Count Summary";
+            if (progressRevenueReportType === "REVENUE_FREEZE") return `Revenue Freeze Report - ${getRevenueFreezeCategoryLabel(progressFreezeCategory)}`;
             return "Category Wise";
         }
 
@@ -4012,7 +4437,7 @@
             // download karne ke liye poori list scroll na karni pade. Isliye yahan (list ke baad)
             // dobara buttons nahi jodte, warna do baar dikhte. Baaki Category/Target/Defaulters
             // pehle jaisे hi (bodyHtml ke NEECHE) buttons rakhte hain - wahan list chhoti hoti hai.
-            const isNonPayeeType = ["NONPAYEE_3M", "NONPAYEE_6M", "NONPAYEE_SINCE_CONNECTION"].includes(progressRevenueReportType);
+            const isNonPayeeType = ["NONPAYEE_3M", "NONPAYEE_6M", "NONPAYEE_SINCE_CONNECTION", "REVENUE_FREEZE"].includes(progressRevenueReportType);
             if (progressRevenueReportType === "TARGET") {
                 // USER REQUEST (2026-08-13): Govt/Non-Govt filter - jab select ho, tab
                 // hi tree ko us filter ke saath dobara (local, bina naye fetch ke)
@@ -4033,6 +4458,8 @@
                 bodyHtml = renderRevenueProgressNonPayeeSummaryHtml(data.mode || "DAILY", data.filterValue || "", "SINCE_CONNECTION");
             } else if (progressRevenueReportType === "PAIDCOUNT") {
                 bodyHtml = renderRevenueProgressPaidCountSummaryHtml(data.hqVillageSummaryData);
+            } else if (progressRevenueReportType === "REVENUE_FREEZE") {
+                bodyHtml = renderRevenueProgressFreezeSummaryHtml();
             } else {
                 bodyHtml = data.hqVillageSummaryData ? renderRevenueProgressHqVillageSummaryHtml(data.hqVillageSummaryData) : `<div style="font-size:0.75rem; font-weight:950; color:#1d4ed8; text-align:center;">Category Wise Paid/Unpaid Summary</div>`;
             }
@@ -4051,7 +4478,7 @@
         }
 
         function renderProgressRevenueBodyInner() {
-            if (["CATEGORY", "TARGET", "DEFAULTERS", "NONPAYEE_3M", "NONPAYEE_6M", "NONPAYEE_SINCE_CONNECTION", "PAIDCOUNT"].includes(progressRevenueReportType)) {
+            if (["CATEGORY", "TARGET", "DEFAULTERS", "NONPAYEE_3M", "NONPAYEE_6M", "NONPAYEE_SINCE_CONNECTION", "PAIDCOUNT", "REVENUE_FREEZE"].includes(progressRevenueReportType)) {
                 return renderRevenueProgressNonStaffBoxHtml();
             }
             const staffData = lastRevenueProgressStaffData || { rows: [], label: "" };
@@ -4071,6 +4498,7 @@
                     <option value="NONPAYEE_6M" ${progressRevenueReportType === "NONPAYEE_6M" ? "selected" : ""}>Non Payee From 6 Month</option>
                     <option value="NONPAYEE_SINCE_CONNECTION" ${progressRevenueReportType === "NONPAYEE_SINCE_CONNECTION" ? "selected" : ""}>Non Payee From Date of Connection</option>
                     <option value="PAIDCOUNT" ${progressRevenueReportType === "PAIDCOUNT" ? "selected" : ""}>Paid Count Summary</option>
+                    <option value="REVENUE_FREEZE" ${progressRevenueReportType === "REVENUE_FREEZE" ? "selected" : ""}>🧊 Revenue Freeze Report</option>
                 </select>
             `;
             return `${selectHtml}<div id="progress-revenue-body">${renderProgressRevenueBodyInner()}</div>`;
@@ -19168,6 +19596,7 @@
                 if (id === "panchnama-tool-admin") headerTitle = "PANCHNAMA TEMPLATE";
                 if (id === "arrange-excel-tool-admin") headerTitle = "ARRANGE EXCEL FILE";
                 if (id === "image-to-excel-tool-admin") headerTitle = "IMAGE TO EXCEL CONVERTER";
+                if (id === "freeze-admin") headerTitle = "ADMIN FREEZE CONTROL";
                 if (id === "vr-download-log") headerTitle = "VR DOWNLOAD LOG";
                 if (id === "stock-material") headerTitle = "STOCK MATERIAL";
                 if (id === "shms-entry") headerTitle = "SHMS ENTRY";
@@ -19222,6 +19651,8 @@
                 if (arrangeExcelToolAdminMenuItem) arrangeExcelToolAdminMenuItem.style.display = id === "subdn-chhapara" ? "block" : "none";
                 const imageToExcelToolAdminMenuItem = document.getElementById("image-to-excel-tool-admin-header-menu-item");
                 if (imageToExcelToolAdminMenuItem) imageToExcelToolAdminMenuItem.style.display = id === "subdn-chhapara" ? "block" : "none";
+                const freezeAdminMenuItem = document.getElementById("freeze-admin-header-menu-item");
+                if (freezeAdminMenuItem) freezeAdminMenuItem.style.display = id === "subdn-chhapara" ? "block" : "none";
                 closeHeaderMenu();
                 const searchBtn = document.getElementById("search-btn");
                 if (id === "home") {
