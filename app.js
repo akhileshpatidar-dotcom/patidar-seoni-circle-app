@@ -6683,8 +6683,25 @@
             try {
                 return await xhrGetText(url, timeoutMs);
             } catch (_) {}
-            const fallbackResponse = await fetch(url);
-            return fallbackResponse.text();
+            // BUG FIX (2026-09-13): pehle yahan aakhri fallback "fetch(url)" bina
+            // kisi timeout/abort ke tha - agar network slow/unstable ho to yeh call
+            // kabhi-kabhi kaafi der (kai minute) tak latka reh sakta tha, jisse
+            // poori syncing 5+ minute tak atak jaati thi aur aakhir me
+            // "ERROR FETCHING DATA" / "...LOAD NAHI HO PAYI" aata tha (Circle-level
+            // Freeze aur DC-level Mobile dono me yahi shared function use hoti hai,
+            // isliye dono jagah yeh dikh raha tha). Ab isko bhi upar jaisa hi
+            // timeoutMs ke andar bound kar diya - teeno pehle attempt fail hone ke
+            // baad yeh bhi jaldi fail ho jayega, latkega nahi.
+            const finalController = typeof AbortController !== "undefined" ? new AbortController() : null;
+            const finalTimer = setTimeout(() => {
+                try { if (finalController) finalController.abort(); } catch (_) {}
+            }, timeoutMs);
+            try {
+                const fallbackResponse = await fetch(url, finalController ? { signal: finalController.signal } : {});
+                return await fallbackResponse.text();
+            } finally {
+                clearTimeout(finalTimer);
+            }
         }
 
         async function loadRemoteJson(url, timeoutMs = 6000) {
