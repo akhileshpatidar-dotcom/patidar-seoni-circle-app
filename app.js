@@ -3563,10 +3563,24 @@
             loadRevenueProgressFreezeData();
         }
 
+        // BUG FIX (2026-09-13): Cache sirf tabhi reuse karni chahiye jab pichla
+        // result GENUINELY safal (successful) tha - agar pichli baar fetch
+        // fail hui thi (data.error = true, jaise network/backend slow ke
+        // karan), to usi (galat/error) result ko baar-baar dikhana galat hai -
+        // isse user ko lagta ki Freeze Report "kisi bhi level par nahi aa rahi"
+        // (asal me sirf ek purana cached error dikh raha hota, dobara try hi
+        // nahi hota jab tak khud "Try Again" na dabayein). Ab dono jagah
+        // (refreshFreezeModuleSummary + setProgressFreezeCategory) yahi shared
+        // check use karte hain - error wale result ko cache HIT nahi maante,
+        // seedha fresh fetch karte hain.
+        function isUsableFreezeCache(scopeKey) {
+            return !!lastRevenueProgressFreezeResult && !lastRevenueProgressFreezeResult.error && lastRevenueProgressFreezeScopeKey === scopeKey;
+        }
+
         function refreshFreezeModuleSummary() {
             updateProgressReportScopeTitle();
             const scopeKey = getRevenueFreezeScopeKey();
-            if (lastRevenueProgressFreezeResult && lastRevenueProgressFreezeScopeKey === scopeKey) {
+            if (isUsableFreezeCache(scopeKey)) {
                 const body = document.getElementById("summary-content");
                 if (body) body.innerHTML = renderFreezeModuleSummaryHtml();
                 return;
@@ -3603,7 +3617,7 @@
             // result cache me maujood hai to seedha wahi dikha dete hain, warna
             // hi fresh fetch karte hain.
             const scopeKey = getRevenueFreezeScopeKey();
-            if (lastRevenueProgressFreezeResult && lastRevenueProgressFreezeScopeKey === scopeKey) {
+            if (isUsableFreezeCache(scopeKey)) {
                 const body = document.getElementById("summary-content");
                 if (body) body.innerHTML = renderFreezeModuleSummaryHtml();
                 return;
