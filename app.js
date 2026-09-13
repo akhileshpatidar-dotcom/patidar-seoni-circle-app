@@ -3230,11 +3230,28 @@
         async function ensureRevenueFreezeActiveInfo(forceRefresh = false) {
             if (progressFreezeActiveFreeze && !forceRefresh) return progressFreezeActiveFreeze;
             if (!revenueFreezeTrackingScriptUrl || revenueFreezeTrackingScriptUrl.indexOf("PASTE_") === 0) return null;
-            const parsed = await withAppsScriptConcurrencyGate_(revenueFreezeTrackingScriptUrl, () => loadRemoteJson(`${revenueFreezeTrackingScriptUrl}?action=listFreezes`, 45000));
-            const freezes = Array.isArray(parsed?.freezes) ? parsed.freezes : [];
-            const active = freezes.filter((f) => f.status !== "UNFROZEN").sort((a, b) => String(b.freeze_date || "").localeCompare(String(a.freeze_date || "")))[0] || null;
-            progressFreezeActiveFreeze = active;
-            return active;
+            // BUG FIX (2026-09-13, further): Console se confirm hua ki yahan kabhi-kabhi
+            // Apps Script ka "echo" content-delivery layer 404/HTML error page de deta
+            // hai (JSON ki jagah <!DOCTYPE...), jisse JSON.parse yahin throw ho jaata
+            // (ek hi attempt hone se turant poori report fail ho jaati thi, chahe yeh
+            // ek transient/one-off hiccup ho). Ab yahan bhi 2 attempts (800ms gap) -
+            // dobara koshish karne par yeh aksar chal jaata hai. Sab attempts fail hone
+            // par bhi pehle jaisa hi throw karte hain (upar wala comment dekhein - taaki
+            // galat "no freeze active" na dikhe, sahi "Try Again" wala message dikhe).
+            let lastErr = null;
+            for (let attempt = 1; attempt <= 2; attempt++) {
+                try {
+                    const parsed = await withAppsScriptConcurrencyGate_(revenueFreezeTrackingScriptUrl, () => loadRemoteJson(`${revenueFreezeTrackingScriptUrl}?action=listFreezes`, 45000));
+                    const freezes = Array.isArray(parsed?.freezes) ? parsed.freezes : [];
+                    const active = freezes.filter((f) => f.status !== "UNFROZEN").sort((a, b) => String(b.freeze_date || "").localeCompare(String(a.freeze_date || "")))[0] || null;
+                    progressFreezeActiveFreeze = active;
+                    return active;
+                } catch (err) {
+                    lastErr = err;
+                    if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 800));
+                }
+            }
+            throw lastErr;
         }
 
         // USER REQUEST (2026-09-12): Har DC ka freeze data backend par apni ALAG
@@ -3534,10 +3551,14 @@
             const progress = body ? renderSyncingProgress(body, isStillValid) : null;
             try {
                 const active = await ensureRevenueFreezeActiveInfo();
+                console.log("[FreezeReport] step1 active =", active); // DIAGNOSTIC (2026-09-13, temp)
                 if (active) {
                     const fetchCategory = getEffectiveFreezeFetchCategory(progressFreezeCategory);
+                    console.log("[FreezeReport] step2 calling fetchRevenueFreezeSnapshotRowsForScope", active.freeze_id, fetchCategory); // DIAGNOSTIC (2026-09-13, temp)
                     const { rows, dcStatusMap } = await fetchRevenueFreezeSnapshotRowsForScope(active.freeze_id, fetchCategory);
+                    console.log("[FreezeReport] step3 snapshot done, rows.length =", rows.length, "dcStatusMap =", dcStatusMap); // DIAGNOSTIC (2026-09-13, temp)
                     await warmRevenueCategoryUploadedPaidCache();
+                    console.log("[FreezeReport] step4 warmCache done"); // DIAGNOSTIC (2026-09-13, temp)
                     lastRevenueProgressFreezeResult = { active, rows, dcStatusMap };
                 } else {
                     lastRevenueProgressFreezeResult = { active: null, rows: [], dcStatusMap: {} };
@@ -3563,7 +3584,10 @@
             if (bodyAfter) {
                 try {
                     bodyAfter.innerHTML = renderFreezeModuleSummaryHtml();
-                } catch (_) {
+                } catch (err) {
+                    // DIAGNOSTIC (2026-09-13): render phase me exact exception log karte
+                    // hain (behavior me koi badlav nahi, sirf console.error jyada hai).
+                    console.error("[FreezeReport] renderFreezeModuleSummaryHtml (first render) failed:", err);
                     lastRevenueProgressFreezeResult = { active: null, rows: [], error: true };
                     bodyAfter.innerHTML = renderFreezeModuleSummaryHtml();
                 }
