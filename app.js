@@ -3713,9 +3713,20 @@
                 });
                 return map;
             };
+            // BUG FIX (2026-09-13) - ASLI ROOT CAUSE: yahan pehle "normalizeHqName(...)"
+            // call ho raha tha, jo kahin bhi is function ke scope me defined nahi tha
+            // (sirf buildProgressRevenueSummaryRows() ke ANDAR ek alag local const ke
+            // roop me tha) - isliye DC-level par (jab bhi yeh group-summary banti thi)
+            // seedha "ReferenceError: normalizeHqName is not defined" throw ho jaata
+            // tha, jo upar loadRevenueProgressFreezeData() ke try/catch tak jaakar
+            // generic "Freeze data load nahi ho payi" dikhata tha - DIVISION/CIRCLE
+            // par yeh line kabhi chalti hi nahi thi (wo normalizeDcName use karte hain,
+            // jo globally defined hai), isliye sirf DC hamesha fail hoti thi, Division/
+            // Circle hamesha chal jaate the. Ab yahin ek local helper define kar diya.
+            const normalizeHqNameLocal_ = (value) => String(value || "GENERAL").trim().toUpperCase() || "GENERAL";
 
             if (activeViewLevel === "DC") {
-                const map = sumByKey(normalizedRows, (r) => normalizeHqName(r.hqName) || "GENERAL");
+                const map = sumByKey(normalizedRows, (r) => normalizeHqNameLocal_(r.hqName) || "GENERAL");
                 const rows = Object.values(map).sort((a, b) => String(a.name).localeCompare(String(b.name)));
                 return { colLabel: revenueHqLabelUpper(), rows };
             }
