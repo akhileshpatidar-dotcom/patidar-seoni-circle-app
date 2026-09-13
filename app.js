@@ -3018,31 +3018,51 @@
                 let categoriesDone = 0;
                 for (const cat of categories) {
                     const percentNow = Math.round((categoriesDone / categories.length) * 100);
-                    setStatus(`${percentNow}% - Server par "${cat.label}" (${cat.rows.length} consumer) save ho raha hai... kripya wait kijiye`, false);
-                    const response = await fetchWithTimeout(revenueFreezeTrackingScriptUrl, {
-                        method: "POST",
-                        headers: { "Content-Type": "text/plain;charset=UTF-8" },
-                        body: JSON.stringify({ action: "saveFreezeSnapshot", freeze_id: freezeId, freeze_label: freezeLabel, freeze_date: nowIso, category: cat.key, rows: cat.rows })
-                    // PERFORMANCE FIX (2026-09-12) ke saath saath, ek genuine
-                    // SAME-DAY RE-RUN (jab purana data hatana bhi padta hai) ab
-                    // bhi thoda dheema ho sakta hai - Apps Script ka khud ka hard
-                    // execution limit 6 minute (360s) hai, isliye client timeout
-                    // usse thoda kam (5.5 minute) rakha hai taaki server ko poora
-                    // mauka mile, lekin browser hamesha ke liye atka na rahe.
-                    }, 330000);
-                    const text = await response.text();
-                    let parsed = {};
-                    try { parsed = JSON.parse(text || "{}"); } catch (_) {}
-                    // USER-REPORTED (2026-09-12): "Freeze save fail (Non Payee 6M)" jaisa
-                    // generic message dikh raha tha, jisse asli wajah pata nahi chalti thi -
-                    // ab agar backend se JSON ki jagah kuch aur (HTML error page, quota/
-                    // timeout error, redeploy-needed page) ya galat HTTP status aaye, to
-                    // uska ek chhota sa raw preview aur HTTP status bhi error message me
-                    // dikhega - taaki asli wajah pata chal sake.
-                    if (!response.ok || parsed.status === "error") {
-                        const rawSnippet = String(text || "").replace(/\s+/g, " ").trim().slice(0, 180);
-                        throw new Error(parsed.message || `Freeze save fail (${cat.label}) - HTTP ${response.status}${rawSnippet ? ": " + rawSnippet : ""}`);
+                    // BUG FIX (2026-09-13) - USER-REPORTED: "Freeze Now" beech me ek category
+                    // par HTTP 404 (Apps Script ka apna known "echo" content-delivery glitch,
+                    // jo pehle bhi Freeze Report/ensureRevenueFreezeActiveInfo me dekha gaya
+                    // tha - kabhi-kabhi high load par 1 baar aata hai, dobara try karne par
+                    // chala jaata hai) par fail ho jaati thi, aur poora 24-DC/9-category
+                    // process (jisme kaafi samay lagta hai) restart karna padta tha. Ab har
+                    // category ke liye 2 attempt (1.5s gap) try hote hain, isi tarah jaise
+                    // ensureRevenueFreezeActiveInfo me pehle se hai - poore process ko dobara
+                    // chalane ki zaroorat sirf tab hi padegi jab dono attempt fail ho jaayein.
+                    let categorySaved = false, lastCategoryErr = null;
+                    for (let attempt = 1; attempt <= 2 && !categorySaved; attempt++) {
+                        const retrySuffix = attempt > 1 ? ` (dobara try - attempt ${attempt})` : "";
+                        setStatus(`${percentNow}% - Server par "${cat.label}" (${cat.rows.length} consumer) save ho raha hai${retrySuffix}... kripya wait kijiye`, false);
+                        try {
+                            const response = await fetchWithTimeout(revenueFreezeTrackingScriptUrl, {
+                                method: "POST",
+                                headers: { "Content-Type": "text/plain;charset=UTF-8" },
+                                body: JSON.stringify({ action: "saveFreezeSnapshot", freeze_id: freezeId, freeze_label: freezeLabel, freeze_date: nowIso, category: cat.key, rows: cat.rows })
+                            // PERFORMANCE FIX (2026-09-12) ke saath saath, ek genuine
+                            // SAME-DAY RE-RUN (jab purana data hatana bhi padta hai) ab
+                            // bhi thoda dheema ho sakta hai - Apps Script ka khud ka hard
+                            // execution limit 6 minute (360s) hai, isliye client timeout
+                            // usse thoda kam (5.5 minute) rakha hai taaki server ko poora
+                            // mauka mile, lekin browser hamesha ke liye atka na rahe.
+                            }, 330000);
+                            const text = await response.text();
+                            let parsed = {};
+                            try { parsed = JSON.parse(text || "{}"); } catch (_) {}
+                            // USER-REPORTED (2026-09-12): "Freeze save fail (Non Payee 6M)" jaisa
+                            // generic message dikh raha tha, jisse asli wajah pata nahi chalti thi -
+                            // ab agar backend se JSON ki jagah kuch aur (HTML error page, quota/
+                            // timeout error, redeploy-needed page) ya galat HTTP status aaye, to
+                            // uska ek chhota sa raw preview aur HTTP status bhi error message me
+                            // dikhega - taaki asli wajah pata chal sake.
+                            if (!response.ok || parsed.status === "error") {
+                                const rawSnippet = String(text || "").replace(/\s+/g, " ").trim().slice(0, 180);
+                                throw new Error(parsed.message || `Freeze save fail (${cat.label}) - HTTP ${response.status}${rawSnippet ? ": " + rawSnippet : ""}`);
+                            }
+                            categorySaved = true;
+                        } catch (err) {
+                            lastCategoryErr = err;
+                            if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 1500));
+                        }
                     }
+                    if (!categorySaved) throw lastCategoryErr;
                     categoriesDone += 1;
                     setStatus(`${Math.round((categoriesDone / categories.length) * 100)}% ho gaya...`, false);
                 }
@@ -3814,15 +3834,93 @@
             return rows;
         }
 
+        // USER REQUEST (2026-09-13): Freeze Report (NP3/NP6/Since Connection) ke
+        // screen par ab har scope (DC/Division/Circle) par ek hi richer group-wise
+        // breakdown dikhta hai: NAME (HQ ya DC), TOTAL CONSUMER, PAID (COUNT +
+        // AMOUNT-IN-LAKH), PENDING (COUNT + AMOUNT-IN-LAKH) - DC-level par HQ-wise,
+        // Division/Circle par DC-wise (bilkul pehle jaisa scope-split). Amount
+        // sirf is SUMMARY table me LAKH format me hai (jaise 50000 -> 0.50) -
+        // neeche ki consumer LIST (DC-level) aur DOWNLOAD (Excel/PDF, dono scope
+        // par) me poora/complete amount hi dikhta hai, yeh badlav sirf is on-screen
+        // summary table tak seemित hai. Ek hi shared table-renderer, taaki HQ-wise
+        // aur DC-wise dono jagah exact same look/behaviour rahe.
+        function renderFreezeGroupSummaryTableHtml(nameColLabel, summaryRows, titleText) {
+            const headCellStyle = "padding:6px 4px; font-size:0.56rem; font-weight:900; text-transform:uppercase; background:#0891b2; color:#fff; text-align:center;";
+            const bodyCellStyle = "padding:5px 4px; font-size:0.62rem; text-align:center; border-bottom:1px solid #e2e8f0;";
+            const rowsHtml = summaryRows.map((r) => {
+                const isTotal = r.type === "SUB_TOTAL" || r.type === "GRAND_TOTAL";
+                const rowBg = r.type === "GRAND_TOTAL" ? "background:#dbeafe;" : (r.type === "SUB_TOTAL" ? "background:#f1f5f9;" : "");
+                const fw = isTotal ? "font-weight:900;" : "font-weight:700;";
+                return `<tr style="${rowBg}">
+                    <td style="${bodyCellStyle} ${fw} text-align:left;">${escapeHtml(r.name)}</td>
+                    <td style="${bodyCellStyle} ${fw}">${r.totalCount}</td>
+                    <td style="${bodyCellStyle} ${fw} color:#166534;">${r.paidCount}</td>
+                    <td style="${bodyCellStyle} ${fw} color:#166534;">${formatRevenueLakhValue(r.paidAmount)}</td>
+                    <td style="${bodyCellStyle} ${fw} color:#9f1239;">${r.pendingCount}</td>
+                    <td style="${bodyCellStyle} ${fw} color:#9f1239;">${formatRevenueLakhValue(r.pendingAmount)}</td>
+                </tr>`;
+            }).join("");
+            return `
+                <div style="font-size:0.62rem; font-weight:900; color:#9f1239; text-align:center; margin-top:10px;">${escapeHtml(titleText)}</div>
+                <div style="overflow-x:auto; margin-top:6px; border-radius:10px; border:1px solid #e2e8f0;">
+                    <table style="width:100%; border-collapse:collapse; min-width:480px;">
+                        <thead>
+                            <tr>
+                                <th rowspan="2" style="${headCellStyle}">${escapeHtml(nameColLabel)}</th>
+                                <th rowspan="2" style="${headCellStyle}">TOTAL<br>CONSUMER</th>
+                                <th colspan="2" style="${headCellStyle}">PAID</th>
+                                <th colspan="2" style="${headCellStyle}">PENDING</th>
+                            </tr>
+                            <tr>
+                                <th style="${headCellStyle}">COUNT</th>
+                                <th style="${headCellStyle}">AMT (LAKH)</th>
+                                <th style="${headCellStyle}">COUNT</th>
+                                <th style="${headCellStyle}">AMT (LAKH)</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rowsHtml}</tbody>
+                    </table>
+                </div>`;
+        }
+
+        function renderFreezeDcWiseSummaryHtml(rowsWithStatus) {
+            return renderFreezeGroupSummaryTableHtml("DC NAME", buildFreezeDcWiseSummaryRows(rowsWithStatus), "DC WISE SUMMARY (AMOUNT IN LAKH)");
+        }
+
+        // DC-level scope ke liye HQ-wise wahi group summary (buildFreezeDcWiseSummaryRows
+        // jaisa hi structure, bas dc_name ki jagah hq_name se group hota hai - koi
+        // SUB_TOTAL/GRAND_TOTAL nahi, kyonki DC-level par divisions nahi hote).
+        function buildFreezeHqWiseSummaryRows(rowsWithStatus) {
+            const emptyGroup = (key) => ({ name: key, totalCount: 0, paidCount: 0, paidAmount: 0, pendingCount: 0, pendingAmount: 0 });
+            const map = {};
+            (rowsWithStatus || []).forEach((r) => {
+                const key = String(r.hq_name || "").trim().toUpperCase() || "GENERAL";
+                if (!map[key]) map[key] = emptyGroup(key);
+                const g = map[key];
+                g.totalCount += 1;
+                if (r.isPaidNow) { g.paidCount += 1; g.paidAmount += Number(r.paidAmountNow || 0); }
+                else { g.pendingCount += 1; g.pendingAmount += Number(r.remainingPending || 0); }
+            });
+            return Object.values(map).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+        }
+
+        function renderFreezeHqWiseSummaryHtml(rowsWithStatus) {
+            return renderFreezeGroupSummaryTableHtml(revenueHqLabelUpper(), buildFreezeHqWiseSummaryRows(rowsWithStatus), "HQ WISE SUMMARY (AMOUNT IN LAKH)");
+        }
+
         // Freeze Report (NP3/NP6/Since Connection) ke Division/Circle download ke
         // liye DC-wise summary Excel/PDF banata hai (list ki jagah) - downloadRevenueFreezeReport()
         // se hi (uske try/catch ke andar) call hota hai.
         function downloadRevenueFreezeDcWiseSummary(fmt, data, downloadTypeLabel) {
             const summaryRows = buildFreezeDcWiseSummaryRows(data.rowsWithStatus);
-            const headers = ["DC NAME", "TOTAL CONSUMER", "PAID COUNT", "PAID AMOUNT", "PENDING COUNT", "PENDING AMOUNT", "PAID %", "PENDING %"];
+            // USER REQUEST (2026-09-13): Division/Circle ki DC-wise summary (screen
+            // aur is download dono me) ab PAID/PENDING amount LAKH me dikhaegi (jaise
+            // 50000 -> 0.50) - poora/complete amount sirf DC-level ki consumer LIST
+            // me dikhta rahega (yahan disturb nahi kiya).
+            const headers = ["DC NAME", "TOTAL CONSUMER", "PAID COUNT", "PAID AMT (LAKH)", "PENDING COUNT", "PENDING AMT (LAKH)", "PAID %", "PENDING %"];
             const bodyRows = summaryRows.map((r) => [
-                r.name, r.totalCount, r.paidCount, formatProgressReportAmount(r.paidAmount),
-                r.pendingCount, formatProgressReportAmount(r.pendingAmount), `${r.paidPercent}%`, `${r.pendingPercent}%`
+                r.name, r.totalCount, r.paidCount, formatRevenueLakhValue(r.paidAmount),
+                r.pendingCount, formatRevenueLakhValue(r.pendingAmount), `${r.paidPercent}%`, `${r.pendingPercent}%`
             ]);
             const rowTypeFlags = summaryRows.map((r) => (r.type === "GRAND_TOTAL" ? 2 : (r.type === "SUB_TOTAL" ? 1 : 0)));
             const scope = activeViewLevel === "DIVISION" ? activeDiv : "SEONI CIRCLE";
@@ -3877,8 +3975,15 @@
         }
 
         function renderRevenueProgressFreezeSummaryHtml() {
+            // USER REQUEST (2026-09-13): Yeh category dropdown (NP3/NP6/Since
+            // Connection/Top20/Top50) baaki filter dropdowns (DC/HQ/Village/
+            // Category/Slab/Govt - orange border, white background) se alag
+            // dikhna chahiye taaki confuse na ho ki "yeh dropdown alag/important
+            // hai" - isliye ab solid teal background + white bold text (sabhi
+            // scope - DC/Division/Circle - par, kyonki yeh ek hi shared function
+            // hai).
             const categorySelectHtml = `
-                <select onchange="setProgressFreezeCategory(this.value)" style="width:100%; height:44px; margin:8px auto 0; display:block; border:1.5px solid #0891b2; border-radius:12px; padding:0 12px; font-size:0.78rem; font-weight:900; color:#0f172a; background:#ffffff;">
+                <select onchange="setProgressFreezeCategory(this.value)" style="width:100%; height:46px; margin:8px auto 0; display:block; border:2px solid #0e7490; border-radius:12px; padding:0 12px; font-size:0.8rem; font-weight:900; color:#ffffff; background:#0891b2; box-shadow:0 2px 6px rgba(8,145,178,0.35);">
                     <option value="" ${progressFreezeCategory === "" ? "selected" : ""} disabled style="color:#64748b; background:#f1f5f9; font-weight:900;">Choose Report Type</option>
                     <option value="NP3" ${progressFreezeCategory === "NP3" ? "selected" : ""} style="color:#1d4ed8; background:#eff6ff; font-weight:900;">Non Payee From 3 Month</option>
                     <option value="NP6" ${progressFreezeCategory === "NP6" ? "selected" : ""} style="color:#7e22ce; background:#faf5ff; font-weight:900;">Non Payee From 6 Month</option>
@@ -3982,7 +4087,11 @@
                     <div style="background:#fff1f2; border-radius:12px; padding:8px 4px; text-align:center;"><div style="font-size:0.54rem; font-weight:850; color:#9f1239; text-transform:uppercase;">Pending Amount (abhi bakaya)</div><div style="font-size:0.85rem; font-weight:950; color:#9f1239; margin-top:2px;">${formatProgressReportAmount(t.pendingAmount)}</div></div>
                     <div style="background:#f0fdfa; border-radius:12px; padding:8px 4px; text-align:center;"><div style="font-size:0.54rem; font-weight:850; color:#0e7490; text-transform:uppercase;">Frozen Total Amount</div><div style="font-size:0.85rem; font-weight:950; color:#0e7490; margin-top:2px;">${formatProgressReportAmount(t.totalFrozenAmount)}</div></div>
                 </div>
-                ${!isFreezeCategoryDefaultersType() ? renderRevenueNonPayeeGroupSummaryHtml(data.rowsWithStatus.map((r) => ({ dcName: r.dc_name, hqName: r.hq_name, pendingAmount: r.pending_amount }))) : ""}
+                ${!isFreezeCategoryDefaultersType() ? (
+                    activeViewLevel === "DC"
+                        ? renderFreezeHqWiseSummaryHtml(data.rowsWithStatus)
+                        : renderFreezeDcWiseSummaryHtml(data.rowsWithStatus)
+                ) : ""}
                 <div class="btn-export-row" style="margin-top:10px;">
                     <button class="btn-unique btn-excel-unique" onclick="downloadRevenueFreezeReport('XLS')">Freeze Report Excel</button>
                     <button class="btn-unique btn-pdf-unique" onclick="downloadRevenueFreezeReport('PDF')">Freeze Report PDF</button>
@@ -4902,6 +5011,30 @@
             return html;
         }
 
+        // USER REQUEST (2026-09-13): Live Revenue Report ke "{colLabel} WISE" on-screen
+        // summary ko bhi Freeze Report jaisa hi richer table dikhana hai - NAME | TOTAL
+        // CONSUMER | PAID (COUNT + AMT-LAKH) | PENDING (COUNT + AMT-LAKH). Data wahi
+        // buildRevenueHqVillagePaidUnpaidTree() se aaya "tree" hai (paidTotal/unpaidTotal/
+        // paidAmountTotal/unpaidAmountTotal already ismein hain) - sirf Freeze wale shared
+        // renderFreezeGroupSummaryTableHtml() renderer ke expected shape (totalCount/
+        // paidCount/paidAmount/pendingCount/pendingAmount) me map karte hain. SUBDN_TOTAL
+        // (sub-division subtotal) ko halka "SUB_TOTAL" jaisa aur DIVISION SUB_TOTAL ko
+        // zyada dark "GRAND_TOTAL" jaisa dikhaya hai taaki purani jaisi hi hierarchy
+        // (sub-division halka, division dark) bani rahe. Download (Excel/PDF/CSV) is
+        // change se bilkul untouched hai - wo apna alag flat-list code path use karta hai.
+        function renderRevenueHqVillageRichSummaryTableHtml(tree, colLabel) {
+            const summaryRows = (tree || []).map((row) => ({
+                name: row.name,
+                totalCount: Number(row.paidTotal || 0) + Number(row.unpaidTotal || 0),
+                paidCount: Number(row.paidTotal || 0),
+                paidAmount: Number(row.paidAmountTotal || 0),
+                pendingCount: Number(row.unpaidTotal || 0),
+                pendingAmount: Number(row.unpaidAmountTotal || 0),
+                type: row.type === "SUB_TOTAL" ? "GRAND_TOTAL" : (row.type === "SUBDN_TOTAL" ? "SUB_TOTAL" : undefined)
+            }));
+            return renderFreezeGroupSummaryTableHtml(colLabel, summaryRows, `${colLabel} WISE SUMMARY (AMOUNT IN LAKH)`);
+        }
+
         function renderRevenueTargetStaticTableHtml(tree, colLabel) {
             // User request: Daily Progress (DC/Division/Circle) ke Target vs
             // Achievement report me row-sequence ab % (achievement) ke hisaab se
@@ -5397,7 +5530,7 @@
                     ${catRows || `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div class="text-rose-600">Category data nahi mila.</div></div>`}
                 </div>
                 <div style="font-size:0.62rem; font-weight:900; color:#1d4ed8; text-align:center; margin-top:10px;">${colLabel} WISE</div>
-                ${renderRevenueHqVillageStaticTableHtml(data.tree, colLabel)}
+                ${renderRevenueHqVillageRichSummaryTableHtml(data.tree, colLabel)}
             `;
         }
 
