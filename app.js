@@ -2833,8 +2833,10 @@
                 const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
                 const timer = setTimeout(() => { try { if (controller) controller.abort(); } catch (_) {} }, 90000);
                 try {
-                    const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getUploadedPaidEntries&dc_name=${encodeURIComponent(dcName)}&t=${Date.now()}`, controller ? { signal: controller.signal } : {});
-                    const parsed = await response.json();
+                    const parsed = await withAppsScriptConcurrencyGate_(revenueCollectionSubmitScriptUrl, async () => {
+                        const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getUploadedPaidEntries&dc_name=${encodeURIComponent(dcName)}&t=${Date.now()}`, controller ? { signal: controller.signal } : {});
+                        return await response.json();
+                    });
                     if (parsed && parsed.status === "success") return parsed;
                 } catch (_) {} finally {
                     clearTimeout(timer);
@@ -2868,8 +2870,10 @@
                 // lage.
                 const timer = setTimeout(() => { try { if (controller) controller.abort(); } catch (_) {} }, 150000);
                 try {
-                    const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getUploadedPaidIvrsList&dc_name=${encodeURIComponent(dcName)}&t=${Date.now()}`, controller ? { signal: controller.signal } : {});
-                    const parsed = await response.json();
+                    const parsed = await withAppsScriptConcurrencyGate_(revenueCollectionSubmitScriptUrl, async () => {
+                        const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getUploadedPaidIvrsList&dc_name=${encodeURIComponent(dcName)}&t=${Date.now()}`, controller ? { signal: controller.signal } : {});
+                        return await response.json();
+                    });
                     if (parsed && parsed.status === "success" && Array.isArray(parsed.entries)) return parsed;
                 } catch (_) {} finally {
                     clearTimeout(timer);
@@ -3226,7 +3230,7 @@
         async function ensureRevenueFreezeActiveInfo(forceRefresh = false) {
             if (progressFreezeActiveFreeze && !forceRefresh) return progressFreezeActiveFreeze;
             if (!revenueFreezeTrackingScriptUrl || revenueFreezeTrackingScriptUrl.indexOf("PASTE_") === 0) return null;
-            const parsed = await loadRemoteJson(`${revenueFreezeTrackingScriptUrl}?action=listFreezes`, 45000);
+            const parsed = await withAppsScriptConcurrencyGate_(revenueFreezeTrackingScriptUrl, () => loadRemoteJson(`${revenueFreezeTrackingScriptUrl}?action=listFreezes`, 45000));
             const freezes = Array.isArray(parsed?.freezes) ? parsed.freezes : [];
             const active = freezes.filter((f) => f.status !== "UNFROZEN").sort((a, b) => String(b.freeze_date || "").localeCompare(String(a.freeze_date || "")))[0] || null;
             progressFreezeActiveFreeze = active;
@@ -3273,7 +3277,7 @@
             // network error ki jagah).
             for (let attempt = 1; attempt <= attempts; attempt++) {
                 try {
-                    const parsed = await loadRemoteJson(`${revenueFreezeTrackingScriptUrl}?action=getFreezeSnapshot&freeze_id=${encodeURIComponent(freezeId)}&category=${encodeURIComponent(category)}&dc_name=${encodeURIComponent(normalizedDc)}`, 90000);
+                    const parsed = await withAppsScriptConcurrencyGate_(revenueFreezeTrackingScriptUrl, () => loadRemoteJson(`${revenueFreezeTrackingScriptUrl}?action=getFreezeSnapshot&freeze_id=${encodeURIComponent(freezeId)}&category=${encodeURIComponent(category)}&dc_name=${encodeURIComponent(normalizedDc)}`, 90000));
                     const rows = Array.isArray(parsed?.rows) ? parsed.rows : [];
                     const dcStatus = String(parsed?.dc_status || "").trim() || "ACTIVE";
                     const result = { rows, dc_status: dcStatus };
@@ -3538,7 +3542,12 @@
                 } else {
                     lastRevenueProgressFreezeResult = { active: null, rows: [], dcStatusMap: {} };
                 }
-            } catch (_) {
+            } catch (err) {
+                // DIAGNOSTIC (2026-09-13): asli exception console me log karte hain -
+                // taaki pata chale generic "load nahi ho payi" message ke peechhe
+                // konsa exact JS error/exception hai (behavior me koi badlav nahi,
+                // sirf ek console.error jyada hai).
+                console.error("[FreezeReport] loadRevenueProgressFreezeData failed:", err);
                 lastRevenueProgressFreezeResult = { active: null, rows: [], error: true };
             }
             progressFreezeLoading = false;
@@ -4138,8 +4147,10 @@
                 // se hi fix hota hai, timeout badhane se nahi.)
                 const timer = setTimeout(() => { try { if (controller) controller.abort(); } catch (_) {} }, 60000);
                 try {
-                    const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getUploadedPaidCategoryList&dc_name=${encodeURIComponent(dcName)}&t=${Date.now()}`, controller ? { signal: controller.signal } : {});
-                    const parsed = await response.json();
+                    const parsed = await withAppsScriptConcurrencyGate_(revenueCollectionSubmitScriptUrl, async () => {
+                        const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getUploadedPaidCategoryList&dc_name=${encodeURIComponent(dcName)}&t=${Date.now()}`, controller ? { signal: controller.signal } : {});
+                        return await response.json();
+                    });
                     if (parsed && parsed.status === "success" && Array.isArray(parsed.entries)) return parsed;
                 } catch (_) {} finally {
                     clearTimeout(timer);
@@ -6908,6 +6919,41 @@
         async function loadRemoteJson(url, timeoutMs = 6000) {
             const text = await loadRemoteText(url, timeoutMs);
             return JSON.parse(text || "null");
+        }
+
+        // GLOBAL APPS SCRIPT CONCURRENCY GATE (2026-09-13): USER-REPORTED BUG - Freeze
+        // Report DC-level par bahut samay (minutes) leta tha, phir bhi "load nahi ho
+        // payi" dikhata tha - Chrome Console me dekhne par asli wajah yeh nikli:
+        // "script.googleusercontent.com/macros/echo...404" errors, aur Network tab
+        // me Freeze ki apni request ke saath-saath DOOSRE modules (Live Revenue
+        // getEntries, Line TD getTDEntries) ki background sync bhi USI WAQT chal
+        // rahi thi (pichli screen se bachi hui, apne retry attempts poore kar rahi
+        // thi) - sab EK HI Apps Script project par ek saath takra gayi. Itni saari
+        // requests ek saath jaane par Google ka content-serving hissa (echo) kabhi-
+        // kabhi 404 de deta hai - yeh "DC ka data bada hai" ya "network slow hai"
+        // nahi hai, sirf bahut zyada concurrent requests ka takraav hai.
+        // Fix: har Apps Script URL (host+path, query params chhodkar) ke liye ek
+        // chhota queue - ek waqt me zyada se zyada 2 requests hi us URL par jaane
+        // dete hain, baaki apni baari ka wait karte hain (turant fail nahi hote,
+        // sirf thoda queue me rukte hain). Isse koi bhi ek screen (Freeze, Live
+        // Revenue, Line TD, Mobile) dusri screen ki background activity ki wajah se
+        // fail nahi hogi. Yeh sirf ek "traffic gate" hai - kisi bhi fetch/response
+        // handling logic ko badalta nahi, sirf timing thodi manage karta hai.
+        const appsScriptConcurrencyState_ = {};
+        async function withAppsScriptConcurrencyGate_(scriptUrl, task) {
+            const key = String(scriptUrl || "").split("?")[0] || "default";
+            const state = appsScriptConcurrencyState_[key] || (appsScriptConcurrencyState_[key] = { active: 0, queue: [] });
+            if (state.active >= 2) {
+                await new Promise((resolve) => state.queue.push(resolve));
+            }
+            state.active += 1;
+            try {
+                return await task();
+            } finally {
+                state.active -= 1;
+                const next = state.queue.shift();
+                if (next) next();
+            }
         }
 
         function isLikelyCsvPayload(rawText) {
@@ -13262,8 +13308,10 @@
             const scopeParam = scopeDc ? `&dc_name=${encodeURIComponent(scopeDc)}` : "";
             for (let attempt = 1; attempt <= attempts; attempt++) {
                 try {
-                    const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getTDEntries${scopeParam}&t=${Date.now()}`);
-                    const parsed = await response.json();
+                    const parsed = await withAppsScriptConcurrencyGate_(revenueCollectionSubmitScriptUrl, async () => {
+                        const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getTDEntries${scopeParam}&t=${Date.now()}`);
+                        return await response.json();
+                    });
                     const sourceRows = Array.isArray(parsed?.entries)
                         ? parsed.entries
                         : (Array.isArray(parsed?.rows) ? parsed.rows : (Array.isArray(parsed?.data) ? parsed.data : []));
@@ -15958,8 +16006,10 @@
             const scopeParam = scopeDc ? `&dc_name=${encodeURIComponent(scopeDc)}` : "";
             for (let attempt = 1; attempt <= attempts; attempt++) {
                 try {
-                    const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getEntries${scopeParam}&t=${Date.now()}`);
-                    const parsed = await response.json();
+                    const parsed = await withAppsScriptConcurrencyGate_(revenueCollectionSubmitScriptUrl, async () => {
+                        const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getEntries${scopeParam}&t=${Date.now()}`);
+                        return await response.json();
+                    });
                     const sourceRows = Array.isArray(parsed?.entries)
                         ? parsed.entries
                         : (Array.isArray(parsed?.rows) ? parsed.rows : (Array.isArray(parsed?.data) ? parsed.data : []));
@@ -16018,11 +16068,16 @@
             if (!revenueCollectionSubmitScriptUrl || !dcName) return null;
             for (let attempt = 1; attempt <= attempts; attempt++) {
                 try {
-                    const [paidResponse, tdResponse] = await Promise.all([
-                        fetch(`${revenueCollectionSubmitScriptUrl}?action=getEntries&dc_name=${encodeURIComponent(dcName)}&date=${encodeURIComponent(dateStr)}&t=${Date.now()}`),
-                        fetch(`${revenueCollectionSubmitScriptUrl}?action=getTDEntries&dc_name=${encodeURIComponent(dcName)}&date=${encodeURIComponent(dateStr)}&t=${Date.now()}`)
+                    const [paidParsed, tdParsed] = await Promise.all([
+                        withAppsScriptConcurrencyGate_(revenueCollectionSubmitScriptUrl, async () => {
+                            const paidResponse = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getEntries&dc_name=${encodeURIComponent(dcName)}&date=${encodeURIComponent(dateStr)}&t=${Date.now()}`);
+                            return await paidResponse.json();
+                        }),
+                        withAppsScriptConcurrencyGate_(revenueCollectionSubmitScriptUrl, async () => {
+                            const tdResponse = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getTDEntries&dc_name=${encodeURIComponent(dcName)}&date=${encodeURIComponent(dateStr)}&t=${Date.now()}`);
+                            return await tdResponse.json();
+                        })
                     ]);
-                    const [paidParsed, tdParsed] = await Promise.all([paidResponse.json(), tdResponse.json()]);
                     const paidSourceRows = Array.isArray(paidParsed?.entries) ? paidParsed.entries : null;
                     const tdSourceRows = Array.isArray(tdParsed?.entries) ? tdParsed.entries : null;
                     if (paidParsed && paidParsed.status === "success" && Array.isArray(paidSourceRows) &&
