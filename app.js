@@ -2898,6 +2898,32 @@
         // thi. activeViewLevel/activeDC/activeDiv ko sirf computation ke liye
         // temporarily "CIRCLE" kiya jaata hai, phir turant wapas restore ho
         // jaata hai - user jis bhi screen par ho (Admin panel), wahi bana rahega.
+        // USER REQUEST (2026-09-13): "Freeze Now" beech me ruk jaaye (koi category
+        // par 2 attempt ke bad bhi fail, tab band/network chali gayi, wagerah) to
+        // pehle poora 24-DC/9-category process (10-15+ minute) dobara se shuru
+        // karna padta tha. Ab is browser me ab tak kitni category safal hui, iska
+        // record localStorage me rakhte hain - taaki (a) dobara "Freeze Now" dabane
+        // par pehle se safal categories SKIP ho jaayein, sirf baaki bachi hui se
+        // aage badhe, aur (b) app/tab band karke dobara khole to Admin Freeze
+        // Control screen khulte hi "pichhli baar kitna % hua tha" turant dikh jaaye.
+        // NOTE: yeh backend me apne-aap chalne wala background job NAHI hai (Apps
+        // Script Web App ko is browser tab se hi request bhejni padti hai) - lekin
+        // dobara click karna ab bahut halka/fast ho jaata hai kyonki sirf bachi hui
+        // categories dobara save hoti hain, poora process nahi.
+        const FREEZE_NOW_PROGRESS_KEY = "seoniFreezeNowProgress_v1";
+        function readFreezeNowProgress() {
+            try {
+                const raw = localStorage.getItem(FREEZE_NOW_PROGRESS_KEY);
+                return raw ? JSON.parse(raw) : null;
+            } catch (_) { return null; }
+        }
+        function writeFreezeNowProgress(progress) {
+            try { localStorage.setItem(FREEZE_NOW_PROGRESS_KEY, JSON.stringify(progress)); } catch (_) {}
+        }
+        function clearFreezeNowProgress() {
+            try { localStorage.removeItem(FREEZE_NOW_PROGRESS_KEY); } catch (_) {}
+        }
+
         async function runRevenueFreezeNow() {
             if (!revenueFreezeTrackingScriptUrl || revenueFreezeTrackingScriptUrl.indexOf("PASTE_") === 0) {
                 return showToast("Freeze script URL abhi set nahi hai", false);
@@ -3015,8 +3041,25 @@
                 // save karne me 90 second se zyada lag sakta hai - isliye 4 minute (240
                 // second) ka timeout diya hai. Saath hi ab % progress bhi dikhta hai
                 // (jaise Admin Cash List upload me dikhta hai), 100% hote hi success.
+                // Resume-support: pichhli baar (isi din ka freeze_id) jitni categories
+                // safal ho chuki thi, unhe is baar skip kar dete hain.
+                const existingProgress = readFreezeNowProgress();
+                const alreadyDoneKeys = new Set(
+                    (existingProgress && existingProgress.freezeId === freezeId && !existingProgress.completed && Array.isArray(existingProgress.doneCategories))
+                        ? existingProgress.doneCategories
+                        : []
+                );
+                const doneCategoryKeysSoFar = Array.from(alreadyDoneKeys);
+                if (alreadyDoneKeys.size) {
+                    setStatus(`Pichhli baar ${alreadyDoneKeys.size}/${categories.length} category save ho chuki thi - unhe skip karke baaki bachi hui se aage badha rahe hain...`, false);
+                }
+
                 let categoriesDone = 0;
                 for (const cat of categories) {
+                    if (alreadyDoneKeys.has(cat.key)) {
+                        categoriesDone += 1;
+                        continue;
+                    }
                     const percentNow = Math.round((categoriesDone / categories.length) * 100);
                     // BUG FIX (2026-09-13) - USER-REPORTED: "Freeze Now" beech me ek category
                     // par HTTP 404 (Apps Script ka apna known "echo" content-delivery glitch,
@@ -3064,9 +3107,20 @@
                     }
                     if (!categorySaved) throw lastCategoryErr;
                     categoriesDone += 1;
+                    doneCategoryKeysSoFar.push(cat.key);
+                    // Har category safal hone ke turant baad progress save karte hain -
+                    // taaki beech me kahin bhi ruk jaaye (agli category fail, tab band,
+                    // network), ab tak ka progress kabhi na khoye.
+                    writeFreezeNowProgress({
+                        freezeId, freezeDate: nowIso, totalCategories: categories.length,
+                        doneCategories: doneCategoryKeysSoFar,
+                        updatedAt: new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }),
+                        completed: false
+                    });
                     setStatus(`${Math.round((categoriesDone / categories.length) * 100)}% ho gaya...`, false);
                 }
 
+                clearFreezeNowProgress();
                 setStatus(`✅ 100% - Freeze SUCCESSFUL (${freezeLabel}) - Non Payee 3M: ${np3.length}, 6M: ${np6.length}, Since Connection: ${sinceConn.length}, Top 20: ${top20.length}, Top 50: ${top50.length}`, true);
                 showToast("Freeze ho gaya", true);
                 progressFreezeActiveFreeze = null;
@@ -3075,7 +3129,7 @@
                 lastRevenueProgressFreezeScopeKey = null;
                 await loadFreezeAdminList();
             } catch (error) {
-                setStatus("Freeze nahi ho paya: " + (error?.message || "error"), false);
+                setStatus("Freeze nahi ho paya: " + (error?.message || "error") + " (jo categories safal ho chuki hain wo save rahengi - 'Freeze Now' dobara dabane par wahi se aage badhega)", false);
                 showToast("Freeze nahi ho paya", false);
             } finally {
                 activeViewLevel = savedViewLevel; activeDC = savedDC; activeDiv = savedDiv;
@@ -3219,6 +3273,20 @@
         function initFreezeAdmin() {
             const statusBox = document.getElementById("freeze-admin-status");
             if (statusBox) statusBox.style.display = "none";
+            // USER REQUEST (2026-09-13): agar pichhli baar "Freeze Now" beech me hi
+            // adhoora reh gaya tha, to screen khulte hi turant dikhna chahiye ki
+            // kitna % ho chuka tha (localStorage-based resume-progress record,
+            // dekhein runRevenueFreezeNow) - taaki dobara "Freeze Now" dabane se
+            // pehle andaza ho jaye, aur dabane par wahi se aage badhega.
+            const savedProgress = readFreezeNowProgress();
+            if (statusBox && savedProgress && !savedProgress.completed && savedProgress.totalCategories && (savedProgress.doneCategories || []).length > 0) {
+                const doneCount = savedProgress.doneCategories.length;
+                const pct = Math.round((doneCount / savedProgress.totalCategories) * 100);
+                statusBox.style.display = "block";
+                statusBox.style.background = "#fff7ed";
+                statusBox.style.color = "#9a3412";
+                statusBox.innerText = `⏸ Pichhli baar ka "Freeze Now" adhoora reh gaya tha - ${pct}% (${doneCount}/${savedProgress.totalCategories} category) save ho chuki thi${savedProgress.updatedAt ? " (" + savedProgress.updatedAt + " tak)" : ""}. "Freeze Now" dobara dabane par yahi se aage badhega.`;
+            }
             loadFreezeAdminList();
         }
 
