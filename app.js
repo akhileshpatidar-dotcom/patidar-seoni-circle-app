@@ -5658,7 +5658,24 @@
                     ? [activeDC]
                     : (activeViewLevel === "DIVISION" ? getDivisionDcNames(activeDiv) : getAllDcNames());
                 await ensureConsumerDataLoadedFor(targetMobileDcs);
-                const cloudData = await loadRemoteJson(`${scriptURL}?action=getSummary`);
+                // PERF FIX (2026-09-13): DC-level scope me sirf usi EK DC ka
+                // mobile-update data chahiye hota hai, lekin backend (getSummary)
+                // pehle hamesha SAARI (~24) DC sheets ka poora data scan karke
+                // bhejta tha - jaise-jaise data mahine dar mahine badhta gaya
+                // (roz naye "Updated Mobile No" entries), yeh poora scan slow
+                // hota gaya, aur DC-level (jahan sirf 1 sheet chahiye) bhi utna
+                // hi slow/timeout hone laga jitna Circle-level. Backend (.gs)
+                // me ab optional "dc" parameter support hai - DC scope me wahi
+                // bhejte hain (sirf usi ek sheet scan hoti hai, fast), Division/
+                // Circle scope me pehle jaisa hi bina "dc" ke poori request
+                // jaati hai (unhe sach me saari DC ka data chahiye). Agar
+                // backend abhi purana (bina is fix ke) deploy hai, to yeh naya
+                // param chup-chaap ignore ho jayega aur pehle jaisa hi behave
+                // karega - koi breaking change nahi.
+                const mobileSummaryDcParam = activeViewLevel === "DC" && activeDC
+                    ? `&dc=${encodeURIComponent(activeDC)}`
+                    : "";
+                const cloudData = await loadRemoteJson(`${scriptURL}?action=getSummary${mobileSummaryDcParam}`);
                 if (isStaleSummaryRefresh()) return;
                 uiListSummary = [];
                 grandTC = 0;
