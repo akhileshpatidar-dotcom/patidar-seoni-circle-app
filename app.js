@@ -3585,12 +3585,29 @@
                 progressFreezeCategory = "";
                 resetFreezeFilterState();
                 lastRevenueProgressFreezeResult = null;
+                lastRevenueProgressFreezeScopeKey = null;
                 const body = document.getElementById("summary-content");
                 if (body) body.innerHTML = renderFreezeModuleSummaryHtml();
                 return;
             }
             progressFreezeCategory = value;
             resetFreezeFilterState();
+            // BUG FIX (2026-09-13): Pehle yahan HAMESHA cache clear karke dobara
+            // fetch hota tha, chahe isi scope (DC/Division/Circle) aur isi
+            // category ka data isi session me pehle hi ek baar load ho chuka ho
+            // (jaise NP3 dekh kar Top20 par jaake wapas NP3 par aana) - isse
+            // dropdown se koi bhi report chunte hi har baar naya sync chalta tha,
+            // jo dheeme/slow network par bahut lamba mehsoos hota (user-reported:
+            // "dobara sync hona sahi nahi lagta"). Ab refreshFreezeModuleSummary()
+            // jaisa hi scope-key check karte hain - agar isi scope+category ka
+            // result cache me maujood hai to seedha wahi dikha dete hain, warna
+            // hi fresh fetch karte hain.
+            const scopeKey = getRevenueFreezeScopeKey();
+            if (lastRevenueProgressFreezeResult && lastRevenueProgressFreezeScopeKey === scopeKey) {
+                const body = document.getElementById("summary-content");
+                if (body) body.innerHTML = renderFreezeModuleSummaryHtml();
+                return;
+            }
             lastRevenueProgressFreezeResult = null;
             loadRevenueProgressFreezeData();
         }
