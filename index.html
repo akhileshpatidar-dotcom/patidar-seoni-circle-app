@@ -1693,25 +1693,57 @@
         </main>
 
         <main id="summary-view" class="view">
-            <div class="title-box-container"><div class="title-box flex flex-col items-center"><span class="title-text-bold" id="summary-title">PROGRESS REPORT</span></div></div>
+            <!-- USER REQUEST (2026-09-13): Pehle yahan hamesha light-green pill me
+                 hardcoded "PROGRESS REPORT" likha rehta tha - ab #summary-title
+                 (app.js ke updateProgressReportScopeTitle() se) turant "DC/DIVISION/
+                 CIRCLE PROGRESS REPORT" dikhata hai, aur pill ka look bhi zyada
+                 professional (dark slate-teal gradient, white bold text) kar diya -
+                 sirf ISI ek pill ke liye inline style hai, shared .title-box class
+                 (jo app ke doosre headers - SELECT YOUR DC, SHMS DAILY PROGRESS,
+                 etc - me bhi use hoti hai) bilkul untouched hai. -->
+            <div class="title-box-container"><div class="title-box flex flex-col items-center" style="background:linear-gradient(135deg, #0f172a 0%, #0e7490 100%); border-color:#0e7490; box-shadow:0 4px 14px rgba(14,116,144,0.3);"><span class="title-text-bold" id="summary-title" style="color:#ffffff; letter-spacing:0.3px;">PROGRESS REPORT</span></div></div>
             <div class="px-2">
-                <!-- USER REQUEST (2026-09-12): Pehle Mobile/Revenue do bade button + Freeze
-                     ka apna alag pill (teeno ka size/shape alag-alag, jagah bhi zyada leta
-                     tha) - ab teeno ek hi dropdown me hain, DC/Division/Circle sabhi jagah
-                     bilkul same dikhta hai aur screen me summary ke liye jyada jagah bachti
-                     hai. Alag se "Choose Report Type" label nahi hai - current selection
-                     seedha dropdown ke andar hi likhi hoti hai (red-filled, apne "active"
-                     tab jaisa distinct dikhta hai), select karte hi (aur tabhi) report sync
-                     hoti hai. -->
-                <div style="position:relative; width:100%; max-width:100%; margin-bottom:12px;">
-                    <select id="progress-report-type-select" onchange="setProgressModule(this.value)" style="width:100%; height:50px; border:2px solid #b91c1c; border-radius:14px; padding:0 38px 0 16px; font-size:0.8rem; font-weight:900; color:#ffffff; background:linear-gradient(135deg, #ef4444 0%, #b91c1c 100%); -webkit-appearance:none; appearance:none; text-transform:uppercase; box-shadow:0 6px 15px rgba(239, 68, 68, 0.25);">
-                        <option value="" selected disabled style="color:#64748b; background:#f1f5f9; font-weight:900;">Choose Report Type</option>
-                        <option value="MOBILE" style="color:#1d4ed8; background:#eff6ff; font-weight:900;">📱 Updated Mobile No</option>
-                        <option value="REVENUE" style="color:#15803d; background:#f0fdf4; font-weight:900;">💰 Revenue Report</option>
-                        <option value="FREEZE" style="color:#0e7490; background:#ecfeff; font-weight:900;">🧊 Revenue Freeze Report</option>
-                    </select>
-                    <div style="position:absolute; right:16px; top:50%; transform:translateY(-50%); pointer-events:none; color:#ffffff; font-size:0.65rem;">▼</div>
+                <!-- USER REQUEST (2026-09-13): Laal "Choose Report Type" dropdown (jo ek
+                     alert jaisa dikhta tha) ki jagah ab 3 professional "tiles" hain (har
+                     ek ka apna icon/colour, jaisa pehle dropdown ke options me tha) - koi
+                     bhi sync sirf tabhi shuru hoti hai jab user khud kisi tile par tap
+                     kare. Select hote hi poori tile-list chhup jaati hai, uski jagah ek
+                     chhoti "chip" (icon + naam + "Change") dikhti hai - chip par tap karne
+                     se wapas tile-list khul jaati hai. Dikhaana/chhupaana
+                     updateProgressReportPickerUI() (app.js) sambhalta hai. -->
+                <div id="progress-report-picker" class="report-picker">
+                    <div class="report-tile mobile" onclick="setProgressModule('MOBILE')">
+                        <div class="report-tile-ic">📱</div>
+                        <div class="report-tile-txt">
+                            <div class="report-tile-t1">Updated Mobile No</div>
+                            <div class="report-tile-t2">Mobile number entries ka daily record</div>
+                        </div>
+                        <div class="report-tile-chev">&rsaquo;</div>
+                    </div>
+                    <div class="report-tile revenue" onclick="setProgressModule('REVENUE')">
+                        <div class="report-tile-ic">💰</div>
+                        <div class="report-tile-txt">
+                            <div class="report-tile-t1">Live-Revenue Report</div>
+                            <div class="report-tile-t2">Staff / Category / Target / Non-Payee</div>
+                        </div>
+                        <div class="report-tile-chev">&rsaquo;</div>
+                    </div>
+                    <div class="report-tile freeze" onclick="setProgressModule('FREEZE')">
+                        <div class="report-tile-ic">🧊</div>
+                        <div class="report-tile-txt">
+                            <div class="report-tile-t1">Freeze-Revenue Report</div>
+                            <div class="report-tile-t2">Freeze snapshot vs abhi tak bhugtan</div>
+                        </div>
+                        <div class="report-tile-chev">&rsaquo;</div>
+                    </div>
                     <div id="progress-lok-btn" onclick="setProgressModule('LOK_ADALAT')" style="display:none;"></div>
+                </div>
+                <div id="progress-report-chip" class="report-chip" style="display:none;" onclick="showProgressReportPicker()">
+                    <div class="report-chip-l">
+                        <div id="progress-report-chip-ic" class="report-chip-ic">💰</div>
+                        <div id="progress-report-chip-lbl" class="report-chip-lbl">Live-Revenue Report</div>
+                    </div>
+                    <div class="report-chip-r">Change &rsaquo;</div>
                 </div>
                 <div id="progress-report-type-box" class="report-type-box">
                     <div id="opt-daily" class="report-opt active" onclick="setMode('DAILY')">Daily</div>

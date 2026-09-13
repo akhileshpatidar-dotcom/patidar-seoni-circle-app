@@ -791,7 +791,7 @@
             mobileUpdateReportTree = null;
             const dcName = activeDC;
             const isRenderValid = () => renderToken === mobileUpdateReportRenderToken && document.getElementById("mobile-update-report-view")?.classList.contains("active");
-            const progress = renderSyncingProgress(tableBox, isRenderValid, "SYNCING LATEST DATA...");
+            const progress = renderSyncingProgress(tableBox, isRenderValid, "SYNCING DATA... PLEASE WAIT");
             try {
                 if (!dcName) throw new Error("DC select nahi hai");
                 await ensureConsumerDataLoadedFor([dcName]);
@@ -989,7 +989,7 @@
             const renderToken = ++mobileUpdateWrongListRenderToken;
             const isRenderValid = () => renderToken === mobileUpdateWrongListRenderToken && document.getElementById("mobile-update-wrong-list-view")?.classList.contains("active");
             if (summaryBox) summaryBox.innerHTML = "";
-            const progress = renderSyncingProgress(tableBox, isRenderValid, "SYNCING LATEST DATA...");
+            const progress = renderSyncingProgress(tableBox, isRenderValid, "SYNCING DATA... PLEASE WAIT");
             try {
                 if (!dcName) throw new Error("DC select nahi hai");
                 await ensureConsumerDataLoadedFor([dcName]);
@@ -1356,7 +1356,7 @@
             mobileUpdateListRows = null;
             const dcName = activeDC;
             const isRenderValid = () => renderToken === mobileUpdateListRenderToken && document.getElementById("mobile-update-list-view")?.classList.contains("active");
-            const progress = renderSyncingProgress(summaryBox, isRenderValid, "SYNCING LATEST DATA...");
+            const progress = renderSyncingProgress(summaryBox, isRenderValid, "SYNCING DATA... PLEASE WAIT");
             try {
                 if (!dcName) throw new Error("DC select nahi hai");
                 await ensureConsumerDataLoadedFor([dcName]);
@@ -2176,14 +2176,51 @@
         // DC/Division/Circle sabhi scope me EK JAISA flow rehta hai (koi alag size/
         // style ka button nahi), aur screen me summary content ke liye jyada jagah
         // bachti hai.
-        // USER REQUEST (2026-09-12): Dropdown khulte hi (Daily Progress screen par
-        // aate hi) koi report auto-select/auto-sync NAHI honi chahiye - dropdown
-        // "Choose Report Type" placeholder par khaali khula rahega, aur SIRF jab
-        // user khud 3 me se ek option chunega tabhi wo report sync hogi.
+        // USER REQUEST (2026-09-12, redesigned 2026-09-13): Report type chunne se
+        // PEHLE koi report auto-select/auto-sync NAHI honi chahiye - SIRF jab user
+        // khud 3 me se ek tile tap karega tabhi wo report sync hogi. (2026-09-13:
+        // laal "Choose Report Type" dropdown ki jagah ab 3 professional tiles hain
+        // - updateProgressReportPickerUI() unhe select hote hi ek chhoti "chip" me
+        // badal deta hai.)
+        const PROGRESS_REPORT_TILE_INFO = {
+            MOBILE: { icon: "📱", label: "Updated Mobile No" },
+            REVENUE: { icon: "💰", label: "Live-Revenue Report" },
+            FREEZE: { icon: "🧊", label: "Freeze-Revenue Report" },
+            LOK_ADALAT: { icon: "⚖️", label: "Lok Adalat Notice" }
+        };
+
+        // Tile-list (koi report select nahi hua) vs chhoti chip (report select ho
+        // chuka hai) ke beech toggle karta hai - summaryModule ke current value ke
+        // hisaab se. Chip par tap karne se wapas tile-list khulti hai
+        // (showProgressReportPicker neeche dekhiye).
+        function updateProgressReportPickerUI() {
+            const picker = document.getElementById("progress-report-picker");
+            const chip = document.getElementById("progress-report-chip");
+            const info = PROGRESS_REPORT_TILE_INFO[summaryModule];
+            if (info) {
+                if (picker) picker.style.display = "none";
+                if (chip) {
+                    chip.style.display = "flex";
+                    const chipIc = document.getElementById("progress-report-chip-ic");
+                    const chipLbl = document.getElementById("progress-report-chip-lbl");
+                    if (chipIc) chipIc.innerText = info.icon;
+                    if (chipLbl) chipLbl.innerText = info.label;
+                }
+            } else {
+                if (picker) picker.style.display = "flex";
+                if (chip) chip.style.display = "none";
+            }
+        }
+
+        // Chip par tap karte hi wapas tile-list khulti hai - bilkul waisa hi jaisa
+        // koi report select hone se pehle (placeholder + koi sync nahi) dikhta hai.
+        function showProgressReportPicker() {
+            setProgressModule("");
+        }
+
         function setProgressModule(module) {
             summaryModule = module || "";
-            const typeSelect = document.getElementById("progress-report-type-select");
-            if (typeSelect && typeSelect.value !== summaryModule) typeSelect.value = summaryModule;
+            updateProgressReportPickerUI();
             const lokBtn = document.getElementById("progress-lok-btn");
             if (lokBtn) lokBtn.classList.toggle("active", module === "LOK_ADALAT");
             // Sirf Mobile/Revenue/Lok Adalat ko hi Daily/Monthly date-selection
@@ -2221,21 +2258,27 @@
         // yeh saaf message dikhta hai - koi bhi sync/fetch is waqt nahi chalti.
         function renderProgressReportPlaceholder() {
             const cont = document.getElementById("summary-content");
-            if (cont) cont.innerHTML = `<div style="text-align:center; color:#64748b; font-size:0.75rem; font-weight:800; padding:34px 14px;">Upar diye gaye dropdown se report type chunein.</div>`;
+            if (cont) cont.innerHTML = `<div style="text-align:center; color:#64748b; font-size:0.75rem; font-weight:800; padding:34px 14px;">Upar diye gaye options me se ek report chunein.</div>`;
         }
 
         // DC/Division/Circle chunte hi Daily Progress screen khulti hai - yahan
-        // dropdown ko wapas khaali "Choose Report Type" par reset karte hain
-        // (koi report yaad nahi rakhi jaati), taaki koi bhi sync tabhi shuru ho
-        // jab user khud dropdown se select kare.
+        // wapas khaali "koi report select nahi" state par reset karte hain (koi
+        // report yaad nahi rakhi jaati), taaki koi bhi sync tabhi shuru ho jab
+        // user khud kisi tile par tap kare.
         function resetProgressReportTypeSelection() {
             summaryModule = "";
-            const typeSelect = document.getElementById("progress-report-type-select");
-            if (typeSelect) typeSelect.value = "";
+            updateProgressReportPickerUI();
             const reportTypeBox = document.getElementById("progress-report-type-box");
             const dateWrap = document.getElementById("progress-report-date-wrap");
             if (reportTypeBox) reportTypeBox.style.display = "none";
             if (dateWrap) dateWrap.style.display = "none";
+            // BUG FIX (2026-09-13): Pehle yahan pill (updateProgressReportScopeTitle)
+            // update hi nahi hoti thi - DC/Division/Circle Daily Progress khulte hi
+            // (report type chunne se PEHLE) pill purani hi (ya default "PROGRESS
+            // REPORT") dikhti rehti thi. Ab yahan turant update karte hain, taaki
+            // report type select karne se pehle hi "DC/DIVISION/CIRCLE PROGRESS
+            // REPORT" saaf dikhe.
+            updateProgressReportScopeTitle();
             renderProgressReportPlaceholder();
         }
 
@@ -2863,7 +2906,7 @@
                 statusBox.style.color = ok ? "#047857" : "#1d4ed8";
                 statusBox.innerText = text;
             };
-            setStatus("Sabhi DC ka data load ho raha hai... kripya wait kijiye", false);
+            setStatus("SYNCING DATA... PLEASE WAIT", false);
             const savedViewLevel = activeViewLevel, savedDC = activeDC, savedDiv = activeDiv;
             try {
                 const allDcs = getAllDcNames();
@@ -2893,15 +2936,29 @@
                 // Top 20) nikalte hain, phir sabko jodte hain - taaki DC/
                 // Division/Circle kisi bhi level par har DC apna sahi Top 20/50
                 // dikhaye, live report jaisa hi.
+                // BUG FIX/USER REQUEST (2026-09-13): Pehle DC/Division/Circle
+                // teeno ka Top 50/20 Govt+Non Govt ko MILAKAR ek hi mixed list se
+                // banta tha - agar Non Govt consumers ka pending amount generally
+                // zyada hota (jaisa aksar hota hai), to Govt consumer apni Govt
+                // category me sabse bade bakayadaar hone ke bawajood is mixed
+                // Top-N me jagah hi nahi bana paate the, aur Freeze Report me
+                // "Govt" filter chunne par khaali/adhoora dikhta tha. Ab Non Govt
+                // aur Govt, dono ki APNI-ALAG Top-N nikal kar jodte hain (upto
+                // 2xN) - taaki "All" filter me dono group (apni-apni sahi Top N)
+                // dikhein, aur "Govt"/"Non Govt" akela chunne par bhi poori/sahi
+                // Top N mile.
+                const buildTopNSplitByGovt = (rowsForScope, n) => {
+                    const sortDesc = (list) => list.slice().sort((a, b) => b.pendingAmount - a.pendingAmount);
+                    const nonGovtTop = sortDesc(rowsForScope.filter((r) => !r.govtFlag)).slice(0, n);
+                    const govtTop = sortDesc(rowsForScope.filter((r) => !!r.govtFlag)).slice(0, n);
+                    return [...nonGovtTop, ...govtTop];
+                };
                 const top50 = [];
                 const top20 = [];
                 allDcs.forEach((dcName) => {
-                    const dcTop50 = allConsumerRows
-                        .filter((r) => r.pendingAmount > 0 && normalizeDcName(r.dcName) === normalizeDcName(dcName))
-                        .sort((a, b) => b.pendingAmount - a.pendingAmount)
-                        .slice(0, 50);
-                    top50.push(...dcTop50);
-                    top20.push(...dcTop50.slice(0, 20));
+                    const dcRows = allConsumerRows.filter((r) => r.pendingAmount > 0 && normalizeDcName(r.dcName) === normalizeDcName(dcName));
+                    top50.push(...buildTopNSplitByGovt(dcRows, 50));
+                    top20.push(...buildTopNSplitByGovt(dcRows, 20));
                 });
 
                 // USER REQUEST (2026-09-12): "Har report apni-apni scope par apna
@@ -2916,15 +2973,13 @@
                 const topDivision20 = [];
                 Object.keys(divisionConfigs).forEach((divisionName) => {
                     const divDcSet = new Set(getDivisionDcNames(divisionName).map((dc) => normalizeDcName(dc)));
-                    const divTop50 = allConsumerRows
-                        .filter((r) => r.pendingAmount > 0 && divDcSet.has(normalizeDcName(r.dcName)))
-                        .sort((a, b) => b.pendingAmount - a.pendingAmount)
-                        .slice(0, 50);
-                    topDivision50.push(...divTop50);
-                    topDivision20.push(...divTop50.slice(0, 20));
+                    const divRows = allConsumerRows.filter((r) => r.pendingAmount > 0 && divDcSet.has(normalizeDcName(r.dcName)));
+                    topDivision50.push(...buildTopNSplitByGovt(divRows, 50));
+                    topDivision20.push(...buildTopNSplitByGovt(divRows, 20));
                 });
-                const topCircle50 = allConsumerRows.filter((r) => r.pendingAmount > 0).sort((a, b) => b.pendingAmount - a.pendingAmount).slice(0, 50);
-                const topCircle20 = topCircle50.slice(0, 20);
+                const circleRows = allConsumerRows.filter((r) => r.pendingAmount > 0);
+                const topCircle50 = buildTopNSplitByGovt(circleRows, 50);
+                const topCircle20 = buildTopNSplitByGovt(circleRows, 20);
 
                 const nowIso = getTodayIsoDate();
                 const freezeId = "FRZ-" + nowIso;
@@ -3015,7 +3070,7 @@
                 listBox.innerHTML = `<div style="text-align:center; color:#991b1b; font-size:0.68rem;">Freeze script URL set nahi hai</div>`;
                 return;
             }
-            listBox.innerHTML = `<div style="text-align:center; color:#64748b; font-size:0.68rem;">Loading...</div>`;
+            listBox.innerHTML = `<div style="text-align:center; color:#64748b; font-size:0.68rem;">SYNCING DATA... PLEASE WAIT</div>`;
             try {
                 const parsed = await loadRemoteJson(`${revenueFreezeTrackingScriptUrl}?action=listFreezes`);
                 const freezes = Array.isArray(parsed?.freezes) ? parsed.freezes : [];
@@ -3154,18 +3209,28 @@
             return "Non Payee From 3 Month";
         }
 
+        // BUG FIX (2026-09-13) - USER-REPORTED BUG: DC Daily Progress me NP3/NP6/
+        // Since Connection Freeze Report bade DC (jaise CHHAPARA-1, CHHAPARA-2,
+        // LAKHNADON, GANESHGANJ - inme non-payee list bahut badi hoti hai kyonki
+        // in 3 categories me koi Top-20/50 jaisi limit nahi hai) par kabhi 100% par
+        // atak jaata tha, kabhi "Freeze data load nahi ho payi", kabhi (sabse
+        // confusing) "Abhi tak koi Freeze active nahi hai" galat message dikhata
+        // tha - jabki freeze active hi tha, bas is listFreezes call ka hardcoded
+        // 6-second timeout kamzor/field network par itne bade data ke liye kaafi
+        // nahi tha, aur yahan har tarah ki failure (network ho ya kuch aur) ko
+        // chup-chaap "null" (matlab "no active freeze") maan liya jaata tha. Ab
+        // (a) isi call ke liye zyada generous 45-second timeout hai, aur (b) asli
+        // fetch/parse error ko chup nahi karte - use upar loadRevenueProgressFreezeData()
+        // ke apne try/catch tak jaane dete hain, taaki wahan sahi "load nahi ho
+        // payi" (with Try Again) dikhe, na ki galat "no freeze active" message.
         async function ensureRevenueFreezeActiveInfo(forceRefresh = false) {
             if (progressFreezeActiveFreeze && !forceRefresh) return progressFreezeActiveFreeze;
             if (!revenueFreezeTrackingScriptUrl || revenueFreezeTrackingScriptUrl.indexOf("PASTE_") === 0) return null;
-            try {
-                const parsed = await loadRemoteJson(`${revenueFreezeTrackingScriptUrl}?action=listFreezes`);
-                const freezes = Array.isArray(parsed?.freezes) ? parsed.freezes : [];
-                const active = freezes.filter((f) => f.status !== "UNFROZEN").sort((a, b) => String(b.freeze_date || "").localeCompare(String(a.freeze_date || "")))[0] || null;
-                progressFreezeActiveFreeze = active;
-                return active;
-            } catch (_) {
-                return null;
-            }
+            const parsed = await loadRemoteJson(`${revenueFreezeTrackingScriptUrl}?action=listFreezes`, 45000);
+            const freezes = Array.isArray(parsed?.freezes) ? parsed.freezes : [];
+            const active = freezes.filter((f) => f.status !== "UNFROZEN").sort((a, b) => String(b.freeze_date || "").localeCompare(String(a.freeze_date || "")))[0] || null;
+            progressFreezeActiveFreeze = active;
+            return active;
         }
 
         // USER REQUEST (2026-09-12): Har DC ka freeze data backend par apni ALAG
@@ -3186,7 +3251,13 @@
             const normalizedDc = normalizeDcName(dcName);
             const cacheKey = freezeId + "|" + category + "|" + normalizedDc;
             if (revenueFreezeSnapshotCache[cacheKey]) return revenueFreezeSnapshotCache[cacheKey];
-            const parsed = await loadRemoteJson(`${revenueFreezeTrackingScriptUrl}?action=getFreezeSnapshot&freeze_id=${encodeURIComponent(freezeId)}&category=${encodeURIComponent(category)}&dc_name=${encodeURIComponent(normalizedDc)}`);
+            // BUG FIX (2026-09-13): NP3/NP6/SINCE_CONNECTION me Top-N limit na hone
+            // se badi DC (CHHAPARA-1/2, LAKHNADON, GANESHGANJ jaisi) ka snapshot
+            // bada ho sakta hai - pehle wala 6-second timeout kamzor network par
+            // isके liye kaafi nahi tha (isi wajah se DC-level freeze report kabhi
+            // 100% par atak jaata, kabhi "load nahi ho payi" dikhata tha). Ab isi
+            // ek call ke liye 45-second timeout.
+            const parsed = await loadRemoteJson(`${revenueFreezeTrackingScriptUrl}?action=getFreezeSnapshot&freeze_id=${encodeURIComponent(freezeId)}&category=${encodeURIComponent(category)}&dc_name=${encodeURIComponent(normalizedDc)}`, 45000);
             const rows = Array.isArray(parsed?.rows) ? parsed.rows : [];
             const dcStatus = String(parsed?.dc_status || "").trim() || "ACTIVE";
             const result = { rows, dc_status: dcStatus };
@@ -3375,16 +3446,21 @@
             // alag dikhega taaki pehchana ja sake.
             const rowsWithStatusUnsorted = getFreezeFilteredRowsWithStatus(scopedRowsWithStatus);
             const rowsWithStatus = rowsWithStatusUnsorted.slice().sort((a, b) => Number(b.pending_amount || 0) - Number(a.pending_amount || 0));
-            let paidCount = 0, paidAmount = 0, totalFrozenAmount = 0;
+            let paidCount = 0, paidAmount = 0, totalFrozenAmount = 0, pendingAmount = 0;
             rowsWithStatus.forEach((r) => {
                 if (r.isPaidNow) { paidCount += 1; paidAmount += r.paidAmountNow; }
                 totalFrozenAmount += Number(r.pending_amount || 0);
+                // USER REQUEST (2026-09-13): Division/Circle summary me "abhi kitna
+                // bakaya hai" saaf dikhna chahiye - "Frozen Total Amount" wahi
+                // ORIGINAL freeze-time amount hai (part-payment se kam nahi hota),
+                // isliye alag se CURRENT remaining pending bhi jodte hain.
+                pendingAmount += Number(r.remainingPending || 0);
             });
             const totalCount = rowsWithStatus.length;
             return {
                 active, error: false, rowsWithStatus, allScopedRows: scopedRowsWithStatus,
                 totals: {
-                    totalCount, paidCount, pendingCount: totalCount - paidCount, paidAmount, totalFrozenAmount,
+                    totalCount, paidCount, pendingCount: totalCount - paidCount, paidAmount, totalFrozenAmount, pendingAmount,
                     paidPercent: totalCount ? ((paidCount / totalCount) * 100).toFixed(1) : "0.0"
                 }
             };
@@ -3449,7 +3525,19 @@
             if (!isStillValid()) return; // beech me hi koi aur scope/category select ho gaya
             if (progress) await progress.finish();
             const bodyAfter = document.getElementById("summary-content");
-            if (bodyAfter) bodyAfter.innerHTML = renderFreezeModuleSummaryHtml();
+            // BUG FIX (2026-09-13): Pehle agar yahan render (renderFreezeModuleSummaryHtml)
+            // kisi wajah se khud hi error de deta, to progress bar "100%" par hamesha
+            // ke liye atka reh jaata tha (kyonki yeh poori line try/catch ke BAHAR thi) -
+            // ab render bhi try/catch me hai, fail hone par bhi ek saaf "Try Again"
+            // wala error message dikhega, blank/atka screen nahi.
+            if (bodyAfter) {
+                try {
+                    bodyAfter.innerHTML = renderFreezeModuleSummaryHtml();
+                } catch (_) {
+                    lastRevenueProgressFreezeResult = { active: null, rows: [], error: true };
+                    bodyAfter.innerHTML = renderFreezeModuleSummaryHtml();
+                }
+            }
         }
 
         function renderFreezeModuleSummaryHtml() {
@@ -3467,6 +3555,14 @@
         // (DC/Division/Circle) aur isi category ke liye data pehle se load ho
         // chuka hai, to dobara fetch NAHI karte - seedha cached result dikha
         // dete hain (Mobile/Revenue par jaake wapas Freeze par aane par bhi).
+        // BUG FIX (2026-09-13): "Try Again" button (error message ke saath) ka
+        // handler - purana cached (failed) result hata kar seedha dobara load
+        // karta hai, dropdown se category dobara chunne ki zaroorat nahi.
+        function retryFreezeModuleLoad() {
+            lastRevenueProgressFreezeResult = null;
+            loadRevenueProgressFreezeData();
+        }
+
         function refreshFreezeModuleSummary() {
             updateProgressReportScopeTitle();
             const scopeKey = getRevenueFreezeScopeKey();
@@ -3600,11 +3696,15 @@
                 return `${categorySelectHtml}<div style="text-align:center; color:#64748b; font-size:0.72rem; font-weight:800; padding:20px 0;">Upar diye gaye dropdown se report type chunein.</div>`;
             }
             if (progressFreezeLoading || !lastRevenueProgressFreezeResult) {
-                return `${categorySelectHtml}<div style="text-align:center; font-size:0.72rem; font-weight:900; color:#1d4ed8; padding:20px 0;">Freeze data load ho raha hai...</div>`;
+                return `${categorySelectHtml}<div style="text-align:center; font-size:0.72rem; font-weight:900; color:#1d4ed8; padding:20px 0;">SYNCING DATA... PLEASE WAIT</div>`;
             }
             const data = computeRevenueFreezeReportData();
             if (!data || data.error) {
-                return `${categorySelectHtml}<div style="text-align:center; color:#991b1b; font-size:0.72rem; margin-top:10px;">Freeze data load nahi ho payi</div>`;
+                // BUG FIX (2026-09-13): Pehle yahan sirf error text tha, user ko
+                // dropdown se category dobara chunkar retry karna padta tha - ab
+                // seedha "Try Again" button (jaise network/large-DC-data wali baar
+                // chalti hai, dobara try karne par aksar chal jaata hai).
+                return `${categorySelectHtml}<div style="text-align:center; color:#991b1b; font-size:0.72rem; margin-top:10px;">Freeze data load nahi ho payi (network slow ho sakta hai, khaaskar badi DC me)</div><button class="btn-unique" style="width:100%; margin-top:8px; background:#0891b2; color:#fff;" onclick="retryFreezeModuleLoad()">Try Again</button>`;
             }
             if (!data.active) {
                 return `${categorySelectHtml}<div style="text-align:center; color:#9f1239; font-size:0.72rem; margin-top:10px;">Abhi tak koi Freeze active nahi hai. Sub DN Chhapara ke Admin panel se "🔒 ADMIN FREEZE CONTROL" me Freeze Now karein.</div>`;
@@ -3661,7 +3761,7 @@
                     </select>`;
             }
             let html = `
-                <div style="font-size:0.75rem; font-weight:950; color:#0e7490; text-align:center;">Revenue Freeze Report - ${escapeHtml(getRevenueFreezeCategoryLabel(progressFreezeCategory))}</div>
+                <div style="font-size:0.75rem; font-weight:950; color:#0e7490; text-align:center;">Freeze-Revenue Report - ${escapeHtml(getRevenueFreezeCategoryLabel(progressFreezeCategory))}</div>
                 <div style="font-size:0.6rem; font-weight:800; color:#64748b; text-align:center; margin-top:2px;">Freeze Date: ${escapeHtml(data.active.freeze_label || data.active.freeze_date || "")}</div>
                 ${categorySelectHtml}
                 ${filterBlockHtml}
@@ -3670,9 +3770,10 @@
                     <div style="background:#ecfdf5; border-radius:12px; padding:8px 4px; text-align:center;"><div style="font-size:0.54rem; font-weight:850; color:#166534; text-transform:uppercase;">Paid Till Now</div><div style="font-size:0.95rem; font-weight:950; color:#166534; margin-top:2px;">${t.paidCount} (${t.paidPercent}%)</div></div>
                     <div style="background:#fff1f2; border-radius:12px; padding:8px 4px; text-align:center;"><div style="font-size:0.54rem; font-weight:850; color:#9f1239; text-transform:uppercase;">Pending</div><div style="font-size:0.95rem; font-weight:950; color:#9f1239; margin-top:2px;">${t.pendingCount}</div></div>
                 </div>
-                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; width:100%; margin:8px auto 0;">
+                <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:8px; width:100%; margin:8px auto 0;">
                     <div style="background:#ecfdf5; border-radius:12px; padding:8px 4px; text-align:center;"><div style="font-size:0.54rem; font-weight:850; color:#166534; text-transform:uppercase;">Paid Amount (since freeze)</div><div style="font-size:0.85rem; font-weight:950; color:#166534; margin-top:2px;">${formatProgressReportAmount(t.paidAmount)}</div></div>
-                    <div style="background:#fff1f2; border-radius:12px; padding:8px 4px; text-align:center;"><div style="font-size:0.54rem; font-weight:850; color:#9f1239; text-transform:uppercase;">Frozen Total Amount</div><div style="font-size:0.85rem; font-weight:950; color:#9f1239; margin-top:2px;">${formatProgressReportAmount(t.totalFrozenAmount)}</div></div>
+                    <div style="background:#fff1f2; border-radius:12px; padding:8px 4px; text-align:center;"><div style="font-size:0.54rem; font-weight:850; color:#9f1239; text-transform:uppercase;">Pending Amount (abhi bakaya)</div><div style="font-size:0.85rem; font-weight:950; color:#9f1239; margin-top:2px;">${formatProgressReportAmount(t.pendingAmount)}</div></div>
+                    <div style="background:#f0fdfa; border-radius:12px; padding:8px 4px; text-align:center;"><div style="font-size:0.54rem; font-weight:850; color:#0e7490; text-transform:uppercase;">Frozen Total Amount</div><div style="font-size:0.85rem; font-weight:950; color:#0e7490; margin-top:2px;">${formatProgressReportAmount(t.totalFrozenAmount)}</div></div>
                 </div>
                 ${!isFreezeCategoryDefaultersType() ? renderRevenueNonPayeeGroupSummaryHtml(data.rowsWithStatus.map((r) => ({ dcName: r.dc_name, hqName: r.hq_name, pendingAmount: r.pending_amount }))) : ""}
                 <div class="btn-export-row" style="margin-top:10px;">
@@ -3680,31 +3781,62 @@
                     <button class="btn-unique btn-pdf-unique" onclick="downloadRevenueFreezeReport('PDF')">Freeze Report PDF</button>
                 </div>
                 <div id="progress-category-download-status" style="display:none; text-align:center; font-weight:900; border-radius:14px; padding:8px 10px; width:100%; margin-top:8px;"></div>
-                <div class="summary-wrapper" style="margin-top:10px;"><div class="summary-table-header" style="grid-template-columns: ${showDcColumn ? "0.8fr 1.2fr 0.8fr 1fr" : "1.4fr 0.8fr 1fr"};">${showDcColumn ? "<div>DC</div>" : ""}<div>CONSUMER</div><div>STATUS</div><div>AMOUNT</div></div>
             `;
-            if (!data.rowsWithStatus.length) {
-                html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div class="text-rose-600">Is scope me freeze me koi consumer nahi mila.</div></div>`;
-            } else {
-                data.rowsWithStatus.slice(0, 200).forEach((r) => {
-                    const cells = [];
-                    if (showDcColumn) cells.push(`<div>${escapeHtml(r.dc_name || "-")}</div>`);
-                    cells.push(`<div>${escapeHtml(r.consumer_name || "-")}<br><span style="font-size:0.56rem; color:#64748b;">${escapeHtml(r.hq_name || "")} / ${escapeHtml(r.village || "")}</span></div>`);
-                    const paidStatusLabel = escapeHtml(getFreezeRowStatusLabel(r));
-                    // USER REQUEST (2026-09-12): PAID wale row ka status text
-                    // GREEN me, PART PAID wale row ka status text RED me dikhe
-                    // (pure PENDING - koi payment nahi - normal/default colour
-                    // me hi rahega). Row ki POSITION/sequence isse bilkul nahi
-                    // badalta, sirf colour se pehchana jaata hai.
-                    const statusColor = r.isPaidNow ? "#166534" : (r.paidAmountNow > 0 ? "#dc2626" : "#1e293b");
-                    cells.push(`<div class="font-black" style="color:${statusColor};">${paidStatusLabel}</div>`);
-                    cells.push(`<div class="font-black">${formatProgressReportAmount(r.isPaidNow ? r.paidAmountNow : r.remainingPending)}</div>`);
-                    html += `<div class="summary-table-row" style="grid-template-columns: ${showDcColumn ? "0.8fr 1.2fr 0.8fr 1fr" : "1.4fr 0.8fr 1fr"};">${cells.join("")}</div>`;
-                });
-                if (data.rowsWithStatus.length > 200) {
-                    html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div style="text-align:center; color:#64748b; font-size:0.62rem; padding:6px;">... ${data.rowsWithStatus.length - 200} aur consumer, poori list Excel/PDF download me milegi</div></div>`;
+            // USER REQUEST (2026-09-13): Division/Circle adhikari sirf SUMMARY
+            // dekhte hain (upar wale tiles + HQ/DC-wise summary table hi kaafi
+            // hai) - NP3/NP6/Since Connection ki poori consumer-list ab sirf DC
+            // level par hi dikhegi (jaisa pehle se thi, bilkul untouched). Top
+            // 20/50 Defaulters (isFreezeCategoryDefaultersType()) is change se
+            // bahar hai - wo har scope par pehle jaisi list hi dikhati rahegi.
+            const showFreezeConsumerList = activeViewLevel === "DC" || isFreezeCategoryDefaultersType();
+            if (showFreezeConsumerList) {
+                html += `<div class="summary-wrapper" style="margin-top:10px;"><div class="summary-table-header" style="grid-template-columns: ${showDcColumn ? "0.8fr 1.2fr 0.8fr 1fr" : "1.4fr 0.8fr 1fr"};">${showDcColumn ? "<div>DC</div>" : ""}<div>CONSUMER</div><div>STATUS</div><div>AMOUNT</div></div>`;
+                if (!data.rowsWithStatus.length) {
+                    html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div class="text-rose-600">Is scope me freeze me koi consumer nahi mila.</div></div>`;
+                } else {
+                    // USER REQUEST (2026-09-13): Top 20/50 Defaulters me "All (Govt +
+                    // Non Govt)" chunne par ab poori Non Govt Top N pehle, ek divider
+                    // line, fir poori Govt Top N - alag-alag dikhti hai (jaisa Live
+                    // Top Defaulters me bhi kiya). Govt/Non Govt akela chunne par
+                    // pehle jaisa hi single seedhi list dikhegi.
+                    const freezeTopLimit = progressFreezeCategory === "TOP20" ? 20 : 50;
+                    const showFreezeSplit = isFreezeCategoryDefaultersType() && !freezeDefaultersGovtFilter;
+                    const renderFreezeRow = (r) => {
+                        const cells = [];
+                        if (showDcColumn) cells.push(`<div>${escapeHtml(r.dc_name || "-")}</div>`);
+                        cells.push(`<div>${escapeHtml(r.consumer_name || "-")}<br><span style="font-size:0.56rem; color:#64748b;">${escapeHtml(r.hq_name || "")} / ${escapeHtml(r.village || "")}</span></div>`);
+                        const paidStatusLabel = escapeHtml(getFreezeRowStatusLabel(r));
+                        // USER REQUEST (2026-09-12): PAID wale row ka status text
+                        // GREEN me, PART PAID wale row ka status text RED me dikhe
+                        // (pure PENDING - koi payment nahi - normal/default colour
+                        // me hi rahega). Row ki POSITION/sequence isse bilkul nahi
+                        // badalta, sirf colour se pehchana jaata hai.
+                        const statusColor = r.isPaidNow ? "#166534" : (r.paidAmountNow > 0 ? "#dc2626" : "#1e293b");
+                        cells.push(`<div class="font-black" style="color:${statusColor};">${paidStatusLabel}</div>`);
+                        cells.push(`<div class="font-black">${formatProgressReportAmount(r.isPaidNow ? r.paidAmountNow : r.remainingPending)}</div>`);
+                        return `<div class="summary-table-row" style="grid-template-columns: ${showDcColumn ? "0.8fr 1.2fr 0.8fr 1fr" : "1.4fr 0.8fr 1fr"};">${cells.join("")}</div>`;
+                    };
+                    const dividerRow = (label, color, bg) => `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div style="text-align:center; font-weight:900; color:${color}; background:${bg}; border-radius:8px; padding:5px; margin-top:${label.startsWith("GOVT") ? "6px" : "0"};">${label}</div></div>`;
+                    if (showFreezeSplit) {
+                        const nonGovtRows = data.rowsWithStatus.filter((r) => r.govt_flag !== "GOVT").slice(0, freezeTopLimit);
+                        const govtRows = data.rowsWithStatus.filter((r) => r.govt_flag === "GOVT").slice(0, freezeTopLimit);
+                        if (nonGovtRows.length) {
+                            html += dividerRow(`NON GOVT - TOP ${nonGovtRows.length}`, "#166534", "#f0fdf4");
+                            nonGovtRows.forEach((r) => { html += renderFreezeRow(r); });
+                        }
+                        if (govtRows.length) {
+                            html += dividerRow(`GOVT - TOP ${govtRows.length}`, "#9f1239", "#fff1f2");
+                            govtRows.forEach((r) => { html += renderFreezeRow(r); });
+                        }
+                    } else {
+                        data.rowsWithStatus.slice(0, 200).forEach((r) => { html += renderFreezeRow(r); });
+                        if (data.rowsWithStatus.length > 200) {
+                            html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div style="text-align:center; color:#64748b; font-size:0.62rem; padding:6px;">... ${data.rowsWithStatus.length - 200} aur consumer, poori list Excel/PDF download me milegi</div></div>`;
+                        }
+                    }
                 }
+                html += `</div>`;
             }
-            html += `</div>`;
             return html;
         }
 
@@ -3723,16 +3855,39 @@
                 // alag kiya gaya hai). Row ka POSITION (sequence) isse bilkul
                 // nahi badalta - sirf STATUS cell ka colour/marker alag hai.
                 const statusColIndex = showDcColumn ? 6 : 5;
-                // 2 = fully PAID (green), 1 = PART PAID (red), 0 = pure PENDING (default)
-                const paymentStateFlags = data.rowsWithStatus.map((r) => (r.isPaidNow ? 2 : (r.paidAmountNow > 0 ? 1 : 0)));
-                const bodyRows = data.rowsWithStatus.map((r) => [
-                    ...(showDcColumn ? [r.dc_name || ""] : []),
-                    r.ivrs_no || "", r.consumer_name || "", r.hq_name || "", r.village || "", r.mobile_no || "",
-                    getFreezeRowStatusLabel(r),
-                    formatProgressReportAmount(r.isPaidNow ? r.paidAmountNow : r.remainingPending)
-                ]);
+                // 2 = fully PAID (green), 1 = PART PAID (red), 0 = pure PENDING (default),
+                // -1 = group-header/divider row (no colour)
+                // USER REQUEST (2026-09-13): Top 20/50 Defaulters ke download (Excel/PDF)
+                // me bhi screen jaisa hi - "All" filter me pehle poori Non Govt Top N,
+                // ek divider row, fir poori Govt Top N. Baaki categories/filters me
+                // pehle jaisi hi seedhi list.
+                const freezeTopLimit = progressFreezeCategory === "TOP20" ? 20 : 50;
+                const showFreezeSplit = isFreezeCategoryDefaultersType() && !freezeDefaultersGovtFilter;
+                const paymentStateFlags = [];
+                const bodyRows = [];
+                const pushFreezeRow = (r) => {
+                    bodyRows.push([
+                        ...(showDcColumn ? [r.dc_name || ""] : []),
+                        r.ivrs_no || "", r.consumer_name || "", r.hq_name || "", r.village || "", r.mobile_no || "",
+                        getFreezeRowStatusLabel(r),
+                        formatProgressReportAmount(r.isPaidNow ? r.paidAmountNow : r.remainingPending)
+                    ]);
+                    paymentStateFlags.push(r.isPaidNow ? 2 : (r.paidAmountNow > 0 ? 1 : 0));
+                };
+                const pushFreezeGroupHeader = (label) => {
+                    bodyRows.push([label, ...Array(headers.length - 1).fill("")]);
+                    paymentStateFlags.push(-1);
+                };
+                if (showFreezeSplit) {
+                    const nonGovtRows = data.rowsWithStatus.filter((r) => r.govt_flag !== "GOVT").slice(0, freezeTopLimit);
+                    const govtRows = data.rowsWithStatus.filter((r) => r.govt_flag === "GOVT").slice(0, freezeTopLimit);
+                    if (nonGovtRows.length) { pushFreezeGroupHeader(`NON GOVT - TOP ${nonGovtRows.length}`); nonGovtRows.forEach(pushFreezeRow); }
+                    if (govtRows.length) { pushFreezeGroupHeader(`GOVT - TOP ${govtRows.length}`); govtRows.forEach(pushFreezeRow); }
+                } else {
+                    data.rowsWithStatus.forEach(pushFreezeRow);
+                }
                 const scope = activeViewLevel === "DC" ? `DC - ${activeDC}` : (activeViewLevel === "DIVISION" ? activeDiv : "SEONI CIRCLE");
-                const reportTitle = `Revenue Freeze Report - ${getRevenueFreezeCategoryLabel(progressFreezeCategory)} - ${scope}`;
+                const reportTitle = `Freeze-Revenue Report - ${getRevenueFreezeCategoryLabel(progressFreezeCategory)} - ${scope}`;
                 const freezeLine = `Freeze Date: ${data.active.freeze_label || data.active.freeze_date || ""}`;
                 const fileName = `${reportTitle}-${getTodayIsoDate()}`.replace(/[\\/:*?"<>|]+/g, "_");
                 if (fmt === "PDF") {
@@ -4402,14 +4557,31 @@
         // Net Bill - Paid, sirf positive, nikala hua) use karte hain - partial
         // payment wale consumer bhi ab apne bache hue bakaya amount ke saath is
         // list me sahi se dikhenge.
+        // BUG FIX/USER REQUEST (2026-09-13): Pehle "All (Govt + Non Govt)" chunne
+        // par dono ko MILAKAR ek hi list banti thi, phir Top N kaata jaata tha -
+        // isse agar Non Govt consumers ka pending amount generally zyada hota
+        // (jaisa aksar hota hai), to Govt consumers Top N me jagah hi nahi bana
+        // paate the (chahe wo apni Govt category me sabse bade bakayadaar hi
+        // kyun na hon). Ab "All" par DONO group (Non Govt aur Govt) ki APNI-APNI
+        // ALAG Top N list nikalte hain (jaisa GOVT/NONGOVT akela chunne par pehle
+        // se hota hai) - total upto 2xN consumer, pehle poori Non Govt Top N,
+        // fir poori Govt Top N (render/download dono me ek divider ke saath alag
+        // dikhte hain). Return shape ab { rows, nonGovtCount } hai -
+        // nonGovtCount > 0 hone par render/download ko pata chal jaata hai kahan
+        // se Govt group shuru hota hai.
         function getProgressDefaultersFilteredRows(mode, filterValue) {
-            const consumerRows = buildRevenueHqVillageConsumerRows(mode, filterValue);
+            const consumerRows = buildRevenueHqVillageConsumerRows(mode, filterValue).filter((row) => row.pendingAmount > 0);
             const govtFilter = progressDefaultersGovtFilter;
-            return consumerRows
-                .filter((row) => !govtFilter || (govtFilter === "GOVT" ? !!row.govtFlag : !row.govtFlag))
-                .filter((row) => row.pendingAmount > 0)
-                .sort((a, b) => b.pendingAmount - a.pendingAmount)
-                .slice(0, progressRevenueDefaultersLimit);
+            const sortDesc = (list) => list.slice().sort((a, b) => b.pendingAmount - a.pendingAmount);
+            if (govtFilter === "GOVT") {
+                return { rows: sortDesc(consumerRows.filter((row) => !!row.govtFlag)).slice(0, progressRevenueDefaultersLimit), nonGovtCount: 0 };
+            }
+            if (govtFilter === "NONGOVT") {
+                return { rows: sortDesc(consumerRows.filter((row) => !row.govtFlag)).slice(0, progressRevenueDefaultersLimit), nonGovtCount: 0 };
+            }
+            const nonGovtTop = sortDesc(consumerRows.filter((row) => !row.govtFlag)).slice(0, progressRevenueDefaultersLimit);
+            const govtTop = sortDesc(consumerRows.filter((row) => !!row.govtFlag)).slice(0, progressRevenueDefaultersLimit);
+            return { rows: [...nonGovtTop, ...govtTop], nonGovtCount: nonGovtTop.length };
         }
 
         function setProgressDefaultersGovtFilter(value) {
@@ -4430,10 +4602,20 @@
             setProgressCategoryDownloadState(true, `${downloadTypeLabel} downloading... kripya wait kijiye`);
             try {
                 const { mode, filterValue } = lastRevenueProgressBoxData;
-                const rows = getProgressDefaultersFilteredRows(mode, filterValue);
+                const { rows, nonGovtCount } = getProgressDefaultersFilteredRows(mode, filterValue);
                 if (!rows.length) { setProgressCategoryDownloadState(false, "Download ke liye data nahi hai"); return; }
                 const headers = ["RANK", "IVRS NO", "CONSUMER NAME", revenueHqLabelUpper(), revenueVillageLabelUpper(), "GOVT/NON GOVT", "MOBILE NO", "PENDING AMOUNT"];
-                const bodyRows = rows.map((row, index) => [index + 1, row.ivrsNo || "", row.consumerName || "", row.hqName || "", row.village || "", row.govtFlag ? "GOVT" : "NON GOVT", row.mobileNo || "", formatProgressReportAmount(row.pendingAmount)]);
+                // USER REQUEST (2026-09-13): "All" me screen jaisa hi - pehle poori
+                // Non Govt Top N (1 se numbering), ek "NON GOVT"/"GOVT" divider row,
+                // fir poori Govt Top N (1 se dobara numbering).
+                const showSplit = !progressDefaultersGovtFilter && nonGovtCount > 0 && nonGovtCount < rows.length;
+                const bodyRows = [];
+                if (showSplit) bodyRows.push([`NON GOVT - TOP ${nonGovtCount}`, "", "", "", "", "", "", ""]);
+                rows.forEach((row, index) => {
+                    if (showSplit && index === nonGovtCount) bodyRows.push([`GOVT - TOP ${rows.length - nonGovtCount}`, "", "", "", "", "", "", ""]);
+                    const displayIndex = showSplit && index >= nonGovtCount ? (index - nonGovtCount + 1) : (index + 1);
+                    bodyRows.push([displayIndex, row.ivrsNo || "", row.consumerName || "", row.hqName || "", row.village || "", row.govtFlag ? "GOVT" : "NON GOVT", row.mobileNo || "", formatProgressReportAmount(row.pendingAmount)]);
+                });
                 const scope = activeViewLevel === "DC" ? `DC - ${activeDC}` : (activeViewLevel === "DIVISION" ? activeDiv : "SEONI CIRCLE");
                 const govtLabel = progressDefaultersGovtFilter === "GOVT" ? "Govt" : (progressDefaultersGovtFilter === "NONGOVT" ? "Non Govt" : "All");
                 const reportTitle = `Top ${progressRevenueDefaultersLimit} Defaulters - ${scope}`;
@@ -4715,7 +4897,7 @@
         // Revenue tab me) bhi wahi consumer-level unpaid rows lekar, jo scope (DC/Division/
         // Circle) abhi active hai usi ke hisaab se top defaulters nikalte hain.
         function renderRevenueProgressDefaultersSummaryHtml(mode, filterValue) {
-            const rows = getProgressDefaultersFilteredRows(mode, filterValue);
+            const { rows, nonGovtCount } = getProgressDefaultersFilteredRows(mode, filterValue);
             let html = `
                 <div style="font-size:0.75rem; font-weight:950; color:#9f1239; text-align:center;">Top ${progressRevenueDefaultersLimit} Defaulters (Cash List ke baad bakaya)</div>
                 <div style="display:flex; gap:8px; width:100%; margin:9px auto 0;">
@@ -4732,8 +4914,20 @@
             if (!rows.length) {
                 html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div class="text-rose-600">Is scope me koi bakaya consumer nahi mila.</div></div>`;
             } else {
+                // USER REQUEST (2026-09-13): "All" me dono group (Non Govt + Govt)
+                // alag-alag dikhte hain - ek divider line ke saath, aur har group
+                // ki apni numbering 1 se shuru (poori Non Govt Top N, phir poori
+                // Govt Top N).
+                const showSplit = !progressDefaultersGovtFilter && nonGovtCount > 0 && nonGovtCount < rows.length;
+                if (showSplit) {
+                    html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div style="text-align:center; font-weight:900; color:#166534; background:#f0fdf4; border-radius:8px; padding:5px;">NON GOVT - TOP ${nonGovtCount}</div></div>`;
+                }
                 rows.forEach((row, index) => {
-                    html += `<div class="summary-table-row" style="grid-template-columns: 0.4fr 1.3fr 1fr;"><div class="font-black">${index + 1}</div><div>${escapeHtml(row.consumerName || "-")}<br><span style="font-size:0.56rem; color:#64748b;">${escapeHtml(row.hqName)} / ${escapeHtml(row.village)}</span></div><div class="text-rose-700 font-black">${formatProgressReportAmount(row.pendingAmount)}</div></div>`;
+                    if (showSplit && index === nonGovtCount) {
+                        html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div style="text-align:center; font-weight:900; color:#9f1239; background:#fff1f2; border-radius:8px; padding:5px; margin-top:6px;">GOVT - TOP ${rows.length - nonGovtCount}</div></div>`;
+                    }
+                    const displayIndex = showSplit && index >= nonGovtCount ? (index - nonGovtCount + 1) : (index + 1);
+                    html += `<div class="summary-table-row" style="grid-template-columns: 0.4fr 1.3fr 1fr;"><div class="font-black">${displayIndex}</div><div>${escapeHtml(row.consumerName || "-")}<br><span style="font-size:0.56rem; color:#64748b;">${escapeHtml(row.hqName)} / ${escapeHtml(row.village)}</span></div><div class="text-rose-700 font-black">${formatProgressReportAmount(row.pendingAmount)}</div></div>`;
                 });
             }
             html += `</div>`;
@@ -4842,20 +5036,27 @@
                     <button class="btn-unique btn-pdf-unique" onclick="downloadProgressRevenueReportBox('PDF')">${escapeHtml(getProgressRevenueReportTypeLabel())} PDF</button>
                 </div>
                 <div id="progress-category-download-status" style="display:none; text-align:center; font-weight:900; border-radius:14px; padding:8px 10px; width:100%; margin-top:8px;"></div>
-                <div class="summary-wrapper" style="margin-top:10px;"><div class="summary-table-header" style="grid-template-columns: 1.3fr 0.7fr 1fr;"><div>CONSUMER</div><div>${bucket === "SINCE_CONNECTION" ? "TYPE" : "MONTHS"}</div><div>PENDING</div></div>
             `;
-            if (!rows.length) {
-                html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div class="text-rose-600">Is filter me koi consumer nahi mila (ya master sheet me LAST PAYMENT DATE column abhi update nahi hui).</div></div>`;
-            } else {
-                rows.slice(0, 200).forEach((row) => {
-                    const middleCell = bucket === "SINCE_CONNECTION" ? "Never Paid" : `${row.monthsSincePayment} mo`;
-                    html += `<div class="summary-table-row" style="grid-template-columns: 1.3fr 0.7fr 1fr;"><div>${escapeHtml(row.consumerName || "-")}<br><span style="font-size:0.56rem; color:#64748b;">${escapeHtml(row.hqName)} / ${escapeHtml(row.village)}</span></div><div class="font-black">${escapeHtml(middleCell)}</div><div class="text-rose-700 font-black">${formatProgressReportAmount(row.pendingAmount)}</div></div>`;
-                });
-                if (rows.length > 200) {
-                    html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div style="text-align:center; color:#64748b; font-size:0.62rem; padding:6px;">... ${rows.length - 200} aur consumer, poori list Excel/PDF download me milegi</div></div>`;
+            // USER REQUEST (2026-09-13): Division/Circle adhikari sirf SUMMARY
+            // dekhte hain - Non Payee 3M/6M/Since Connection ki poori consumer-
+            // list ab sirf DC level par hi dikhegi (upar wale "Consumers"/"Total
+            // Pending" tiles aur HQ/DC-wise summary table hi Division/Circle par
+            // dikhenge). DC level ka list-wala UI bilkul untouched hai.
+            if (activeViewLevel === "DC") {
+                html += `<div class="summary-wrapper" style="margin-top:10px;"><div class="summary-table-header" style="grid-template-columns: 1.3fr 0.7fr 1fr;"><div>CONSUMER</div><div>${bucket === "SINCE_CONNECTION" ? "TYPE" : "MONTHS"}</div><div>PENDING</div></div>`;
+                if (!rows.length) {
+                    html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div class="text-rose-600">Is filter me koi consumer nahi mila (ya master sheet me LAST PAYMENT DATE column abhi update nahi hui).</div></div>`;
+                } else {
+                    rows.slice(0, 200).forEach((row) => {
+                        const middleCell = bucket === "SINCE_CONNECTION" ? "Never Paid" : `${row.monthsSincePayment} mo`;
+                        html += `<div class="summary-table-row" style="grid-template-columns: 1.3fr 0.7fr 1fr;"><div>${escapeHtml(row.consumerName || "-")}<br><span style="font-size:0.56rem; color:#64748b;">${escapeHtml(row.hqName)} / ${escapeHtml(row.village)}</span></div><div class="font-black">${escapeHtml(middleCell)}</div><div class="text-rose-700 font-black">${formatProgressReportAmount(row.pendingAmount)}</div></div>`;
+                    });
+                    if (rows.length > 200) {
+                        html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div style="text-align:center; color:#64748b; font-size:0.62rem; padding:6px;">... ${rows.length - 200} aur consumer, poori list Excel/PDF download me milegi</div></div>`;
+                    }
                 }
+                html += `</div>`;
             }
-            html += `</div>`;
             return html;
         }
 
@@ -5119,7 +5320,12 @@
             return `${selectHtml}<div id="progress-revenue-body">${renderProgressRevenueBodyInner()}</div>`;
         }
 
-        function renderSyncingProgress(cont, isStillValid, label = "SYNCING ALL DC DATA...") {
+        // USER REQUEST (2026-09-13): Puri app me jahan bhi koi report/data sync
+        // hota hai, ek hi common message dikhe - "SYNCING DATA... PLEASE WAIT".
+        // Isliye yahi standard text ab default label hai, aur baaki sabhi
+        // call-sites (Mobile/Revenue/Freeze/SHMS/Pending List) bhi apna pehle
+        // wala custom text hata kar isi ek jaisa text pass karte hain.
+        function renderSyncingProgress(cont, isStillValid, label = "SYNCING DATA... PLEASE WAIT") {
             cont.innerHTML = `
                 <div class="text-center py-10">
                     <p class="font-black text-slate-500" style="font-size:0.85rem;">${escapeHtml(label)}</p>
@@ -5186,15 +5392,18 @@
             };
         }
 
-        // USER REQUEST (2026-08-19): Progress Report screen ke header ke niche wali
-        // green pill me pehle hardcoded "PROGRESS REPORT" likha rehta tha (jabki
-        // upar header me bhi "PROGRESS REPORT" likha hota hai - do baar same text).
-        // Ab yahan iski jagah current scope (DC/DIVISION/CIRCLE) dikhana hai -
-        // jaise "DC - CHHAPARA-1", "DIVISION LAKHNADON", "CIRCLE - SEONI".
+        // USER REQUEST (2026-08-19, updated 2026-09-13): Progress Report screen ke
+        // header ke niche wali pill me pehle hardcoded "PROGRESS REPORT" likha
+        // rehta tha (jabki upar header me bhi "PROGRESS REPORT" likha hota hai -
+        // do baar same text, aur DC/Division/Circle me se kaunsi hai pata hi
+        // nahi chalta tha). Ab seedha "DC PROGRESS REPORT" / "DIVISION PROGRESS
+        // REPORT" / "CIRCLE PROGRESS REPORT" dikhta hai (saath me DC/Division ka
+        // naam bhi, DC/Division scope pehchanne ke liye) - jaise
+        // "DC PROGRESS REPORT - CHHAPARA-1".
         function getProgressReportScopeLabel() {
-            if (activeViewLevel === "DC") return `DC - ${activeDC}`;
-            if (activeViewLevel === "DIVISION") return activeDiv || "DIVISION";
-            return "CIRCLE - SEONI";
+            if (activeViewLevel === "DC") return `DC PROGRESS REPORT - ${activeDC}`;
+            if (activeViewLevel === "DIVISION") return `DIVISION PROGRESS REPORT - ${activeDiv || ""}`.trim().replace(/-\s*$/, "");
+            return "CIRCLE PROGRESS REPORT - SEONI";
         }
 
         function updateProgressReportScopeTitle() {
@@ -6425,12 +6634,12 @@
             return line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map((item) => item.replace(/^"|"$/g, "").trim());
         }
 
-        function xhrGetText(url) {
+        function xhrGetText(url, timeoutMs = 6000) {
             return new Promise((resolve, reject) => {
                 try {
                     const xhr = new XMLHttpRequest();
                     xhr.open("GET", url, true);
-                    xhr.timeout = 6000;
+                    xhr.timeout = timeoutMs;
                     xhr.ontimeout = () => reject(new Error("XHR timeout"));
                     xhr.onreadystatechange = () => {
                         if (xhr.readyState !== 4) return;
@@ -6448,12 +6657,19 @@
             });
         }
 
-        async function loadRemoteText(url) {
+        // BUG FIX (2026-09-13): timeoutMs ab optional param hai (default 6000, jaisa
+        // pehle hardcoded tha) - baaki SABHI existing callers (Mobile/Revenue/Court
+        // Case/Stock/Feeder/etc, in sab par koi asar nahi) bina kisi change ke wahi
+        // 6-second timeout use karte rahenge. Sirf Revenue FREEZE Report (NP3/NP6/
+        // Since Connection, jinme koi Top-N limit na hone se DC ka data bada ho
+        // sakta hai) apna zyada lamba, explicit timeout pass karega - neeche
+        // ensureRevenueFreezeActiveInfo() aur fetchRevenueFreezeSnapshotRows() me.
+        async function loadRemoteText(url, timeoutMs = 6000) {
             const withTs = url.includes("?") ? `${url}&t=${Date.now()}` : `${url}?t=${Date.now()}`;
             const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
             const timer = setTimeout(() => {
                 try { if (controller) controller.abort(); } catch (_) {}
-            }, 6000);
+            }, timeoutMs);
             try {
                 const response = await fetch(withTs, controller ? { signal: controller.signal } : {});
                 const text = await response.text();
@@ -6462,17 +6678,17 @@
                 clearTimeout(timer);
             }
             try {
-                return await xhrGetText(withTs);
+                return await xhrGetText(withTs, timeoutMs);
             } catch (_) {}
             try {
-                return await xhrGetText(url);
+                return await xhrGetText(url, timeoutMs);
             } catch (_) {}
             const fallbackResponse = await fetch(url);
             return fallbackResponse.text();
         }
 
-        async function loadRemoteJson(url) {
-            const text = await loadRemoteText(url);
+        async function loadRemoteJson(url, timeoutMs = 6000) {
+            const text = await loadRemoteText(url, timeoutMs);
             return JSON.parse(text || "null");
         }
 
@@ -9112,7 +9328,7 @@
         }
 
         async function initShmsPendingDashboard() {
-            setShmsPendingStatus("Pending tracker data load ho raha hai...");
+            setShmsPendingStatus("SYNCING DATA... PLEASE WAIT");
             const [masterLoaded, progressLoaded] = await Promise.all([
                 loadShmsData(true),
                 loadShmsProgressData(true)
@@ -9137,7 +9353,7 @@
                 input.value = yesterday.iso;
                 input.max = getTodayIsoDate();
             }
-            setShmsProgressStatus("SHMS daily progress data load ho raha hai...");
+            setShmsProgressStatus("SYNCING DATA... PLEASE WAIT");
             const loaded = await loadShmsProgressData(true);
             if (!loaded) {
                 setShmsProgressStatus("SHMS progress data load nahi ho paya");
@@ -9429,7 +9645,7 @@
                 return downloadFeederReport(fmt);
             }
             try {
-                setShmsProgressStatus("Download data load ho raha hai...");
+                setShmsProgressStatus("SYNCING DATA... PLEASE WAIT");
                 const loaded = await loadShmsProgressData(true);
                 setShmsProgressStatus("");
                 if (!loaded) return showToast("SHMS progress data load nahi ho paya", false);
@@ -9536,7 +9752,7 @@
             resetShmsForm();
             activeShmsOperator = getSavedShmsOperator();
             updateShmsOperatorUi();
-            setShmsStatus("SHMS feeder data load ho raha hai...");
+            setShmsStatus("SYNCING DATA... PLEASE WAIT");
             const substationMenu = document.getElementById("shms-substation-menu");
             const feederMenu = document.getElementById("shms-feeder-menu");
             const dateInput = document.getElementById("shms-event-date");
@@ -13917,7 +14133,7 @@
             let pendingListProgress = null;
             if (statusBox) {
                 statusBox.style.display = "block";
-                pendingListProgress = renderSyncingProgress(statusBox, isPendingRenderValid, "PENDING LIST LOAD HO RAHI HAI...");
+                pendingListProgress = renderSyncingProgress(statusBox, isPendingRenderValid, "SYNCING DATA... PLEASE WAIT");
             }
             if (listBox) listBox.innerHTML = "";
             populateRevenueSelect(hqSelect, [], revenueHqAllLabel());
@@ -15935,7 +16151,7 @@
                 tableBox.innerHTML = renderRevenueLiveSummaryTable(groupedRows);
                 return;
             }
-            const progress = renderSyncingProgress(tableBox, () => myToken === revenueLiveProgressToken, "SYNCING LATEST REPORT...");
+            const progress = renderSyncingProgress(tableBox, () => myToken === revenueLiveProgressToken, "SYNCING DATA... PLEASE WAIT");
             if (activeDC) activeViewLevel = "DC";
             else if (activeDiv) activeViewLevel = "DIVISION";
             else activeViewLevel = "CIRCLE";
@@ -16528,7 +16744,7 @@
             // Ab baaki sabhi reports jaisa hi shared renderSyncingProgress use karte hain
             // (pehle iski apni alag copy-paste ki hui orange-themed progress bar thi -
             // renderRevenueCashSyncingProgress - jo hata di gayi hai).
-            const progress = renderSyncingProgress(tableBox, isRenderValid, "SYNCING LATEST REPORT...");
+            const progress = renderSyncingProgress(tableBox, isRenderValid, "SYNCING DATA... PLEASE WAIT");
             try {
                 await Promise.all([syncRevenueLiveEntriesFromSheet(), getRevenueUploadedPaidMasterRows()]);
                 if (renderToken !== revenueCashReconcileRenderToken) { progress.stop(); return; }
@@ -16897,7 +17113,7 @@
             const isRenderValid = () => renderToken === revenueHqVillageRenderToken && document.getElementById("revenue-hq-village-view")?.classList.contains("active");
             const scopeKey = activeDC || activeDiv || "CIRCLE";
             const alreadyLoaded = revenueHqVillageLoadedScopeKey === scopeKey;
-            const progress = alreadyLoaded ? null : renderSyncingProgress(tableBox, isRenderValid, "SYNCING LATEST REPORT...");
+            const progress = alreadyLoaded ? null : renderSyncingProgress(tableBox, isRenderValid, "SYNCING DATA... PLEASE WAIT");
             try {
                 if (!alreadyLoaded) {
                     const targetDcs = getRevenueCategoryTargetDcs();
@@ -17291,7 +17507,7 @@
             const isRenderValid = () => renderToken === revenueTargetRenderToken && document.getElementById("revenue-target-achievement-view")?.classList.contains("active");
             const scopeKey = activeDC || activeDiv || "CIRCLE";
             const alreadyLoaded = revenueTargetLoadedScopeKey === scopeKey;
-            const progress = alreadyLoaded ? null : renderSyncingProgress(tableBox, isRenderValid, "SYNCING LATEST REPORT...");
+            const progress = alreadyLoaded ? null : renderSyncingProgress(tableBox, isRenderValid, "SYNCING DATA... PLEASE WAIT");
             try {
                 if (!alreadyLoaded) {
                     const targetDcs = getRevenueCategoryTargetDcs();
@@ -17522,7 +17738,7 @@
             const isRenderValid = () => renderToken === revenueDefaultersRenderToken && document.getElementById("revenue-top-defaulters-view")?.classList.contains("active");
             const scopeKey = activeDC || activeDiv || "CIRCLE";
             const alreadyLoaded = revenueDefaultersLoadedScopeKey === scopeKey;
-            const progress = alreadyLoaded ? null : renderSyncingProgress(tableBox, isRenderValid, "SYNCING LATEST REPORT...");
+            const progress = alreadyLoaded ? null : renderSyncingProgress(tableBox, isRenderValid, "SYNCING DATA... PLEASE WAIT");
             try {
                 if (!alreadyLoaded) {
                     const targetDcs = getRevenueCategoryTargetDcs();
@@ -19027,7 +19243,7 @@
                 tableBox.innerHTML = cachedHtml;
                 return;
             }
-            const progress = renderSyncingProgress(tableBox, isRenderValid, "SYNCING DOWNLOAD LOG...");
+            const progress = renderSyncingProgress(tableBox, isRenderValid, "SYNCING DATA... PLEASE WAIT");
             try {
                 const data = await loadRemoteJson(`${vrDownloadLogScriptUrl}?action=getSummary&t=${Date.now()}`);
                 if (!isRenderValid()) { progress.stop(); return; }
