@@ -3247,22 +3247,43 @@
         // ka data Division/Circle level merge me shaamil NAHI hota (baaki DC par
         // koi asar nahi), aur DC-level report me us DC ke liye seedha "yeh DC
         // unfreeze hai" message dikhta hai.
-        async function fetchRevenueFreezeSnapshotRows(freezeId, category, dcName) {
+        async function fetchRevenueFreezeSnapshotRows(freezeId, category, dcName, attempts = 2) {
             const normalizedDc = normalizeDcName(dcName);
             const cacheKey = freezeId + "|" + category + "|" + normalizedDc;
             if (revenueFreezeSnapshotCache[cacheKey]) return revenueFreezeSnapshotCache[cacheKey];
-            // BUG FIX (2026-09-13): NP3/NP6/SINCE_CONNECTION me Top-N limit na hone
-            // se badi DC (CHHAPARA-1/2, LAKHNADON, GANESHGANJ jaisi) ka snapshot
-            // bada ho sakta hai - pehle wala 6-second timeout kamzor network par
-            // isके liye kaafi nahi tha (isi wajah se DC-level freeze report kabhi
-            // 100% par atak jaata, kabhi "load nahi ho payi" dikhata tha). Ab isi
-            // ek call ke liye 45-second timeout.
-            const parsed = await loadRemoteJson(`${revenueFreezeTrackingScriptUrl}?action=getFreezeSnapshot&freeze_id=${encodeURIComponent(freezeId)}&category=${encodeURIComponent(category)}&dc_name=${encodeURIComponent(normalizedDc)}`, 45000);
-            const rows = Array.isArray(parsed?.rows) ? parsed.rows : [];
-            const dcStatus = String(parsed?.dc_status || "").trim() || "ACTIVE";
-            const result = { rows, dc_status: dcStatus };
-            revenueFreezeSnapshotCache[cacheKey] = result;
-            return result;
+            // BUG FIX (2026-09-13, updated): NP3/NP6/SINCE_CONNECTION me Top-N limit
+            // na hone se badi DC (jaise SEONI (T), CHHAPARA-1, LAKHNADON) ka snapshot
+            // bahut bada ho sakta hai. USER-REPORTED BUG: DC-level par yeh report
+            // hamesha "load nahi ho payi" dikhati thi (turant, bina lambi wait ke bhi),
+            // jabki Division/Circle par (jahan bahut si DC ek saath fetch hoti hain,
+            // aur ek DC ka data pehle se cache me mil sakta hai) yeh kaam kar jaata
+            // tha. Wajah: yahan pehle SIRF EK attempt (45s timeout) tha aur koi
+            // try/catch nahi tha - agar yeh ek attempt fail/timeout ho jaaye (jaisa
+            // sabse badi DC ke NP3/NP6/SinceConnection data ke saath ho sakta hai),
+            // to exception seedha upar (loadRevenueProgressFreezeData ke try/catch)
+            // tak chala jaata - DC-level par (jahan yehi ek DC hoti hai) poora report
+            // turant fail ho jaata, jabki Division/Circle me (jahan bahut si DC me se
+            // koi ek DC jaldi mil jaati) kabhi-kabhi chal jaata tha. Fix: (a) ab
+            // Revenue Collection side ke fetches jaisa hi 2 attempts + zyada patient
+            // 90-second timeout, (b) exception ko yahin pakad lete hain (throw nahi
+            // karte) - baar-baar fail hone par bhi is DC ko sirf ek saaf "ERROR"
+            // status dete hain (rows khaali), taaki poora Promise.all (Division/
+            // Circle scope) is ek DC ki wajah se fail na ho, aur DC-level par ek
+            // saaf "is DC ka data abhi load nahi ho saka" message dikh sake (generic
+            // network error ki jagah).
+            for (let attempt = 1; attempt <= attempts; attempt++) {
+                try {
+                    const parsed = await loadRemoteJson(`${revenueFreezeTrackingScriptUrl}?action=getFreezeSnapshot&freeze_id=${encodeURIComponent(freezeId)}&category=${encodeURIComponent(category)}&dc_name=${encodeURIComponent(normalizedDc)}`, 90000);
+                    const rows = Array.isArray(parsed?.rows) ? parsed.rows : [];
+                    const dcStatus = String(parsed?.dc_status || "").trim() || "ACTIVE";
+                    const result = { rows, dc_status: dcStatus };
+                    revenueFreezeSnapshotCache[cacheKey] = result;
+                    return result;
+                } catch (_) {
+                    if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, 800));
+                }
+            }
+            return { rows: [], dc_status: "ERROR" };
         }
 
         function getRevenueFreezeTargetDcs() {
@@ -3694,6 +3715,107 @@
             return { colLabel: "DC NAME", rows };
         }
 
+        // USER REQUEST (2026-09-13): Freeze Report (NP3/NP6/Since Connection) ka
+        // Division/Circle DOWNLOAD ab bhi poori consumer-list de raha tha, jabki
+        // screen par sirf summary dikhti hai - inconsistent tha. Yeh function
+        // wahi DC-wise summary banata hai jo download me chahiye: DC NAME, TOTAL
+        // CONSUMER, PAID (count+amount), PENDING (count+amount), aur (sirf
+        // download me, screen par nahi) PAID %/PENDING %. DIVISION scope me
+        // sirf usi Division ki DC list, CIRCLE scope me DC-wise + har Division
+        // ka SUB_TOTAL + ek GRAND_TOTAL row (buildRevenueNonPayeeGroupSummary
+        // jaisा hi structure).
+        function buildFreezeDcWiseSummaryRows(rowsWithStatus) {
+            const emptyGroup = (key) => ({ name: key, totalCount: 0, paidCount: 0, paidAmount: 0, pendingCount: 0, pendingAmount: 0 });
+            const withPercents = (g) => ({
+                ...g,
+                paidPercent: g.totalCount ? ((g.paidCount / g.totalCount) * 100).toFixed(1) : "0.0",
+                pendingPercent: g.totalCount ? ((g.pendingCount / g.totalCount) * 100).toFixed(1) : "0.0"
+            });
+            const map = {};
+            (rowsWithStatus || []).forEach((r) => {
+                const key = normalizeDcName(r.dc_name) || "-";
+                if (!map[key]) map[key] = emptyGroup(key);
+                const g = map[key];
+                g.totalCount += 1;
+                if (r.isPaidNow) { g.paidCount += 1; g.paidAmount += Number(r.paidAmountNow || 0); }
+                else { g.pendingCount += 1; g.pendingAmount += Number(r.remainingPending || 0); }
+            });
+
+            if (activeViewLevel === "DIVISION") {
+                return getDivisionDcNames(activeDiv).map((dcName) => {
+                    const key = normalizeDcName(dcName);
+                    return withPercents(map[key] || emptyGroup(key));
+                });
+            }
+
+            // CIRCLE: DC-wise, har Division ka SUB_TOTAL, aakhir me GRAND_TOTAL.
+            const rows = [];
+            const grand = emptyGroup("GRAND TOTAL");
+            Object.keys(divisionConfigs).forEach((divisionName) => {
+                const dcRows = getDivisionDcNames(divisionName).map((dcName) => {
+                    const key = normalizeDcName(dcName);
+                    return withPercents(map[key] || emptyGroup(key));
+                });
+                rows.push(...dcRows);
+                const divTotal = emptyGroup(getDivisionTotalLabel(divisionName));
+                dcRows.forEach((r) => {
+                    divTotal.totalCount += r.totalCount; divTotal.paidCount += r.paidCount; divTotal.paidAmount += r.paidAmount;
+                    divTotal.pendingCount += r.pendingCount; divTotal.pendingAmount += r.pendingAmount;
+                });
+                rows.push({ ...withPercents(divTotal), type: "SUB_TOTAL" });
+                grand.totalCount += divTotal.totalCount; grand.paidCount += divTotal.paidCount; grand.paidAmount += divTotal.paidAmount;
+                grand.pendingCount += divTotal.pendingCount; grand.pendingAmount += divTotal.pendingAmount;
+            });
+            rows.push({ ...withPercents(grand), type: "GRAND_TOTAL" });
+            return rows;
+        }
+
+        // Freeze Report (NP3/NP6/Since Connection) ke Division/Circle download ke
+        // liye DC-wise summary Excel/PDF banata hai (list ki jagah) - downloadRevenueFreezeReport()
+        // se hi (uske try/catch ke andar) call hota hai.
+        function downloadRevenueFreezeDcWiseSummary(fmt, data, downloadTypeLabel) {
+            const summaryRows = buildFreezeDcWiseSummaryRows(data.rowsWithStatus);
+            const headers = ["DC NAME", "TOTAL CONSUMER", "PAID COUNT", "PAID AMOUNT", "PENDING COUNT", "PENDING AMOUNT", "PAID %", "PENDING %"];
+            const bodyRows = summaryRows.map((r) => [
+                r.name, r.totalCount, r.paidCount, formatProgressReportAmount(r.paidAmount),
+                r.pendingCount, formatProgressReportAmount(r.pendingAmount), `${r.paidPercent}%`, `${r.pendingPercent}%`
+            ]);
+            const rowTypeFlags = summaryRows.map((r) => (r.type === "GRAND_TOTAL" ? 2 : (r.type === "SUB_TOTAL" ? 1 : 0)));
+            const scope = activeViewLevel === "DIVISION" ? activeDiv : "SEONI CIRCLE";
+            const reportTitle = `Freeze-Revenue Report - ${getRevenueFreezeCategoryLabel(progressFreezeCategory)} - ${scope} - Summary`;
+            const freezeLine = `Freeze Date: ${data.active.freeze_label || data.active.freeze_date || ""}`;
+            const fileName = `${reportTitle}-${getTodayIsoDate()}`.replace(/[\\/:*?"<>|]+/g, "_");
+            if (fmt === "PDF") {
+                if (!window.jspdf?.jsPDF) { setProgressCategoryDownloadState(false, "PDF library load nahi hui"); return; }
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF({ orientation: "landscape" });
+                doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
+                doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 12, { align: "center" });
+                doc.setFontSize(9); doc.text(freezeLine, 148, 19, { align: "center" });
+                doc.autoTable({
+                    startY: 25, head: [headers], body: bodyRows, theme: "grid",
+                    styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" },
+                    headStyles: { fillColor: [8, 145, 178] },
+                    didParseCell: function (hookData) {
+                        if (hookData.section === "body") {
+                            const flag = rowTypeFlags[hookData.row.index];
+                            if (flag === 2) { hookData.cell.styles.fillColor = [219, 234, 254]; hookData.cell.styles.fontStyle = "bold"; }
+                            else if (flag === 1) { hookData.cell.styles.fontStyle = "bold"; }
+                        }
+                    }
+                });
+                savePdfDocumentForDevice(doc, `${fileName}.pdf`);
+            } else {
+                const csvSafe = (value) => { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
+                const csv = [[reportTitle], [`Scope: ${scope}`], [freezeLine], [], headers, ...bodyRows].map((row) => row.map(csvSafe).join(",")).join("\n");
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+                link.download = `${fileName}.csv`;
+                link.click();
+            }
+            setTimeout(() => setProgressCategoryDownloadState(false, `${downloadTypeLabel} download ho chuki hai`), 500);
+        }
+
         function renderRevenueNonPayeeGroupSummaryHtml(normalizedRows) {
             const summary = buildRevenueNonPayeeGroupSummary(normalizedRows);
             let html = `<div style="font-size:0.62rem; font-weight:900; color:#9f1239; text-align:center; margin-top:10px;">${escapeHtml(summary.colLabel)} WISE SUMMARY</div>
@@ -3739,6 +3861,16 @@
             }
             if (!data.active) {
                 return `${categorySelectHtml}<div style="text-align:center; color:#9f1239; font-size:0.72rem; margin-top:10px;">Abhi tak koi Freeze active nahi hai. Sub DN Chhapara ke Admin panel se "🔒 ADMIN FREEZE CONTROL" me Freeze Now karein.</div>`;
+            }
+            // BUG FIX (2026-09-13): Agar is DC ka snapshot fetch (fetchRevenueFreezeSnapshotRows)
+            // baar-baar koshish karne ke baad bhi fail ho (jaise sabse badi DC ka
+            // bahut bada NP3/NP6/SinceConnection data), to ab poora report generic
+            // "load nahi ho payi" nahi dikhata (jo pehle throw hoke yahan tak aata
+            // tha) - us DC ko sirf "ERROR" status milta hai, aur DC-level par yeh
+            // saaf, alag message dikhta hai (Division/Circle se yeh DC merge se
+            // bahar nahi hoti, sirf uska data is dafa miss ho sakta hai).
+            if (activeViewLevel === "DC" && (lastRevenueProgressFreezeResult?.dcStatusMap?.[normalizeDcName(activeDC)] === "ERROR")) {
+                return `${categorySelectHtml}<div style="text-align:center; color:#991b1b; font-size:0.72rem; margin-top:10px;">Is DC (${escapeHtml(activeDC)}) ka Freeze data abhi load nahi ho saka (data bada hone ki wajah se time lag raha hai). Kripya "Try Again" dabayein.</div><button class="btn-unique" style="width:100%; margin-top:8px; background:#0891b2; color:#fff;" onclick="retryFreezeModuleLoad()">Try Again</button>`;
             }
             // Is DC ko Admin ne individually UNFREEZE kiya ho sakta hai (baaki DC
             // ka data disturb kiye bina) - aisi surat me DC-level report yahi
@@ -3877,6 +4009,17 @@
             const downloadTypeLabel = fmt === "PDF" ? "PDF" : "Excel";
             setProgressCategoryDownloadState(true, `${downloadTypeLabel} downloading... kripya wait kijiye`);
             try {
+                // USER REQUEST (2026-09-13): Division/Circle par screen jaisa hi -
+                // NP3/NP6/Since Connection ke download me ab poori consumer-list
+                // NAHI, sirf DC-wise SUMMARY jaati hai (Total Consumer, Paid
+                // count+amount, Pending count+amount, + Paid%/Pending% jo sirf
+                // download me hai). DC-level (jahan poori list hi sahi/zaroori
+                // hai) aur Top 20/50 Defaulters (jo har scope par apni list hi
+                // dikhata/download karta hai) is change se bahar hain, bilkul
+                // untouched.
+                if (activeViewLevel !== "DC" && !isFreezeCategoryDefaultersType()) {
+                    return downloadRevenueFreezeDcWiseSummary(fmt, data, downloadTypeLabel);
+                }
                 const showDcColumn = activeViewLevel !== "DC";
                 const headers = [...(showDcColumn ? ["DC NAME"] : []), "IVRS NO", "CONSUMER NAME", "HQ", "VILLAGE", "MOBILE NO", "STATUS", "AMOUNT"];
                 // USER REQUEST (2026-09-12): PAID row GREEN me, PART PAID row
