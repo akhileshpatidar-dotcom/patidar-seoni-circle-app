@@ -5675,7 +5675,17 @@
                 const mobileSummaryDcParam = activeViewLevel === "DC" && activeDC
                     ? `&dc=${encodeURIComponent(activeDC)}`
                     : "";
-                const cloudData = await loadRemoteJson(`${scriptURL}?action=getSummary${mobileSummaryDcParam}`);
+                // BUG FIX (2026-09-13): Yeh call abhi bhi purane hi 6-second
+                // default timeout (loadRemoteJson) par chalti thi - sheet-scan
+                // ab kaafi fast ho chuka hai (khaali rows delete + backend fix
+                // ke baad), lekin dheeme/field network par khud request+response
+                // hi 6 second se zyada le sakta hai, jisse har attempt turant
+                // fail ho kar 3-4 retry ke bad (~15-20s) "ERROR FETCHING DATA"
+                // dikhne laga. Freeze report jaisa hi ab isko bhi generous
+                // 30-second timeout diya hai (backend load ab halka hai,
+                // isliye asal me itna lagega nahi, bas dheeme network ke liye
+                // gunjaish rakhi hai).
+                const cloudData = await loadRemoteJson(`${scriptURL}?action=getSummary${mobileSummaryDcParam}`, 30000);
                 if (isStaleSummaryRefresh()) return;
                 uiListSummary = [];
                 grandTC = 0;
