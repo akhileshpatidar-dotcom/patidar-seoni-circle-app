@@ -87,6 +87,12 @@
         let omvigReportCache_ = null; // { scopeKey, rowsWithStatus, freeze_date }
         let omvigAdminStatus = null;  // { freeze_date, pending_count }
         let omvigFreezeStatusCache_ = null; // fast { freeze_date, pending_count } - see fetchOmvigFreezeStatus_
+        // USER REQUEST (2026-09-14): Division/Circle level par drill-down dropdown
+        // filters (Division -> DC -> Paid/Unpaid) - screen par jo bhi chuna hai
+        // uska state yahan. DC level par sirf status use hota hai.
+        let omvigFilterDivision = "";
+        let omvigFilterDc = "";
+        let omvigFilterStatus = ""; // "" | "PAID" (part paid samet) | "PENDING"
         const vehicleReadingStorageKey = "seoni_vehicle_reading_state_v1";
         const vehicleReadingListStorageKey = "seoni_vehicle_reading_list_v1";
         const vehicleReadingCsvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQIv4JMsV1n8vy9cJ0o2UaS45-fh_c3n9u-rqwXjuCZWDNZNRaJlgUKnT4gtP3_kTtpCrQvrTcojWQo/pub?output=csv";
@@ -2316,6 +2322,7 @@
         // user khud kisi tile par tap kare.
         function resetProgressReportTypeSelection() {
             summaryModule = "";
+            omvigFilterDivision = ""; omvigFilterDc = ""; omvigFilterStatus = "";
             updateProgressReportPickerUI();
             const reportTypeBox = document.getElementById("progress-report-type-box");
             const dateWrap = document.getElementById("progress-report-date-wrap");
@@ -9236,17 +9243,138 @@
                 <div class="summary-wrapper" style="margin-top:6px;"><div class="summary-table-header" style="grid-template-columns: 2fr 1.3fr 1fr;"><div>CASE</div><div>STATUS</div><div>AMOUNT</div></div>${rowsHtml}</div>`;
         }
 
+        // USER REQUEST (2026-09-14): status filter - "Paid" dropdown me PART PAID
+        // wale bhi shamil (isPaidNow ya koi bhi payment aaya ho), "Pending" me
+        // sirf woh jinme abhi tak kuch bhi paid nahi hua.
+        function filterOmvigRowsByStatus_(rows, status) {
+            if (status === "PAID") return rows.filter((r) => r.isPaidNow || r.paidAmountNow > 0);
+            if (status === "PENDING") return rows.filter((r) => !r.isPaidNow && !(r.paidAmountNow > 0));
+            return rows;
+        }
+
+        // DC level ke liye ek hi row ka summary (Freeze NP ke DC-wise summary
+        // jaisa hi shape/table, bas is scope me hamesha ek hi row hogi).
+        function buildOmvigSingleDcSummaryRow_(rowsWithStatus, dcName) {
+            const g = { name: dcName || "-", totalCount: 0, paidCount: 0, paidAmount: 0, pendingCount: 0, pendingAmount: 0 };
+            rowsWithStatus.forEach((r) => {
+                g.totalCount += 1;
+                if (r.isPaidNow) { g.paidCount += 1; g.paidAmount += Number(r.pending_amount || 0); }
+                else { g.pendingCount += 1; g.pendingAmount += Number(r.remainingPending || 0); }
+            });
+            return g;
+        }
+
+        function omvigFilterSelectHtml_(id, placeholder, options, selectedValue) {
+            const optionsHtml = options.map((opt) => `<option value="${escapeHtml(opt.value)}" ${selectedValue === opt.value ? "selected" : ""}>${escapeHtml(opt.label)}</option>`).join("");
+            return `<select id="${id}" onchange="onOmvigFilterChange()" style="width:100%; max-width:360px; height:40px; margin:10px auto 0; display:block; border:1.5px solid #94a3b8; border-radius:10px; padding:0 10px; font-size:0.72rem; font-weight:900; color:#0f172a; background:#ffffff;">
+                <option value="">${escapeHtml(placeholder)}</option>
+                ${optionsHtml}
+            </select>`;
+        }
+
+        const OMVIG_STATUS_OPTIONS_ = [{ value: "PAID", label: "PAID (Part Paid samet)" }, { value: "PENDING", label: "PENDING" }];
+
+        // USER REQUEST (2026-09-14): DC level par ab poori list seedhe nahi
+        // dikhti - sirf is DC ka ek-row SUMMARY (Circle/Division ke DC-wise
+        // table jaisa hi shape). List sirf Paid/Unpaid dropdown chunne par
+        // niche dikhti hai (kyunki date/month filter nahi hai, ek hi DC ka
+        // data ek saath dikhana lamba ho jaata).
+        function renderOmvigDcLevelHtml_(rowsWithStatus) {
+            const summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [buildOmvigSingleDcSummaryRow_(rowsWithStatus, activeDC)], "DC SUMMARY (AMOUNT IN LAKH)");
+            const statusSelectHtml = omvigFilterSelectHtml_("omvig-dc-status-select", "-- List Dekhne Ke Liye Paid/Unpaid Chunein --", OMVIG_STATUS_OPTIONS_, omvigFilterStatus);
+            const listHtml = omvigFilterStatus ? renderOmvigDcListHtml_(filterOmvigRowsByStatus_(rowsWithStatus, omvigFilterStatus)) : "";
+            return summaryHtml + statusSelectHtml + listHtml;
+        }
+
+        // USER REQUEST (2026-09-14): Division level - DC-wise summary (jaisa
+        // pehle se tha) + 2 dropdown (DC, phir Paid/Unpaid) se us DC ka list.
+        function renderOmvigDivisionLevelHtml_(rowsWithStatus) {
+            const summaryHtml = renderFreezeDcWiseSummaryHtml(rowsWithStatus);
+            const dcOptions = getDivisionDcNames(activeDiv).map((n) => ({ value: n, label: n }));
+            const dcSelectHtml = omvigFilterSelectHtml_("omvig-division-dc-select", "-- DC Chunein --", dcOptions, omvigFilterDc);
+            let statusSelectHtml = "", listHtml = "";
+            if (omvigFilterDc) {
+                statusSelectHtml = omvigFilterSelectHtml_("omvig-division-status-select", "-- Paid/Unpaid Chunein --", OMVIG_STATUS_OPTIONS_, omvigFilterStatus);
+                if (omvigFilterStatus) {
+                    const dcRows = rowsWithStatus.filter((r) => normalizeDcName(r.dc_name) === normalizeDcName(omvigFilterDc));
+                    listHtml = renderOmvigDcListHtml_(filterOmvigRowsByStatus_(dcRows, omvigFilterStatus));
+                }
+            }
+            return summaryHtml + dcSelectHtml + statusSelectHtml + listHtml;
+        }
+
+        // USER REQUEST (2026-09-14): Circle level - DC-wise summary (pehle se
+        // tha) + 3 dropdown (Division -> us Division ki DC -> Paid/Unpaid) se
+        // us DC ka list.
+        function renderOmvigCircleLevelHtml_(rowsWithStatus) {
+            const summaryHtml = renderFreezeDcWiseSummaryHtml(rowsWithStatus);
+            const divOptions = Object.keys(divisionConfigs).map((n) => ({ value: n, label: n.replace(/^DIVISION\s+/i, "") }));
+            const divSelectHtml = omvigFilterSelectHtml_("omvig-circle-division-select", "-- Division Chunein --", divOptions, omvigFilterDivision);
+            let dcSelectHtml = "", statusSelectHtml = "", listHtml = "";
+            if (omvigFilterDivision) {
+                const dcOptions = getDivisionDcNames(omvigFilterDivision).map((n) => ({ value: n, label: n }));
+                dcSelectHtml = omvigFilterSelectHtml_("omvig-circle-dc-select", "-- DC Chunein --", dcOptions, omvigFilterDc);
+                if (omvigFilterDc) {
+                    statusSelectHtml = omvigFilterSelectHtml_("omvig-circle-status-select", "-- Paid/Unpaid Chunein --", OMVIG_STATUS_OPTIONS_, omvigFilterStatus);
+                    if (omvigFilterStatus) {
+                        const dcRows = rowsWithStatus.filter((r) => normalizeDcName(r.dc_name) === normalizeDcName(omvigFilterDc));
+                        listHtml = renderOmvigDcListHtml_(filterOmvigRowsByStatus_(dcRows, omvigFilterStatus));
+                    }
+                }
+            }
+            return summaryHtml + divSelectHtml + dcSelectHtml + statusSelectHtml + listHtml;
+        }
+
+        // Dropdown badalte hi sirf state update karke poora report block dobara
+        // render karte hain - data pehle se hi cache me hai (omvigReportCache_),
+        // isliye yeh turant hota hai, koi naya network call nahi.
+        function onOmvigFilterChange() {
+            if (activeViewLevel === "CIRCLE") {
+                const newDiv = document.getElementById("omvig-circle-division-select")?.value || "";
+                if (newDiv !== omvigFilterDivision) {
+                    omvigFilterDivision = newDiv; omvigFilterDc = ""; omvigFilterStatus = "";
+                } else {
+                    const newDc = document.getElementById("omvig-circle-dc-select")?.value || "";
+                    if (newDc !== omvigFilterDc) { omvigFilterDc = newDc; omvigFilterStatus = ""; }
+                    else { omvigFilterStatus = document.getElementById("omvig-circle-status-select")?.value || ""; }
+                }
+            } else if (activeViewLevel === "DIVISION") {
+                const newDc = document.getElementById("omvig-division-dc-select")?.value || "";
+                if (newDc !== omvigFilterDc) { omvigFilterDc = newDc; omvigFilterStatus = ""; }
+                else { omvigFilterStatus = document.getElementById("omvig-division-status-select")?.value || ""; }
+            } else if (activeViewLevel === "DC") {
+                omvigFilterStatus = document.getElementById("omvig-dc-status-select")?.value || "";
+            }
+            loadAndRenderOmvigReport(false);
+        }
+
         function renderOmvigReportHtml_(data) {
             const freezeLine = `<div style="text-align:center; font-size:0.66rem; font-weight:800; color:#475569; margin-top:4px;">Freeze Date: ${escapeHtml(data.freeze_date)}</div>`;
-            const downloadButtons = `
-                <div style="display:flex; gap:8px; margin-top:12px;">
-                    <button class="btn-unique" style="flex:1; background:#16a34a; color:#fff;" onclick="downloadOmvigReport('XLS')">⬇️ Excel</button>
-                    <button class="btn-unique" style="flex:1; background:#dc2626; color:#fff;" onclick="downloadOmvigReport('PDF')">⬇️ PDF</button>
-                </div>`;
+            let bodyHtml;
             if (activeViewLevel === "DC") {
-                return freezeLine + renderOmvigDcListHtml_(data.rowsWithStatus) + downloadButtons;
+                bodyHtml = renderOmvigDcLevelHtml_(data.rowsWithStatus);
+            } else if (activeViewLevel === "DIVISION") {
+                bodyHtml = renderOmvigDivisionLevelHtml_(data.rowsWithStatus);
+            } else {
+                bodyHtml = renderOmvigCircleLevelHtml_(data.rowsWithStatus);
             }
-            return freezeLine + renderFreezeDcWiseSummaryHtml(data.rowsWithStatus) + downloadButtons;
+            // USER REQUEST (2026-09-14): DC level par pehle jaisa hi ek Excel +
+            // ek PDF (poori DC ki list). Division/Circle par ab Excel (summary+
+            // list combined, pehle jaisa) ke saath PDF 2 ALAG button me baant
+            // diya - "Summary PDF" (sirf totals+DC-wise table) aur "List PDF"
+            // (sirf poori raw list) - taaki sirf summary chahiye ho to poori
+            // list wali badi PDF na download karni pade.
+            const downloadButtons = activeViewLevel === "DC"
+                ? `<div style="display:flex; gap:8px; margin-top:12px;">
+                     <button class="btn-unique" style="flex:1; background:#16a34a; color:#fff;" onclick="downloadOmvigReport('XLS')">⬇️ Excel</button>
+                     <button class="btn-unique" style="flex:1; background:#dc2626; color:#fff;" onclick="downloadOmvigReport('PDF')">⬇️ PDF</button>
+                   </div>`
+                : `<div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
+                     <button class="btn-unique" style="flex:1; min-width:100px; background:#16a34a; color:#fff;" onclick="downloadOmvigReport('XLS')">⬇️ Excel</button>
+                     <button class="btn-unique" style="flex:1; min-width:100px; background:#0891b2; color:#fff;" onclick="downloadOmvigReport('PDF_SUMMARY')">📊 Summary PDF</button>
+                     <button class="btn-unique" style="flex:1; min-width:100px; background:#dc2626; color:#fff;" onclick="downloadOmvigReport('PDF_LIST')">📋 List PDF</button>
+                   </div>`;
+            return freezeLine + bodyHtml + downloadButtons;
         }
 
         async function loadAndRenderOmvigReport(forceRefresh = false) {
@@ -9337,6 +9465,54 @@
                 if (!window.jspdf?.jsPDF) return showToast("PDF library load nahi hui", false);
                 const { jsPDF } = window.jspdf;
                 const doc = new jsPDF("l", "mm", "a4");
+                const drawFullListTable = (startY) => {
+                    doc.autoTable({
+                        startY,
+                        head: [listHeaders],
+                        body: listBodyRows.length ? listBodyRows : [listHeaders.map(() => "")],
+                        theme: "grid", headStyles: { fillColor: [17, 24, 39], halign: "center" },
+                        styles: { fontSize: 5.5, cellPadding: 1, halign: "center", overflow: "linebreak" },
+                        columnStyles: { 7: { halign: "left" }, 10: { halign: "left" } },
+                        // USER REQUEST (2026-09-14): Pending sheet ke text columns
+                        // (CHECKED BY / CONSUMER NAME / CASE NAME / TARIFF NAME etc.)
+                        // me Devanagari/Hindi text ho sakta hai - jsPDF khud usko
+                        // render nahi kar paata, isliye Meter Checking report me pehle
+                        // se bana Canvas-image fix (`meterCheckingCellHasDevanagari_`/
+                        // `drawMeterCheckingHindiCell_`) yahan bhi reuse kiya hai, ab
+                        // koi bhi column ho (remark-column-specific nahi, har body
+                        // cell check hoti hai) - Hindi cell ke upar ek chhoti sahi
+                        // Devanagari image chipka di jaati hai, English/number cell
+                        // bilkul normal PDF text hi rehte hain.
+                        // USER REQUEST (2026-09-14): STATUS column me bhi Freeze NP
+                        // jaisa hi colour - PAID = green, PART PAID = red.
+                        didParseCell: (cellData) => {
+                            if (cellData.section === "body" && cellData.column.index === statusColIndex) {
+                                const state = paymentStateFlags[cellData.row.index];
+                                if (state === 2) { cellData.cell.styles.textColor = [22, 101, 52]; cellData.cell.styles.fontStyle = "bold"; }
+                                else if (state === 1) { cellData.cell.styles.textColor = [220, 38, 38]; cellData.cell.styles.fontStyle = "bold"; }
+                            }
+                        },
+                        didDrawCell: (cellData) => {
+                            if (cellData.section === "body" && meterCheckingCellHasDevanagari_(cellData.cell.raw)) {
+                                drawMeterCheckingHindiCell_(doc, cellData);
+                            }
+                        }
+                    });
+                };
+
+                // USER REQUEST (2026-09-14): Division/Circle level par "PDF_LIST"
+                // ek chhota, seedha PDF hai - sirf poori list, koi summary table
+                // nahi (jab sirf list chahiye ho to poori summary ka bojh na ho).
+                if (fmt === "PDF_LIST") {
+                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 8);
+                    doc.setFontSize(13); doc.setTextColor(0); doc.text(`${reportTitle} - Full List`, 148, 15, { align: "center" });
+                    doc.setFontSize(9); doc.setTextColor(80); doc.text(`Freeze Date: ${data.freeze_date}`, 148, 21, { align: "center" });
+                    drawFullListTable(26);
+                    const pdfBlob = doc.output("blob");
+                    await saveShmsBlob(`${fileName}.pdf`, pdfBlob, "application/pdf");
+                    return showToast("PDF report ka request bhej diya gaya. Agar preview me file na aaye to browser ya GitHub version me check kijiye.", true);
+                }
+
                 doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 8);
                 doc.setFontSize(15); doc.setTextColor(0); doc.text(reportTitle, 148, 16, { align: "center" });
                 doc.setFontSize(10); doc.text(`Freeze Date: ${data.freeze_date}`, 148, 23, { align: "center" });
@@ -9366,41 +9542,16 @@
                     });
                 }
 
-                doc.addPage("a4", "l");
-                doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 8);
-                doc.setFontSize(13); doc.setTextColor(0); doc.text(`${reportTitle} - Full List`, 148, 15, { align: "center" });
-                doc.autoTable({
-                    startY: 20,
-                    head: [listHeaders],
-                    body: listBodyRows.length ? listBodyRows : [listHeaders.map(() => "")],
-                    theme: "grid", headStyles: { fillColor: [17, 24, 39], halign: "center" },
-                    styles: { fontSize: 5.5, cellPadding: 1, halign: "center", overflow: "linebreak" },
-                    columnStyles: { 7: { halign: "left" }, 10: { halign: "left" } },
-                    // USER REQUEST (2026-09-14): Pending sheet ke text columns
-                    // (CHECKED BY / CONSUMER NAME / CASE NAME / TARIFF NAME etc.)
-                    // me Devanagari/Hindi text ho sakta hai - jsPDF khud usko
-                    // render nahi kar paata, isliye Meter Checking report me pehle
-                    // se bana Canvas-image fix (`meterCheckingCellHasDevanagari_`/
-                    // `drawMeterCheckingHindiCell_`) yahan bhi reuse kiya hai, ab
-                    // koi bhi column ho (remark-column-specific nahi, har body
-                    // cell check hoti hai) - Hindi cell ke upar ek chhoti sahi
-                    // Devanagari image chipka di jaati hai, English/number cell
-                    // bilkul normal PDF text hi rehte hain.
-                    // USER REQUEST (2026-09-14): STATUS column me bhi Freeze NP
-                    // jaisa hi colour - PAID = green, PART PAID = red.
-                    didParseCell: (cellData) => {
-                        if (cellData.section === "body" && cellData.column.index === statusColIndex) {
-                            const state = paymentStateFlags[cellData.row.index];
-                            if (state === 2) { cellData.cell.styles.textColor = [22, 101, 52]; cellData.cell.styles.fontStyle = "bold"; }
-                            else if (state === 1) { cellData.cell.styles.textColor = [220, 38, 38]; cellData.cell.styles.fontStyle = "bold"; }
-                        }
-                    },
-                    didDrawCell: (cellData) => {
-                        if (cellData.section === "body" && meterCheckingCellHasDevanagari_(cellData.cell.raw)) {
-                            drawMeterCheckingHindiCell_(doc, cellData);
-                        }
-                    }
-                });
+                // USER REQUEST (2026-09-14): "PDF_SUMMARY" (Division/Circle) yahin
+                // ruk jaata hai - poori list wala page nahi jodte. Sirf "PDF" (DC
+                // level, jahan koi alag summary-only option hai hi nahi) aur na
+                // hone par bhi poori list jodte hain.
+                if (fmt !== "PDF_SUMMARY") {
+                    doc.addPage("a4", "l");
+                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 8);
+                    doc.setFontSize(13); doc.setTextColor(0); doc.text(`${reportTitle} - Full List`, 148, 15, { align: "center" });
+                    drawFullListTable(20);
+                }
 
                 const pdfBlob = doc.output("blob");
                 await saveShmsBlob(`${fileName}.pdf`, pdfBlob, "application/pdf");

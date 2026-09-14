@@ -52,6 +52,7 @@ function doGet(e) {
     if (action === "getPendingSummary") return jsonResponse_(getPendingSummary_(dc));
     if (action === "getPaidSummary") return jsonResponse_(getPaidSummary_(dc));
     if (action === "getDcList") return jsonResponse_(getDcList_());
+    if (action === "getFreezeStatus") return jsonResponse_(getFreezeStatus_());
     return jsonResponse_({ status: "success", message: "O&M/VIG Script Live Hai" });
   } catch (error) {
     return jsonResponse_({ status: "error", message: error && error.message ? error.message : "unknown error" });
@@ -82,12 +83,25 @@ function getRequestData_(e) {
   return e.parameter || {};
 }
 
+// BUG FIX (2026-09-14): user ko report header me "Freeze Date:
+// 2026-09-13T18:30:00.000Z" jaisa dikha - root cause: FREEZE_DATE plain
+// "yyyy-MM-dd" text ke roop me save hoti hai, lekin Google Sheets aise
+// dikhne wale text ko khud-b-khud ek real Date cell bana deta hai - agli
+// baar padhne par `values[i][1]` ek JS Date object hota hai, jo JSON me
+// poori ISO timestamp (samay/timezone samet) ban jaata hai. Fix: yahan bhi
+// (jaisa data-column reads me `formatDateCells_` karta hai) Date instance
+// ko wapas plain "yyyy-MM-dd" text me convert kar dete hain.
 function getMetaValue_(ss, key) {
   const sheet = ss.getSheetByName(OMVIG_META_SHEET);
   if (!sheet || sheet.getLastRow() < 1) return "";
   const values = sheet.getDataRange().getValues();
+  const tz = Session.getScriptTimeZone() || "Asia/Kolkata";
   for (let i = 0; i < values.length; i++) {
-    if (String(values[i][0]) === key) return values[i][1];
+    if (String(values[i][0]) === key) {
+      const raw = values[i][1];
+      if (raw instanceof Date) return Utilities.formatDate(raw, tz, "yyyy-MM-dd");
+      return raw;
+    }
   }
   return "";
 }
@@ -244,6 +258,22 @@ function formatDateCells_(values, dateColIndexes) {
       return cell;
     });
   });
+}
+
+// USER-REPORTED SLOWNESS FIX (2026-09-14): admin status box aur Division/
+// Circle report - dono pehle poori getPendingSummary_() (~9500 rows, poore
+// Circle ki full data, 1-2+ min tak lag sakta) call karke sirf freeze_date
+// pata karte the. Yeh chhota/fast endpoint sirf freeze_date + pending row
+// count deta hai (sheet.getLastRow() se, koi getValues() poore data par
+// nahi) - admin status aur "abhi freeze nahi hua" gate check ab isi se hote
+// hain, poori list sirf tabhi fetch hoti hai jab freeze ho chuka ho AND
+// report ki asli list/summary dikhani ho.
+function getFreezeStatus_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = getPendingSheet_(ss);
+  const freezeDate = getMetaValue_(ss, "FREEZE_DATE");
+  const pendingCount = sheet ? Math.max(0, sheet.getLastRow() - 1) : 0;
+  return { status: "success", freeze_date: freezeDate || "", pending_count: pendingCount };
 }
 
 function getPendingSummary_(dc) {
