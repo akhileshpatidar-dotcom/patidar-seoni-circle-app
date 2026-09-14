@@ -9454,17 +9454,64 @@
             }
         }
 
+        // USER REQUEST (2026-09-14): on-screen dropdown filter (Division/DC/
+        // Paid-Unpaid) jo abhi chuna hua hai, download (Excel/PDF, sabhi
+        // format) ko bhi wahi scope dikhna chahiye - pehle download hamesha
+        // poora unscoped Circle/Division data bhej deta tha, on-screen filter
+        // se bilkul bekhabar. `scopedRows` = Division+DC tak scope (status
+        // filter se pehle - DC-wise Paid/Pending breakdown table isi se
+        // banti hai), `finalRows` = status filter bhi laga hua (list +
+        // top stats box isi se banti hai) - bilkul on-screen render jaisa.
+        function getOmvigDownloadScopedRows_(rowsWithStatus) {
+            let rows = rowsWithStatus;
+            if (activeViewLevel === "CIRCLE" && omvigFilterDivision) {
+                const dcSet = new Set(getDivisionDcNames(omvigFilterDivision).map((n) => normalizeDcName(n)));
+                rows = rows.filter((r) => dcSet.has(normalizeDcName(r.dc_name)));
+            }
+            if ((activeViewLevel === "CIRCLE" || activeViewLevel === "DIVISION") && omvigFilterDc) {
+                rows = rows.filter((r) => normalizeDcName(r.dc_name) === normalizeDcName(omvigFilterDc));
+            }
+            return rows;
+        }
+
+        function getOmvigDownloadSummaryRows_(scopedRows, finalRows) {
+            const dcInScope = activeViewLevel === "DC" ? activeDC : omvigFilterDc;
+            let rows;
+            if (dcInScope) {
+                rows = omvigFilterStatus
+                    ? [buildOmvigStatusSummaryRow_(finalRows, dcInScope, omvigFilterStatus)]
+                    : [buildOmvigSingleDcSummaryRow_(scopedRows, dcInScope)];
+            } else if (activeViewLevel === "CIRCLE" && omvigFilterDivision) {
+                rows = buildOmvigDivisionDcSummaryRows_(scopedRows, omvigFilterDivision);
+            } else {
+                rows = buildFreezeDcWiseSummaryRows(scopedRows);
+            }
+            return rows.map((r) => ({
+                ...r,
+                paidPercent: r.paidPercent !== undefined ? r.paidPercent : (r.totalCount ? ((r.paidCount / r.totalCount) * 100).toFixed(1) : "0.0"),
+                pendingPercent: r.pendingPercent !== undefined ? r.pendingPercent : (r.totalCount ? ((r.pendingCount / r.totalCount) * 100).toFixed(1) : "0.0")
+            }));
+        }
+
         async function downloadOmvigReport(fmt) {
             try {
                 const data = await loadOmvigReportData_();
                 if (!data.freeze_date) return showToast("Pehle Freeze Date set karein", false);
-                const rowsWithStatus = data.rowsWithStatus;
+                const scopedRows = getOmvigDownloadScopedRows_(data.rowsWithStatus);
+                const rowsWithStatus = omvigFilterStatus ? filterOmvigRowsByStatus_(scopedRows, omvigFilterStatus) : scopedRows;
                 const totalCount = rowsWithStatus.length;
                 const paidCount = rowsWithStatus.filter((r) => r.isPaidNow).length;
                 const pendingCount = totalCount - paidCount;
                 const paidPercent = totalCount ? ((paidCount / totalCount) * 100).toFixed(1) : "0.0";
                 const pendingPercent = totalCount ? ((pendingCount / totalCount) * 100).toFixed(1) : "0.0";
-                const scope = activeViewLevel === "DC" ? `DC - ${activeDC}` : (activeViewLevel === "DIVISION" ? activeDiv : "SEONI CIRCLE");
+                let scope = activeViewLevel === "DC" ? `DC - ${activeDC}` : (activeViewLevel === "DIVISION" ? activeDiv : "SEONI CIRCLE");
+                // USER REQUEST (2026-09-14): download ka title/filename bhi
+                // batana chahiye ki kaunsa filter laga hua hai (jab laga ho).
+                const scopeExtras = [];
+                if (activeViewLevel === "CIRCLE" && omvigFilterDivision) scopeExtras.push(omvigFilterDivision.replace(/^DIVISION\s+/i, ""));
+                if ((activeViewLevel === "CIRCLE" || activeViewLevel === "DIVISION") && omvigFilterDc) scopeExtras.push(omvigFilterDc);
+                if (omvigFilterStatus) scopeExtras.push(omvigFilterStatus);
+                if (scopeExtras.length) scope += ` - ${scopeExtras.join(" - ")}`;
                 const reportTitle = `O&M-VIG Report - ${scope}`;
                 const fileName = `${reportTitle}-${getTodayIsoDate()}`.replace(/[\\/:*?"<>|]+/g, "_");
 
@@ -9513,7 +9560,7 @@
                         ["TOTAL CASES", "PAID COUNT", "PAID %", "PENDING COUNT", "PENDING %"],
                         [totalCount, paidCount, `${paidPercent}%`, pendingCount, `${pendingPercent}%`], []];
                     if (activeViewLevel !== "DC") {
-                        const summaryRows = buildFreezeDcWiseSummaryRows(rowsWithStatus);
+                        const summaryRows = getOmvigDownloadSummaryRows_(scopedRows, rowsWithStatus);
                         rows.push(["DC NAME", "TOTAL", "PAID COUNT", "PAID AMT", "PENDING COUNT", "PENDING AMT", "PAID %", "PENDING %"]);
                         summaryRows.forEach((r) => rows.push([r.name, r.totalCount, r.paidCount, r.paidAmount, r.pendingCount, r.pendingAmount, `${r.paidPercent}%`, `${r.pendingPercent}%`]));
                         rows.push([]);
@@ -9527,14 +9574,26 @@
                 if (!window.jspdf?.jsPDF) return showToast("PDF library load nahi hui", false);
                 const { jsPDF } = window.jspdf;
                 const doc = new jsPDF("l", "mm", "a4");
+                // USER REQUEST (2026-09-14, professional-alignment fix): text/ID
+                // columns (naam, panchanama no, consumer no, tariff/case name)
+                // left-align, paise wale columns right-align, baaki (circle/
+                // division/dc/date/status codes) center - taaki har column me
+                // value hamesha ek hi jagah se shuru ho (pehle CONSUMER NO jaisa
+                // column hamesha CENTER tha, isliye alag-alag length ki values
+                // "idhar-udhar" dikhti thi).
+                const LEFT_ALIGN_COLS_ = [3, 5, 6, 7, 8, 9, 10];
+                const RIGHT_ALIGN_COLS_ = [11, 13];
+                const omvigColumnStyles_ = {};
+                LEFT_ALIGN_COLS_.forEach((i) => { omvigColumnStyles_[i] = { halign: "left" }; });
+                RIGHT_ALIGN_COLS_.forEach((i) => { omvigColumnStyles_[i] = { halign: "right" }; });
                 const drawFullListTable = (startY) => {
                     doc.autoTable({
                         startY,
                         head: [listHeaders],
                         body: listBodyRows.length ? listBodyRows : [listHeaders.map(() => "")],
                         theme: "grid", headStyles: { fillColor: [17, 24, 39], halign: "center" },
-                        styles: { fontSize: 5.5, cellPadding: 1, halign: "center", overflow: "linebreak" },
-                        columnStyles: { 7: { halign: "left" }, 10: { halign: "left" } },
+                        styles: { fontSize: 5.5, cellPadding: 1.2, halign: "center", valign: "middle", overflow: "linebreak" },
+                        columnStyles: omvigColumnStyles_,
                         // USER REQUEST (2026-09-14): Pending sheet ke text columns
                         // (CHECKED BY / CONSUMER NAME / CASE NAME / TARIFF NAME etc.)
                         // me Devanagari/Hindi text ho sakta hai - jsPDF khud usko
@@ -9554,9 +9613,15 @@
                                 else if (state === 1) { cellData.cell.styles.textColor = [220, 38, 38]; cellData.cell.styles.fontStyle = "bold"; }
                             }
                         },
+                        // USER REQUEST (2026-09-14, alignment fix): Hindi image ab
+                        // column ke apne halign (left/center) ke hisab se banti hai,
+                        // taaki plain text values ke saath ek hi jagah se align ho -
+                        // pehle hamesha canvas ke left se banti thi, isliye center
+                        // wale columns me values "idhar-udhar" dikhti thi.
                         didDrawCell: (cellData) => {
                             if (cellData.section === "body" && meterCheckingCellHasDevanagari_(cellData.cell.raw)) {
-                                drawMeterCheckingHindiCell_(doc, cellData);
+                                const align = LEFT_ALIGN_COLS_.includes(cellData.column.index) ? "left" : "center";
+                                drawMeterCheckingHindiCell_(doc, cellData, align);
                             }
                         }
                     });
@@ -9587,7 +9652,7 @@
                 });
 
                 if (activeViewLevel !== "DC") {
-                    const summaryRows = buildFreezeDcWiseSummaryRows(rowsWithStatus);
+                    const summaryRows = getOmvigDownloadSummaryRows_(scopedRows, rowsWithStatus);
                     const rowTypeFlags = summaryRows.map((r) => (r.type === "GRAND_TOTAL" ? 2 : (r.type === "SUB_TOTAL" ? 1 : 0)));
                     doc.autoTable({
                         startY: doc.lastAutoTable.finalY + 6,
@@ -22064,7 +22129,15 @@
             return /[ऀ-ॿ]/.test(String(text || ""));
         }
 
-        function renderMeterCheckingHindiCellImage_(text, cellWidthMm, cellHeightMm) {
+        // USER REQUEST (2026-09-14, O&M/VIG PDF alignment fix): pehle Hindi
+        // cell ka text canvas ke LEFT se hi likha jaata tha, hamesha - jo
+        // column ke apne halign (jaise "center") se match nahi karta tha,
+        // isliye Hindi wale cell (jaise "लागू नहीं") aur plain English/number
+        // wale cell alag-alag jagah dikhte the (ek row me "idhar-udhar" jaisa
+        // lagta tha). Ab `align` param (default "left", Meeter Checking ka
+        // purana behaviour bilkul same rakhne ke liye) column ke halign ke
+        // hisab se text ko canvas ke andar bhi center/left karta hai.
+        function renderMeterCheckingHindiCellImage_(text, cellWidthMm, cellHeightMm, align) {
             const scale = 6; // crisp raster taaki PDF zoom karne par bhi saaf dikhe
             const widthPx = Math.max(24, Math.round(cellWidthMm * scale));
             const heightPx = Math.max(24, Math.round(cellHeightMm * scale));
@@ -22101,13 +22174,15 @@
             const lineHeight = fontSizePx * 1.25;
             const totalTextHeight = lines.length * lineHeight;
             const startY = Math.max(padPx * 0.5, (heightPx - totalTextHeight) / 2);
+            ctx.textAlign = align === "center" ? "center" : "left";
+            const textX = align === "center" ? widthPx / 2 : padPx;
             lines.forEach((line, i) => {
-                ctx.fillText(line, padPx, startY + i * lineHeight, maxWidth);
+                ctx.fillText(line, textX, startY + i * lineHeight, maxWidth);
             });
             return canvas.toDataURL("image/png");
         }
 
-        function drawMeterCheckingHindiCell_(doc, cellData) {
+        function drawMeterCheckingHindiCell_(doc, cellData, align) {
             const { x, y, width, height } = cellData.cell;
             doc.setFillColor(255, 255, 255);
             doc.rect(x, y, width, height, "F");
@@ -22115,7 +22190,7 @@
             doc.setLineWidth(0.1);
             doc.rect(x, y, width, height, "S");
             try {
-                const imgData = renderMeterCheckingHindiCellImage_(String(cellData.cell.raw ?? ""), width, height);
+                const imgData = renderMeterCheckingHindiCellImage_(String(cellData.cell.raw ?? ""), width, height, align);
                 doc.addImage(imgData, "PNG", x + 0.4, y + 0.3, Math.max(0.1, width - 0.8), Math.max(0.1, height - 0.6));
             } catch (_) {}
         }
