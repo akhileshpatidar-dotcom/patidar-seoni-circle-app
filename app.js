@@ -319,6 +319,12 @@
         let peakLoadReportRows = [];
         let peakLoadReportLoaded = false;
         let peakLoadReportLoadMessage = "";
+        // NEW FEATURE (2026-09-14): STM Complaint report ke liye same pattern -
+        // user ne backend (.gs) ka getSummary action add karwa diya hai isliye
+        // ab yeh report bhi Peak Load ki tarah ban sakti hai.
+        let stmComplaintReportRows = [];
+        let stmComplaintReportLoaded = false;
+        let stmComplaintReportLoadMessage = "";
         // BUG FIX (2026-09-14): substation-wise lightweight history cache - dekhein
         // loadFeederSubstationHistory_() aur getAllFeederHistoryEntries_().
         let feederSubstationHistoryCache_ = {};
@@ -8704,6 +8710,173 @@
             }
         }
 
+        // NEW FEATURE (2026-09-14): STM Complaint report - backend (.gs) ab
+        // ?action=getSummary support karta hai (user ne .gs update kar diya),
+        // isliye Peak Load report jaisa hi pattern yahan bhi laga diya gaya hai.
+        function normalizeStmComplaintReportRow_(row) {
+            if (Array.isArray(row)) {
+                return {
+                    "SUBSTATION": String(row[0] || "").replace(/\s+/g, " ").trim(),
+                    "OPERATOR NAME": String(row[1] || "").replace(/\s+/g, " ").trim(),
+                    "MOBILE NO": String(row[2] || "").trim(),
+                    "INFORMATION SHARED AT": String(row[3] || "").trim(),
+                    "DATE": String(row[4] || "").trim(),
+                    "TIME": String(row[5] || "").trim(),
+                    "CALLING INFO": String(row[6] || "").trim(),
+                    "COMPLAINT DETAILS": String(row[7] || "").trim(),
+                    "PHOTO LINK": String(row[8] || "").trim(),
+                    "SUBMIT DATE": String(row[9] || "").trim(),
+                    "SUBMIT TIME": String(row[10] || "").trim()
+                };
+            }
+            return {
+                "SUBSTATION": String(row["SUBSTATION"] || row.substation || "").replace(/\s+/g, " ").trim(),
+                "OPERATOR NAME": String(row["OPERATOR NAME"] || row.operator_name || "").replace(/\s+/g, " ").trim(),
+                "MOBILE NO": String(row["MOBILE NO"] || row.mobile_no || "").trim(),
+                "INFORMATION SHARED AT": String(row["INFORMATION SHARED AT"] || row.information_shared_at || "").trim(),
+                "DATE": String(row["DATE"] || row.date || "").trim(),
+                "TIME": String(row["TIME"] || row.time || "").trim(),
+                "CALLING INFO": String(row["CALLING INFO"] || row.calling_info || "").trim(),
+                "COMPLAINT DETAILS": String(row["COMPLAINT DETAILS"] || row.complaint_details || "").trim(),
+                "PHOTO LINK": String(row["PHOTO LINK"] || row.photo_link || "").trim(),
+                "SUBMIT DATE": String(row["SUBMIT DATE"] || row.submit_date || "").trim(),
+                "SUBMIT TIME": String(row["SUBMIT TIME"] || row.submit_time || "").trim()
+            };
+        }
+
+        async function loadStmComplaintReportData(forceRefresh = false) {
+            if (!forceRefresh && stmComplaintReportLoaded && stmComplaintReportRows.length) return true;
+            stmComplaintReportLoadMessage = "";
+            let rawData = null, lastErr = null;
+            for (let attempt = 1; attempt <= 2 && rawData === null; attempt++) {
+                try {
+                    rawData = await loadRemoteJson(`${stmComplaintScriptUrl}?action=getSummary&t=${Date.now()}`, 45000);
+                } catch (err) {
+                    lastErr = err;
+                    if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 2000));
+                }
+            }
+            try {
+                if (rawData === null) throw lastErr || new Error("STM complaint summary load fail");
+                const summaryRows = Array.isArray(rawData)
+                    ? rawData
+                    : Array.isArray(rawData?.data)
+                        ? rawData.data
+                        : Array.isArray(rawData?.rows)
+                            ? rawData.rows
+                            : [];
+                stmComplaintReportRows = summaryRows.map(normalizeStmComplaintReportRow_).filter((row) => row["SUBSTATION"]);
+                if (stmComplaintReportRows.length) {
+                    stmComplaintReportLoaded = true;
+                    return true;
+                }
+                stmComplaintReportLoadMessage = "STM Complaint report source se data nahi mila";
+                return false;
+            } catch (_) {
+                stmComplaintReportLoadMessage = "STM Complaint report source load nahi ho paya";
+                stmComplaintReportRows = [];
+                stmComplaintReportLoaded = false;
+                return false;
+            }
+        }
+
+        function getFilteredStmComplaintReportRows() {
+            const label = getFeederReportFilterLabel();
+            if (!label) return [];
+            if (shmsProgressMode === "MONTHLY") {
+                return stmComplaintReportRows.filter((row) => {
+                    const dateKey = buildFeederDateKey_(row["DATE"] || "");
+                    return buildShmsMonthKeyFromDateKey_(dateKey) === label;
+                });
+            }
+            const dailyKey = buildShmsDateKey_(label);
+            return stmComplaintReportRows.filter((row) => buildFeederDateKey_(row["DATE"] || "") === dailyKey);
+        }
+
+        async function renderStmComplaintReportSummary() {
+            const summary = document.getElementById("shms-progress-summary");
+            if (!summary) return;
+            await loadStmComplaintReportData(true);
+            const label = getFeederReportFilterLabel();
+            const rows = getFilteredStmComplaintReportRows();
+            summary.style.display = label ? "block" : "none";
+            if (!label) {
+                summary.innerHTML = "";
+                return;
+            }
+            const debugMessage = rows.length
+                ? `${label} ke liye ${rows.length} STM complaint entries ready hain`
+                : (stmComplaintReportLoadMessage
+                    ? `${label} ke liye 0 STM complaint entries ready hain<br><span style="display:block; margin-top:6px; font-size:11px; color:#b91c1c;">${stmComplaintReportLoadMessage}</span>`
+                    : `${label} ke liye 0 STM complaint entries ready hain`);
+            summary.innerHTML = `<div style="margin-top:14px; background:#f8fafc; border:1.5px solid #cbd5e1; border-radius:16px; padding:14px; text-align:center; font-size:13px; font-weight:900; color:#0f172a;">${debugMessage}</div>`;
+        }
+
+        async function downloadStmComplaintReport(fmt) {
+            try {
+                await loadStmComplaintReportData(true);
+                setShmsProgressStatus("STM Complaint report data ready ki ja rahi hai...");
+                const rows = getFilteredStmComplaintReportRows();
+                const label = getFeederReportFilterLabel();
+                setShmsProgressStatus("");
+                if (!label) return showToast("Pehle date ya month select kijiye", false);
+
+                const headers = ["SUBSTATION", "OPERATOR NAME", "MOBILE NO", "INFORMATION SHARED AT", "DATE", "TIME", "CALLING INFO", "COMPLAINT DETAILS", "PHOTO LINK", "SUBMIT DATE", "SUBMIT TIME"];
+                const bodyRows = rows.map((row) => headers.map((key) => String(row[key] ?? "")));
+                const safeLabel = label.replace(/[\\/:*?"<>|]+/g, "_");
+
+                if (fmt === "XLS") {
+                    const csvRows = [
+                        ["STM COMPLAINT REPORT"],
+                        [shmsProgressMode === "MONTHLY" ? `MONTH - ${label}` : `DATE - ${label}`],
+                        [],
+                        headers,
+                        ...bodyRows
+                    ];
+                    const csv = csvRows.map((row) => row.map((cell) => {
+                        const value = String(cell ?? "");
+                        return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+                    }).join(",")).join("\n");
+                    await saveShmsBlob(`STM_${shmsProgressMode}_${safeLabel}.csv`, new Blob([csv], { type: "text/csv;charset=utf-8" }), "text/csv;charset=utf-8");
+                    return showToast(bodyRows.length ? "Excel report ka request bhej diya gaya. Agar preview me file na aaye to browser ya GitHub version me check kijiye." : "Blank Excel report ka request bhej diya gaya. Agar preview me file na aaye to browser ya GitHub version me check kijiye.", true);
+                }
+
+                if (!window.jspdf || !window.jspdf.jsPDF) {
+                    return showToast("PDF library load nahi hui", false);
+                }
+
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF("l", "mm", "a4");
+                doc.setFontSize(7);
+                doc.setTextColor(100);
+                doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 8);
+                doc.setFontSize(15);
+                doc.setTextColor(0);
+                doc.text("STM COMPLAINT REPORT", 148, 16, { align: "center" });
+                doc.setFontSize(11);
+                doc.text(shmsProgressMode === "MONTHLY" ? `MONTH - ${label}` : `DATE - ${label}`, 148, 23, { align: "center" });
+                doc.autoTable({
+                    startY: 29,
+                    head: [headers],
+                    body: bodyRows.length ? bodyRows : [["", "", "", "", "", "", "", "", "", "", ""]],
+                    theme: "grid",
+                    headStyles: { fillColor: [17, 24, 39], halign: "center" },
+                    styles: { fontSize: 6.5, cellPadding: 1.5, halign: "center" },
+                    columnStyles: {
+                        0: { halign: "left" },
+                        1: { halign: "left" },
+                        7: { halign: "left" }
+                    }
+                });
+                const pdfBlob = doc.output("blob");
+                await saveShmsBlob(`STM_${shmsProgressMode}_${safeLabel}.pdf`, pdfBlob, "application/pdf");
+                showToast(bodyRows.length ? "PDF report ka request bhej diya gaya. Agar preview me file na aaye to browser ya GitHub version me check kijiye." : "Blank PDF report ka request bhej diya gaya. Agar preview me file na aaye to browser ya GitHub version me check kijiye.", true);
+            } catch (error) {
+                setShmsProgressStatus("");
+                showToast(error?.message || "STM Complaint report download nahi ho paya", false);
+            }
+        }
+
         async function getPeakLoadMissingDateKeys(substation, selectedDateIso) {
             const startKey = "2026-07-03";
             const selectedKey = normalizePeakLoadDateKey(selectedDateIso);
@@ -10406,13 +10579,11 @@
                 await renderPeakLoadReportSummary();
                 return;
             }
-            // STM Complaint ke liye abhi backend me koi history/getSummary action
-            // nahi hai (sirf submit hota hai) - isliye yahan report nahi ban sakti
-            // jab tak backend (.gs) me yeh action add na ho. Saaf message dikhate
-            // hain taaki user confuse na ho.
+            // FIXED (2026-09-14): STM Complaint backend (.gs) me ab getSummary
+            // action mil gaya hai (user ne bhej diya), isliye Peak Load jaisa hi
+            // report ab yahan bhi ban sakti hai.
             if (progressReportSource === "STM") {
-                summary.style.display = "block";
-                summary.innerHTML = `<div style="margin-top:14px; background:#fff7ed; border:1.5px solid #fdba74; border-radius:16px; padding:14px; text-align:center; font-size:13px; font-weight:900; color:#9a3412;">STM Complaint report abhi available nahi hai - backend (.gs) me history/summary action add karna baaki hai.</div>`;
+                await renderStmComplaintReportSummary();
                 return;
             }
             const filtered = getFilteredShmsProgressRows();
@@ -10639,7 +10810,7 @@
                 return downloadPeakLoadReport(fmt);
             }
             if (progressReportSource === "STM") {
-                return showToast("STM Complaint report abhi available nahi hai - backend update baaki hai", false);
+                return downloadStmComplaintReport(fmt);
             }
             try {
                 setShmsProgressStatus("SYNCING DATA... PLEASE WAIT");

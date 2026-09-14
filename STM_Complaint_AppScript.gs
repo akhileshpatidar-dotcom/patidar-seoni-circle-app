@@ -85,11 +85,67 @@ function doPost(e) {
   }
 }
 
-function doGet() {
-  return jsonResponse_({
-    status: "success",
-    message: "STM Complaint Script Live Hai"
-  });
+function doGet(e) {
+  try {
+    // NEW (2026-09-14): App ke "Daily Progress" -> STM Complaint report ke
+    // liye history chahiye thi, pehle sirf submit (doPost) hota tha. Ab
+    // ?action=getSummary bhej ke poori STM COMPLAINT SCRIPT sheet ka data
+    // (array-of-arrays, header order me) mil jaata hai - baaki (mail, submit)
+    // kuchh nahi chhua.
+    const action = (e && e.parameter && e.parameter.action) || "";
+    if (action === "getSummary") {
+      return jsonResponse_(getSummary_());
+    }
+    return jsonResponse_({
+      status: "success",
+      message: "STM Complaint Script Live Hai"
+    });
+  } catch (error) {
+    return jsonResponse_({
+      status: "error",
+      message: error && error.message ? error.message : "unknown error"
+    });
+  }
+}
+
+function getSummary_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss ? ss.getSheetByName(TARGET_SHEET_NAME) : null;
+  if (!sheet || sheet.getLastRow() < 2) {
+    return { status: "success", data: [] };
+  }
+
+  const headers = getHeaders_();
+  const lastRow = sheet.getLastRow();
+  const values = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+  const tz = Session.getScriptTimeZone() || "Asia/Kolkata";
+  // Column index (0-based) me "Date"/"Submit Date" aur "Time"/"Time" columns -
+  // Sheets kabhi-kabhi date/time-jaisi text ko khud-ba-khud Date object bana
+  // deta hai, isliye yahan explicit format karke wapas plain text bhej rahe
+  // hain taaki app.js me date-matching (report filter) sahi chale.
+  const dateColIndexes = [4, 9];
+  const timeColIndexes = [5, 10];
+
+  const data = values
+    .map(function (row) {
+      return row.map(function (cell, colIndex) {
+        if (cell instanceof Date) {
+          if (dateColIndexes.indexOf(colIndex) > -1) {
+            return Utilities.formatDate(cell, tz, "yyyy-MM-dd");
+          }
+          if (timeColIndexes.indexOf(colIndex) > -1) {
+            return Utilities.formatDate(cell, tz, "HH:mm");
+          }
+          return Utilities.formatDate(cell, tz, "dd/MM/yyyy HH:mm");
+        }
+        return cell;
+      });
+    })
+    .filter(function (row) {
+      return row.some(function (cell) { return String(cell || "").trim() !== ""; });
+    });
+
+  return { status: "success", data: data };
 }
 
 function getRequestData_(e) {
@@ -310,7 +366,15 @@ function sendComplaintMail_(payload) {
 
   const mailOptions = {
     name: "STM Complaint System",
-    htmlBody: htmlBody
+    htmlBody: htmlBody,
+    // Mail ab apatidar0@gmail.com (script owner) ki jagah ae.chhapara@gmail.com
+    // se bheji jaani hai. NOTE: ye tabhi kaam karega jab ae.chhapara@gmail.com
+    // apatidar0@gmail.com ke Gmail me "Send mail as" ke through verified alias
+    // ke roop me add ho (Gmail Settings -> Accounts and Import -> Send mail as).
+    // Agar alias verify nahi hai to Gmail automatically apne default account
+    // (apatidar0@gmail.com) se hi bhej dega.
+    from: "ae.chhapara@gmail.com",
+    replyTo: "ae.chhapara@gmail.com"
   };
 
   if (payload.photoBlob) {
