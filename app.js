@@ -311,6 +311,9 @@
         let feederReportRows = [];
         let feederReportLoaded = false;
         let feederReportLoadMessage = "";
+        // BUG FIX (2026-09-14): substation-wise lightweight history cache - dekhein
+        // loadFeederSubstationHistory_() aur getAllFeederHistoryEntries_().
+        let feederSubstationHistoryCache_ = {};
         let selectedFeederSubstation = "";
         let activeFeederOperator = null;
         let activeShmsOperator = null;
@@ -6501,8 +6504,15 @@
             return buildFeederDateKey_(dateButton?.dataset.iso || "");
         }
 
-        function getAllFeederHistoryEntries_() {
-            const sheetRows = Array.isArray(feederReportRows) ? feederReportRows : [];
+        function getAllFeederHistoryEntries_(substation) {
+            // BUG FIX (2026-09-14): jab substation-scoped lightweight cache available
+            // hai (dekhein loadFeederSubstationHistory_), usi ko priority dete hain -
+            // poori 1.5+ MB history (feederReportRows, jo slow/unstable load hoti hai)
+            // sirf tab fallback hoti hai jab wo kisi aur reason se already load ho
+            // chuki ho (jaise Report screen).
+            const substationKey = normalizeFeederSubstationKey_(substation || "");
+            const scopedRows = substationKey && feederSubstationHistoryCache_[substationKey];
+            const sheetRows = scopedRows ? scopedRows : (Array.isArray(feederReportRows) ? feederReportRows : []);
             const localRows = getRecentFeederSubmittedEntries_();
             return [...sheetRows, ...localRows];
         }
@@ -6511,7 +6521,7 @@
             const substationKey = normalizeFeederSubstationKey_(substation || "");
             const targetKey = String(selectedDateKey || "").trim();
             if (!substationKey || !targetKey) return [];
-            return getAllFeederHistoryEntries_().filter((entry) => {
+            return getAllFeederHistoryEntries_(substation).filter((entry) => {
                 const entrySubstationKey = normalizeFeederSubstationKey_(entry["33/11 KV SUBSTATION"] || entry.substation || "");
                 const entryDateKey = buildFeederDateKey_(entry["DATE(DD/MM/YYY)"] || entry["DATE(DD/MM/YYYY)"] || entry.date || "");
                 return entrySubstationKey === substationKey && entryDateKey === targetKey;
@@ -6542,7 +6552,7 @@
             if (!row || !targetKey) return "";
             const substationKey = normalizeFeederSubstationKey_(row.substation || "");
             const feederKey = String(row.feeder || "").trim().toUpperCase();
-            const matchedEntries = getAllFeederHistoryEntries_()
+            const matchedEntries = getAllFeederHistoryEntries_(row.substation)
                 .filter((entry) => {
                     const entrySubstationKey = normalizeFeederSubstationKey_(entry["33/11 KV SUBSTATION"] || entry.substation || "");
                     const entryFeederKey = String(entry["33 AND 11 KV FEEDER"] || entry.feeder || "").trim().toUpperCase();
@@ -6565,7 +6575,7 @@
             const substationKey = normalizeFeederSubstationKey_(substation);
             if (!substationKey) return [];
             const submittedDates = new Set(
-                getAllFeederHistoryEntries_()
+                getAllFeederHistoryEntries_(substation)
                     .filter((entry) => normalizeFeederSubstationKey_(entry["33/11 KV SUBSTATION"] || entry.substation || "") === substationKey)
                     .map((entry) => buildFeederDateKey_(entry["DATE(DD/MM/YYY)"] || entry["DATE(DD/MM/YYYY)"] || entry.date || ""))
                     .filter(Boolean)
@@ -7918,6 +7928,50 @@
                 if (!substation || !feeder) return null;
                 return { substation, feeder, meterNo };
             }).filter(Boolean);
+        }
+
+        // BUG FIX (2026-09-14) - USER-REPORTED: Feeder Reading me ek substation
+        // (jaise Chhapara ke substation) khud karte hi saari purani dates "Entry
+        // Pending" dikha deti thi, jabki reading pehle hi submit ho chuki thi. ASLI
+        // WAJAH: `getSummary` poori feeder history (sabhi DC/substation/date, 1.5+
+        // MB JSON) ek saath deta tha - itna bada response Apps Script se laana
+        // slow/unstable tha (kabhi timeout, kabhi HTML error page JSON ki jagah -
+        // dono case me feederReportRows KHAALI reh jaata tha, isliye code ko lagta
+        // tha "kisi bhi din koi reading submit hi nahi hui"). Backend me ab `getSummary`
+        // ek optional `substation` param leta hai (additive, backward-compatible -
+        // bina param ke pehle jaisa hi poora data deta hai) - jab user ek substation
+        // chunta hai to sirf USI substation ka (bahut chhota, tez, reliable) data
+        // maangte hain, poori history nahi. Substation-wise cache rakhte hain taaki
+        // baar-baar same substation chunne par dubara fetch na ho.
+        async function loadFeederSubstationHistory_(substation, forceRefresh = false) {
+            const key = normalizeFeederSubstationKey_(substation);
+            if (!key) return [];
+            if (!forceRefresh && feederSubstationHistoryCache_[key]) return feederSubstationHistoryCache_[key];
+            let rawData = null, lastErr = null;
+            for (let attempt = 1; attempt <= 2 && rawData === null; attempt++) {
+                try {
+                    rawData = await loadRemoteJson(`${feederSubmitScriptUrl}?action=getSummary&substation=${encodeURIComponent(substation)}`, 30000);
+                } catch (err) {
+                    lastErr = err;
+                    if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 1500));
+                }
+            }
+            if (rawData === null) return feederSubstationHistoryCache_[key] || [];
+            const summaryRows = Array.isArray(rawData) ? rawData : (Array.isArray(rawData?.data) ? rawData.data : []);
+            const mapped = summaryRows.map((row) => ({
+                "33/11 KV SUBSTATION": String(row["33/11 KV SUBSTATION"] || row.substation || "").trim(),
+                "33 AND 11 KV FEEDER": String(row["33 AND 11 KV FEEDER"] || row.feeder || "").trim(),
+                "METER NO": String(row["METER NO"] || row.meter_no || row.meter || "").trim(),
+                "PREVIUS READING": String(row["PREVIUS READING"] || row.previous_reading || "").trim(),
+                "CURRENT READING": String(row["CURRENT READING"] || row.current_reading || "").trim(),
+                "MF": String(row["MF"] || row.mf || "").trim(),
+                "CONSUMPTION": String(row["CONSUMPTION"] || row.consumption || "").trim(),
+                "DC NAME": String(row["DC NAME"] || row.dc_name || "").trim(),
+                "DATE(DD/MM/YYY)": String(row["DATE(DD/MM/YYY)"] || row["DATE(DD/MM/YYYY)"] || row.date || "").trim(),
+                "TIME(HH/MM)": String(row["TIME(HH/MM)"] || row["TIME(HH:MM)"] || row.time || "").trim()
+            })).filter((row) => row["33/11 KV SUBSTATION"] || row["33 AND 11 KV FEEDER"]);
+            feederSubstationHistoryCache_[key] = mapped;
+            return mapped;
         }
 
         async function loadFeederData(forceRefresh = false) {
@@ -10662,11 +10716,15 @@
                 setFeederStatus("", false);
             });
 
-            loadFeederReportData(true).then(() => {
-                if (selectedFeederSubstation) {
+            // BUG FIX (2026-09-14): pehle yahan poori feeder history (loadFeederReportData,
+            // 1.5+ MB) load hoti thi sirf isliye ki agar substation pehle se selected ho to
+            // uska pending-alert turant sahi dikhe - ab sirf USI (pehle se selected)
+            // substation ka halka data maangte hain.
+            if (selectedFeederSubstation) {
+                loadFeederSubstationHistory_(selectedFeederSubstation, true).then(() => {
                     renderFeederRows();
-                }
-            });
+                });
+            }
         }
 
         function selectFeederSubstation(substation) {
@@ -10678,7 +10736,10 @@
             toggleFeederDropdown("substation", false);
             toggleFeederDatePicker(false);
             renderFeederRows();
-            loadFeederReportData(true).then(() => renderFeederRows());
+            // BUG FIX (2026-09-14): substation chunte hi ab sirf USI substation ka halka
+            // data maangte hain (poori 1.5+ MB history nahi) - dekhein
+            // loadFeederSubstationHistory_.
+            loadFeederSubstationHistory_(substation, true).then(() => renderFeederRows());
         }
 
         function setFeederStatus(message = "", show = true, type = "alert") {
