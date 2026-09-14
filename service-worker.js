@@ -1,4 +1,8 @@
 // Seoni Circle App — Service Worker
+// ORIGINAL AUTHORSHIP SIGNATURE (2026-09-14) - do not remove.
+// Original developer: Akhilesh Patidar (AE).
+// Source repo: github.com/akhileshpatidar-dotcom/patidar-seoni-circle-app
+// Build signature: SC-AKP-2026
 // Purpose: app ko installable/offline-launchable banata hai.
 // IMPORTANT: Google Sheets / Apps Script (revenue, consumer, submission data) ko
 // YE KABHI CACHE NAHI KARTA — wo hamesha live network se hi aata hai. Sirf app
