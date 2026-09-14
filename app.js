@@ -314,6 +314,12 @@
         // BUG FIX (2026-09-14): substation-wise lightweight history cache - dekhein
         // loadFeederSubstationHistory_() aur getAllFeederHistoryEntries_().
         let feederSubstationHistoryCache_ = {};
+        // USER REQUEST (2026-09-14): jab tak substation ka halka history data load
+        // ho raha hai (loadFeederSubstationHistory_), tab tak purana/khaali cache
+        // dekh kar galat "saari dates Pending" wala red alert na dikhe - iski jagah
+        // ek neutral "Data sync ho raha hai" message dikhta hai jab tak load poora
+        // na ho jaye.
+        let feederHistorySyncingFor_ = "";
         let selectedFeederSubstation = "";
         let activeFeederOperator = null;
         let activeShmsOperator = null;
@@ -10721,7 +10727,9 @@
             // uska pending-alert turant sahi dikhe - ab sirf USI (pehle se selected)
             // substation ka halka data maangte hain.
             if (selectedFeederSubstation) {
+                feederHistorySyncingFor_ = normalizeFeederSubstationKey_(selectedFeederSubstation);
                 loadFeederSubstationHistory_(selectedFeederSubstation, true).then(() => {
+                    feederHistorySyncingFor_ = "";
                     renderFeederRows();
                 });
             }
@@ -10735,11 +10743,18 @@
             }
             toggleFeederDropdown("substation", false);
             toggleFeederDatePicker(false);
-            renderFeederRows();
             // BUG FIX (2026-09-14): substation chunte hi ab sirf USI substation ka halka
             // data maangte hain (poori 1.5+ MB history nahi) - dekhein
-            // loadFeederSubstationHistory_.
-            loadFeederSubstationHistory_(substation, true).then(() => renderFeederRows());
+            // loadFeederSubstationHistory_. Jab tak yeh load ho raha hai, purana/khaali
+            // cache dekh kar galat "saari dates Pending" alert dikhne se rokne ke liye
+            // feederHistorySyncingFor_ set karte hain (renderFeederRows isse "Data sync
+            // ho raha hai" dikhata hai).
+            feederHistorySyncingFor_ = normalizeFeederSubstationKey_(substation);
+            renderFeederRows();
+            loadFeederSubstationHistory_(substation, true).then(() => {
+                feederHistorySyncingFor_ = "";
+                renderFeederRows();
+            });
         }
 
         function setFeederStatus(message = "", show = true, type = "alert") {
@@ -10875,12 +10890,20 @@
             const blockingPendingKeys = getFeederBlockingPendingDateKeys_(selectedFeederSubstation, selectedDateKey);
 
             submitBtn.style.display = allRowsSubmitted ? "none" : "block";
-            if (blockingPendingKeys.length) {
+            // USER REQUEST (2026-09-14): jab tak is substation ka fresh history data
+            // sync ho raha hai, ab tak ka (khaali) cache dekh kar galat "saari dates
+            // Pending" alert dikhane ki jagah ek saaf "Data sync ho raha hai" message
+            // dikhaate hain - load poora hote hi (loadFeederSubstationHistory_ ke
+            // .then me) yeh dobara render hoga aur sahi status aa jayega.
+            const isHistorySyncing = feederHistorySyncingFor_ && feederHistorySyncingFor_ === normalizeFeederSubstationKey_(selectedFeederSubstation);
+            if (isHistorySyncing) {
+                setFeederStatus("Data sync ho raha hai... kripya thoda wait kijiye", true, "alert");
+            } else if (blockingPendingKeys.length) {
                 setFeederStatus(buildFeederPendingAlertMessage_(blockingPendingKeys), true, "alert");
             } else {
                 updateFeederPendingAlert(selectedFeederSubstation);
             }
-            if (allRowsSubmitted && !blockingPendingKeys.length) {
+            if (allRowsSubmitted && !blockingPendingKeys.length && !isHistorySyncing) {
                 setFeederStatus("Is date ki feeder reading pehle se submit ho chuki hai.", true, "success");
             }
             listBox.innerHTML = rows.map((row, index) => {
