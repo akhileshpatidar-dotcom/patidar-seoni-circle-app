@@ -862,11 +862,11 @@
                     if (!window.jspdf?.jsPDF) { setMobileUpdateReportDownloadState(false, "PDF library load nahi hui", false); return; }
                     const { jsPDF } = window.jspdf;
                     const doc = new jsPDF({ orientation: "landscape" });
-                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
-                    doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 12, { align: "center" });
-                    doc.setFontSize(9); doc.text(scopeLine, 148, 19, { align: "center" });
-                    doc.text(periodLine, 148, 25, { align: "center" });
-                    doc.autoTable({ startY: 31, head: [headers], body: bodyRows, theme: "grid", styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" }, headStyles: { fillColor: [185, 28, 28] } });
+                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 8);
+                    doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 15, { align: "center" });
+                    doc.setFontSize(9); doc.text(scopeLine, 148, 22, { align: "center" });
+                    doc.text(periodLine, 148, 28, { align: "center" });
+                    doc.autoTable({ startY: 34, head: [headers], body: bodyRows, theme: "grid", styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" }, headStyles: { fillColor: [185, 28, 28] } });
                     savePdfDocumentForDevice(doc, `${fileName}.pdf`);
                     setMobileUpdateReportDownloadState(false, "PDF download ho chuki hai", true);
                     return;
@@ -1171,10 +1171,10 @@
                     if (!window.jspdf?.jsPDF) { setMobileUpdateWrongListDownloadState(false, "PDF library load nahi hui", false); return; }
                     const { jsPDF } = window.jspdf;
                     const doc = new jsPDF({ orientation: "landscape" });
-                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
-                    doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 12, { align: "center" });
-                    doc.setFontSize(9); doc.text(scopeLine, 148, 19, { align: "center" });
-                    doc.autoTable({ startY: 25, head: [summaryHeaders], body: summaryBodyRows, theme: "grid", styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" }, headStyles: { fillColor: [185, 28, 28] } });
+                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 8);
+                    doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 15, { align: "center" });
+                    doc.setFontSize(9); doc.text(scopeLine, 148, 22, { align: "center" });
+                    doc.autoTable({ startY: 28, head: [summaryHeaders], body: summaryBodyRows, theme: "grid", styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" }, headStyles: { fillColor: [185, 28, 28] } });
                     mobileUpdateWrongListSummaryRows.forEach((hqRow) => {
                         const detailRows = getMobileUpdateWrongListDetailRowsForHq(hqRow.hqName);
                         if (!detailRows.length) return;
@@ -1224,10 +1224,10 @@
                     if (!window.jspdf?.jsPDF) { setMobileUpdateWrongListDownloadState(false, "PDF library load nahi hui", false); return; }
                     const { jsPDF } = window.jspdf;
                     const doc = new jsPDF({ orientation: "landscape" });
-                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
-                    doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 12, { align: "center" });
-                    doc.setFontSize(9); doc.text(scopeLine, 148, 19, { align: "center" });
-                    doc.autoTable({ startY: 25, head: [headers], body: bodyRows, theme: "grid", styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" }, headStyles: { fillColor: [185, 28, 28] } });
+                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 8);
+                    doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 15, { align: "center" });
+                    doc.setFontSize(9); doc.text(scopeLine, 148, 22, { align: "center" });
+                    doc.autoTable({ startY: 28, head: [headers], body: bodyRows, theme: "grid", styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" }, headStyles: { fillColor: [185, 28, 28] } });
                     savePdfDocumentForDevice(doc, `${fileName}.pdf`);
                     setMobileUpdateWrongListDownloadState(false, "PDF download ho chuki hai", true);
                     return;
@@ -1425,11 +1425,11 @@
                     if (!window.jspdf?.jsPDF) { setMobileUpdateListDownloadState(false, "PDF library load nahi hui", false); return; }
                     const { jsPDF } = window.jspdf;
                     const doc = new jsPDF({ orientation: "landscape" });
-                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
-                    doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 12, { align: "center" });
-                    doc.setFontSize(9); doc.text(scopeLine, 148, 19, { align: "center" });
-                    doc.text(periodLine, 148, 25, { align: "center" });
-                    doc.autoTable({ startY: 31, head: [headers], body: bodyRows, theme: "grid", styles: { fontSize: 6.5, cellPadding: 1.5, overflow: "linebreak" }, headStyles: { fillColor: [185, 28, 28] } });
+                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 8);
+                    doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 15, { align: "center" });
+                    doc.setFontSize(9); doc.text(scopeLine, 148, 22, { align: "center" });
+                    doc.text(periodLine, 148, 28, { align: "center" });
+                    doc.autoTable({ startY: 34, head: [headers], body: bodyRows, theme: "grid", styles: { fontSize: 6.5, cellPadding: 1.5, overflow: "linebreak" }, headStyles: { fillColor: [185, 28, 28] } });
                     savePdfDocumentForDevice(doc, `${fileName}.pdf`);
                     setMobileUpdateListDownloadState(false, "PDF download ho chuki hai", true);
                     return;
@@ -4037,12 +4037,12 @@
                 if (!window.jspdf?.jsPDF) { setProgressCategoryDownloadState(false, "PDF library load nahi hui"); return; }
                 const { jsPDF } = window.jspdf;
                 const doc = new jsPDF({ orientation: "landscape" });
-                doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
-                doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 12, { align: "center" });
-                doc.setFontSize(9); doc.text(freezeLine, 148, 19, { align: "center" });
-                doc.setFontSize(8); doc.setTextColor(80); doc.text(filtersLine, 148, 25, { align: "center" });
+                doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 8);
+                doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 15, { align: "center" });
+                doc.setFontSize(9); doc.text(freezeLine, 148, 22, { align: "center" });
+                doc.setFontSize(8); doc.setTextColor(80); doc.text(filtersLine, 148, 28, { align: "center" });
                 doc.autoTable({
-                    startY: 30, head: [headers], body: bodyRows, theme: "grid",
+                    startY: 33, head: [headers], body: bodyRows, theme: "grid",
                     styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" },
                     headStyles: { fillColor: [8, 145, 178] },
                     didParseCell: function (hookData) {
@@ -4091,12 +4091,12 @@
                 if (!window.jspdf?.jsPDF) { setProgressCategoryDownloadState(false, "PDF library load nahi hui"); return; }
                 const { jsPDF } = window.jspdf;
                 const doc = new jsPDF({ orientation: "landscape" });
-                doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
-                doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 12, { align: "center" });
-                doc.setFontSize(9); doc.text(freezeLine, 148, 19, { align: "center" });
-                doc.setFontSize(8); doc.setTextColor(80); doc.text(filtersLine, 148, 25, { align: "center" });
+                doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 8);
+                doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 15, { align: "center" });
+                doc.setFontSize(9); doc.text(freezeLine, 148, 22, { align: "center" });
+                doc.setFontSize(8); doc.setTextColor(80); doc.text(filtersLine, 148, 28, { align: "center" });
                 doc.autoTable({
-                    startY: 30, head: [headers], body: bodyRows, theme: "grid",
+                    startY: 33, head: [headers], body: bodyRows, theme: "grid",
                     styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" },
                     headStyles: { fillColor: [8, 145, 178] }
                 });
@@ -4124,7 +4124,13 @@
                 html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div class="text-rose-600">Data nahi mila.</div></div>`;
             } else {
                 summary.rows.forEach((row) => {
-                    const rowClass = (row.type === "SUB_TOTAL" || row.type === "GRAND_TOTAL") ? " blue-bold" : "";
+                    // USER REQUEST (2026-09-14): SUB_TOTAL (Division total) aur GRAND_TOTAL
+                    // row pehle dono hi "blue-bold" (same colour) the - ab Freeze Report
+                    // jaisa hi alag TEXT COLOUR se alag pehchane jaate hain (app ke apne
+                    // existing subdn-bold/blue-bold classes reuse kiye - SUB_TOTAL = orange,
+                    // GRAND_TOTAL = blue, jaisa baaki reports me DIV_TOTAL/SUBDN_TOTAL ke
+                    // liye pehle se istemal hota hai).
+                    const rowClass = row.type === "GRAND_TOTAL" ? " blue-bold" : (row.type === "SUB_TOTAL" ? " subdn-bold" : "");
                     html += `<div class="summary-table-row${rowClass}" style="grid-template-columns: 1.5fr 0.75fr 1fr;"><div>${escapeHtml(row.name)}</div><div class="font-black">${row.count}</div><div class="text-rose-700 font-black">${formatProgressReportAmount(row.pendingTotal)}</div></div>`;
                 });
             }
@@ -4393,12 +4399,12 @@
                     if (!window.jspdf?.jsPDF) { setProgressCategoryDownloadState(false, "PDF library load nahi hui"); return; }
                     const { jsPDF } = window.jspdf;
                     const doc = new jsPDF({ orientation: "landscape" });
-                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
-                    doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 12, { align: "center" });
-                    doc.setFontSize(9); doc.text(freezeLine, 148, 19, { align: "center" });
-                    doc.setFontSize(8); doc.setTextColor(80); doc.text(filtersLine, 148, 25, { align: "center" });
+                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 8);
+                    doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 15, { align: "center" });
+                    doc.setFontSize(9); doc.text(freezeLine, 148, 22, { align: "center" });
+                    doc.setFontSize(8); doc.setTextColor(80); doc.text(filtersLine, 148, 28, { align: "center" });
                     doc.autoTable({
-                        startY: 30, head: [headers], body: bodyRows, theme: "grid",
+                        startY: 33, head: [headers], body: bodyRows, theme: "grid",
                         styles: { fontSize: 6, cellPadding: 1, overflow: "linebreak" },
                         headStyles: { fillColor: [8, 145, 178] },
                         didParseCell: function (hookData) {
@@ -4996,12 +5002,20 @@
         // 20-50 Defaulters) select hai, usi ke hisaab se sahi download function call karta
         // hai. Category Wise ke liye purani, poori tarah test-ki-hui exportRevenueCategory-
         // Summary() hi chalti hai - Target/Defaulters ke liye alag, seedhe simple export.
-        function downloadProgressRevenueReportBox(fmt) {
+        function downloadProgressRevenueReportBox(fmt, forceGroupSummary) {
             if (progressRevenueReportType === "TARGET") return downloadProgressRevenueTargetSummary(fmt);
             if (progressRevenueReportType === "DEFAULTERS") return downloadProgressRevenueDefaultersSummary(fmt);
-            if (progressRevenueReportType === "NONPAYEE_3M") return downloadProgressRevenueNonPayeeSummary(fmt, "3M");
-            if (progressRevenueReportType === "NONPAYEE_6M") return downloadProgressRevenueNonPayeeSummary(fmt, "6M");
-            if (progressRevenueReportType === "NONPAYEE_SINCE_CONNECTION") return downloadProgressRevenueNonPayeeSummary(fmt, "SINCE_CONNECTION");
+            // USER REQUEST (2026-09-14): Freeze Report jaisa hi pattern - NP3/NP6/Since
+            // Connection ke DC level par ab "Summary Download" (HQ-wise, forceGroupSummary=true
+            // wala naya button) aur "Full List Download" (bilkul pehle jaisa) dono alag
+            // milte hain. Division/Circle par (jahan screen par bhi sirf summary dikhti
+            // hai) ab download bhi summary hi deta hai - poori list nahi - taaki screen
+            // aur download consistent rahein (downloadProgressRevenueNonPayeeSummary khud
+            // is check ko andar bhi karta hai, forceGroupSummary sirf DC level ke naye
+            // Summary button ke liye explicit shortcut hai).
+            if (progressRevenueReportType === "NONPAYEE_3M") return downloadProgressRevenueNonPayeeSummary(fmt, "3M", forceGroupSummary);
+            if (progressRevenueReportType === "NONPAYEE_6M") return downloadProgressRevenueNonPayeeSummary(fmt, "6M", forceGroupSummary);
+            if (progressRevenueReportType === "NONPAYEE_SINCE_CONNECTION") return downloadProgressRevenueNonPayeeSummary(fmt, "SINCE_CONNECTION", forceGroupSummary);
             if (progressRevenueReportType === "PAIDCOUNT") return downloadProgressRevenuePaidCountSummary(fmt);
             return downloadProgressRevenueCategorySummary(fmt);
         }
@@ -5030,11 +5044,11 @@
                     if (!window.jspdf?.jsPDF) { setProgressCategoryDownloadState(false, "PDF library load nahi hui"); return; }
                     const { jsPDF } = window.jspdf;
                     const doc = new jsPDF({ orientation: "landscape" });
-                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
-                    doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 12, { align: "center" });
-                    doc.setFontSize(9); doc.text(`Scope: ${scope}`, 148, 19, { align: "center" });
-                    doc.text(periodLine, 148, 25, { align: "center" });
-                    doc.autoTable({ startY: 31, head: [headers], body: rows, theme: "grid", styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" }, headStyles: { fillColor: [29, 78, 216] } });
+                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 8);
+                    doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 15, { align: "center" });
+                    doc.setFontSize(9); doc.text(`Scope: ${scope}`, 148, 22, { align: "center" });
+                    doc.text(periodLine, 148, 28, { align: "center" });
+                    doc.autoTable({ startY: 34, head: [headers], body: rows, theme: "grid", styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" }, headStyles: { fillColor: [29, 78, 216] } });
                     savePdfDocumentForDevice(doc, `${fileName}.pdf`);
                 } else {
                     const csvSafe = (value) => { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
@@ -5129,11 +5143,11 @@
                     if (!window.jspdf?.jsPDF) { setProgressCategoryDownloadState(false, "PDF library load nahi hui"); return; }
                     const { jsPDF } = window.jspdf;
                     const doc = new jsPDF({ orientation: "landscape" });
-                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
-                    doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 12, { align: "center" });
-                    doc.setFontSize(9); doc.text(`Scope: ${scope}`, 148, 19, { align: "center" });
-                    doc.text(periodLine, 148, 25, { align: "center" });
-                    doc.autoTable({ startY: 31, head: [headers], body: bodyRows, theme: "grid", styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" }, headStyles: { fillColor: [159, 18, 57] } });
+                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 8);
+                    doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 15, { align: "center" });
+                    doc.setFontSize(9); doc.text(`Scope: ${scope}`, 148, 22, { align: "center" });
+                    doc.text(periodLine, 148, 28, { align: "center" });
+                    doc.autoTable({ startY: 34, head: [headers], body: bodyRows, theme: "grid", styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" }, headStyles: { fillColor: [159, 18, 57] } });
                     savePdfDocumentForDevice(doc, `${fileName}.pdf`);
                 } else {
                     const csvSafe = (value) => { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
@@ -5395,11 +5409,11 @@
                     if (!window.jspdf?.jsPDF) { setProgressCategoryDownloadState(false, "PDF library load nahi hui"); return; }
                     const { jsPDF } = window.jspdf;
                     const doc = new jsPDF({ orientation: "landscape" });
-                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
-                    doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 12, { align: "center" });
-                    doc.setFontSize(9); doc.text(`Scope: ${scope}`, 148, 19, { align: "center" });
-                    doc.text(periodLine, 148, 25, { align: "center" });
-                    doc.autoTable({ startY: 31, head: [headers], body: bodyRows, theme: "grid", styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" }, headStyles: { fillColor: [29, 78, 216] } });
+                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 8);
+                    doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 15, { align: "center" });
+                    doc.setFontSize(9); doc.text(`Scope: ${scope}`, 148, 22, { align: "center" });
+                    doc.text(periodLine, 148, 28, { align: "center" });
+                    doc.autoTable({ startY: 34, head: [headers], body: bodyRows, theme: "grid", styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" }, headStyles: { fillColor: [29, 78, 216] } });
                     savePdfDocumentForDevice(doc, `${fileName}.pdf`);
                 } else {
                     const csvSafe = (value) => { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
@@ -5557,10 +5571,23 @@
                     <div style="background:#fff1f2; border-radius:12px; padding:8px 4px; text-align:center;"><div style="font-size:0.54rem; font-weight:850; color:#9f1239; text-transform:uppercase;">Total Pending</div><div style="font-size:0.85rem; font-weight:950; color:#9f1239; margin-top:2px;">${formatProgressReportAmount(totalPending)}</div></div>
                 </div>
                 ${renderRevenueNonPayeeGroupSummaryHtml(rows)}
+                ${activeViewLevel === "DC" ? `
+                <div style="font-size:0.56rem; font-weight:850; color:#64748b; text-align:center; margin-top:10px;">SUMMARY DOWNLOAD (${escapeHtml(revenueHqLabelUpper())} WISE)</div>
+                <div class="btn-export-row" style="margin-top:4px;">
+                    <button class="btn-unique btn-excel-unique" onclick="downloadProgressRevenueReportBox('XLS', true)">Summary Excel</button>
+                    <button class="btn-unique btn-pdf-unique" onclick="downloadProgressRevenueReportBox('PDF', true)">Summary PDF</button>
+                </div>
+                <div style="font-size:0.56rem; font-weight:850; color:#64748b; text-align:center; margin-top:10px;">FULL LIST DOWNLOAD</div>
+                <div class="btn-export-row" style="margin-top:4px;">
+                    <button class="btn-unique btn-excel-unique" onclick="downloadProgressRevenueReportBox('XLS')">Full List Excel</button>
+                    <button class="btn-unique btn-pdf-unique" onclick="downloadProgressRevenueReportBox('PDF')">Full List PDF</button>
+                </div>
+                ` : `
                 <div class="btn-export-row" style="margin-top:10px;">
                     <button class="btn-unique btn-excel-unique" onclick="downloadProgressRevenueReportBox('XLS')">${escapeHtml(getProgressRevenueReportTypeLabel())} Excel</button>
                     <button class="btn-unique btn-pdf-unique" onclick="downloadProgressRevenueReportBox('PDF')">${escapeHtml(getProgressRevenueReportTypeLabel())} PDF</button>
                 </div>
+                `}
                 <div id="progress-category-download-status" style="display:none; text-align:center; font-weight:900; border-radius:14px; padding:8px 10px; width:100%; margin-top:8px;"></div>
             `;
             // USER REQUEST (2026-09-13): Division/Circle adhikari sirf SUMMARY
@@ -5586,7 +5613,70 @@
             return html;
         }
 
-        function downloadProgressRevenueNonPayeeSummary(fmt, bucket) {
+        // USER REQUEST (2026-09-14): Freeze Report jaisa hi pattern - Non Payee 3M/6M/
+        // Since Connection ke Division/Circle level par ab (jaisa screen par bhi sirf
+        // summary dikhti hai) download bhi HQ/DC-wise SUMMARY hi deta hai, poori
+        // consumer-list nahi (pehle yahan bhi poori list download hoti thi, jo screen
+        // se inconsistent tha). DC level pehle jaisa hi (poori list) - naye "Summary
+        // Download" button ke through wahan bhi yahi summary alag se milti hai.
+        function downloadProgressRevenueNonPayeeGroupSummary(fmt, bucket) {
+            if (!lastRevenueProgressBoxData) return showToast("Report ke liye data nahi hai", false);
+            const downloadTypeLabel = fmt === "PDF" ? "PDF" : "Excel";
+            setProgressCategoryDownloadState(true, `${downloadTypeLabel} downloading... kripya wait kijiye`);
+            try {
+                const { mode, filterValue } = lastRevenueProgressBoxData;
+                const { rows } = getProgressNonPayeeFilteredRows(mode || "DAILY", filterValue || "", bucket);
+                if (!rows.length) { setProgressCategoryDownloadState(false, "Download ke liye data nahi hai"); return; }
+                const summary = buildRevenueNonPayeeGroupSummary(rows);
+                const headers = [summary.colLabel, "TOTAL CONSUMER", "PENDING AMOUNT"];
+                const bodyRows = summary.rows.map((r) => [r.name, r.count, formatProgressReportAmount(r.pendingTotal)]);
+                const rowTypeFlags = summary.rows.map((r) => (r.type === "GRAND_TOTAL" ? 2 : (r.type === "SUB_TOTAL" ? 1 : 0)));
+                const showDcColumn = activeViewLevel !== "DC";
+                const scope = activeViewLevel === "DC" ? `DC - ${activeDC}` : (activeViewLevel === "DIVISION" ? activeDiv : "SEONI CIRCLE");
+                const f = progressNonPayeeFilterState;
+                const filterLine = `${showDcColumn ? `DC: ${f.dc || "All"}  |  ` : ""}HQ: ${f.hq || "All"}  |  Village: ${f.village || "All"}  |  Category: ${f.category || "All"}  |  Net Bill Slab: ${f.slab || "All"}  |  Type: ${f.govt === "GOVT" ? "Govt" : (f.govt === "NONGOVT" ? "Non Govt" : "All")}`;
+                const reportTitle = `${getRevenueNonPayeeBucketLabel(bucket)} - ${scope} - Summary`;
+                const asOfLine = `As of: ${formatRevenueDateIndian(normalizeRevenueReportDate(getCurrentDateDDMMYYYY()))}`;
+                const fileName = `${reportTitle}-${getTodayIsoDate()}`.replace(/[\\/:*?"<>|]+/g, "_");
+                if (fmt === "PDF") {
+                    if (!window.jspdf?.jsPDF) { setProgressCategoryDownloadState(false, "PDF library load nahi hui"); return; }
+                    const { jsPDF } = window.jspdf;
+                    const doc = new jsPDF({ orientation: "landscape" });
+                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 8);
+                    doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 15, { align: "center" });
+                    doc.setFontSize(9); doc.text(`Scope: ${scope}`, 148, 22, { align: "center" });
+                    doc.text(filterLine, 148, 28, { align: "center" });
+                    doc.text(asOfLine, 148, 33, { align: "center" });
+                    doc.autoTable({
+                        startY: 39, head: [headers], body: bodyRows, theme: "grid",
+                        styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" },
+                        headStyles: { fillColor: [159, 18, 57] },
+                        didParseCell: function (hookData) {
+                            if (hookData.section === "body") {
+                                const flag = rowTypeFlags[hookData.row.index];
+                                if (flag === 2) { hookData.cell.styles.fillColor = [219, 234, 254]; hookData.cell.styles.fontStyle = "bold"; hookData.cell.styles.textColor = [159, 18, 57]; }
+                                else if (flag === 1) { hookData.cell.styles.fontStyle = "bold"; hookData.cell.styles.textColor = [194, 65, 12]; }
+                            }
+                        }
+                    });
+                    savePdfDocumentForDevice(doc, `${fileName}.pdf`);
+                } else {
+                    const csvSafe = (value) => { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
+                    const csv = [[reportTitle], [`Scope: ${scope}`], [filterLine], [asOfLine], [], headers, ...bodyRows].map((row) => row.map(csvSafe).join(",")).join("\n");
+                    const link = document.createElement("a");
+                    link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+                    link.download = `${fileName}.csv`;
+                    link.click();
+                }
+                setTimeout(() => setProgressCategoryDownloadState(false, `${downloadTypeLabel} download ho chuki hai`), 500);
+            } catch (error) {
+                setProgressCategoryDownloadState(false, "Download nahi ho paya");
+                showToast(error?.message || "Non Payee summary download nahi ho payi", false);
+            }
+        }
+
+        function downloadProgressRevenueNonPayeeSummary(fmt, bucket, forceGroupSummary) {
+            if (forceGroupSummary || activeViewLevel !== "DC") return downloadProgressRevenueNonPayeeGroupSummary(fmt, bucket);
             if (!lastRevenueProgressBoxData) return showToast("Report ke liye data nahi hai", false);
             const downloadTypeLabel = fmt === "PDF" ? "PDF" : "Excel";
             setProgressCategoryDownloadState(true, `${downloadTypeLabel} downloading... kripya wait kijiye`);
@@ -5618,12 +5708,12 @@
                     if (!window.jspdf?.jsPDF) { setProgressCategoryDownloadState(false, "PDF library load nahi hui"); return; }
                     const { jsPDF } = window.jspdf;
                     const doc = new jsPDF({ orientation: "landscape" });
-                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
-                    doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 12, { align: "center" });
-                    doc.setFontSize(9); doc.text(`Scope: ${scope}`, 148, 19, { align: "center" });
-                    doc.text(filterLine, 148, 25, { align: "center" });
-                    doc.text(asOfLine, 148, 30, { align: "center" });
-                    doc.autoTable({ startY: 36, head: [headers], body: bodyRows, theme: "grid", styles: { fontSize: 6, cellPadding: 1, overflow: "linebreak" }, headStyles: { fillColor: [159, 18, 57] } });
+                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 8);
+                    doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 15, { align: "center" });
+                    doc.setFontSize(9); doc.text(`Scope: ${scope}`, 148, 22, { align: "center" });
+                    doc.text(filterLine, 148, 28, { align: "center" });
+                    doc.text(asOfLine, 148, 33, { align: "center" });
+                    doc.autoTable({ startY: 39, head: [headers], body: bodyRows, theme: "grid", styles: { fontSize: 6, cellPadding: 1, overflow: "linebreak" }, headStyles: { fillColor: [159, 18, 57] } });
                     savePdfDocumentForDevice(doc, `${fileName}.pdf`);
                 } else {
                     const csvSafe = (value) => { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
@@ -17938,11 +18028,11 @@
                     if (!window.jspdf?.jsPDF) { setRevenueHqVillageDownloadState(false, "PDF library load nahi hui", false); return; }
                     const { jsPDF } = window.jspdf;
                     const doc = new jsPDF({ orientation: "landscape" });
-                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
-                    doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 12, { align: "center" });
-                    doc.setFontSize(9); doc.text(scopeLine, 148, 19, { align: "center" });
-                    doc.text(periodLine, 148, 25, { align: "center" });
-                    doc.autoTable({ startY: 31, head: [headers], body: rows, theme: "grid", styles: { fontSize: 6, cellPadding: 1, overflow: "linebreak" }, headStyles: { fillColor: [21, 128, 61] } });
+                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 8);
+                    doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 15, { align: "center" });
+                    doc.setFontSize(9); doc.text(scopeLine, 148, 22, { align: "center" });
+                    doc.text(periodLine, 148, 28, { align: "center" });
+                    doc.autoTable({ startY: 34, head: [headers], body: rows, theme: "grid", styles: { fontSize: 6, cellPadding: 1, overflow: "linebreak" }, headStyles: { fillColor: [21, 128, 61] } });
                     savePdfDocumentForDevice(doc, `${fileName}.pdf`);
                     setRevenueHqVillageDownloadState(false, "PDF download ho chuki hai", true);
                     return;
@@ -18319,11 +18409,11 @@
                     if (!window.jspdf?.jsPDF) { setRevenueTargetDownloadState(false, "PDF library load nahi hui", false); return; }
                     const { jsPDF } = window.jspdf;
                     const doc = new jsPDF({ orientation: "landscape" });
-                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
-                    doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 12, { align: "center" });
-                    doc.setFontSize(9); doc.text(scopeLine, 148, 19, { align: "center" });
-                    doc.text(periodLine, 148, 25, { align: "center" });
-                    doc.autoTable({ startY: 31, head: [headers], body: rows, theme: "grid", styles: { fontSize: 6, cellPadding: 1, overflow: "linebreak" }, headStyles: { fillColor: [29, 78, 216] } });
+                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 8);
+                    doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 15, { align: "center" });
+                    doc.setFontSize(9); doc.text(scopeLine, 148, 22, { align: "center" });
+                    doc.text(periodLine, 148, 28, { align: "center" });
+                    doc.autoTable({ startY: 34, head: [headers], body: rows, theme: "grid", styles: { fontSize: 6, cellPadding: 1, overflow: "linebreak" }, headStyles: { fillColor: [29, 78, 216] } });
                     savePdfDocumentForDevice(doc, `${fileName}.pdf`);
                     setRevenueTargetDownloadState(false, "PDF download ho chuki hai", true);
                     return;
@@ -18535,11 +18625,11 @@
                     if (!window.jspdf?.jsPDF) { setRevenueDefaultersDownloadState(false, "PDF library load nahi hui", false); return; }
                     const { jsPDF } = window.jspdf;
                     const doc = new jsPDF({ orientation: "landscape" });
-                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
-                    doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 12, { align: "center" });
-                    doc.setFontSize(9); doc.text(scopeLine, 148, 19, { align: "center" });
-                    doc.text(periodLine, 148, 25, { align: "center" });
-                    doc.autoTable({ startY: 31, head: [headers], body: bodyRows, theme: "grid", styles: { fontSize: 6, cellPadding: 1, overflow: "linebreak" }, headStyles: { fillColor: [159, 18, 57] } });
+                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 8);
+                    doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 15, { align: "center" });
+                    doc.setFontSize(9); doc.text(scopeLine, 148, 22, { align: "center" });
+                    doc.text(periodLine, 148, 28, { align: "center" });
+                    doc.autoTable({ startY: 34, head: [headers], body: bodyRows, theme: "grid", styles: { fontSize: 6, cellPadding: 1, overflow: "linebreak" }, headStyles: { fillColor: [159, 18, 57] } });
                     savePdfDocumentForDevice(doc, `${fileName}.pdf`);
                     setRevenueDefaultersDownloadState(false, "PDF download ho chuki hai", true);
                     return;
@@ -18825,13 +18915,13 @@
                     if (!window.jspdf?.jsPDF) { setRevenueHqVillageListDownloadState(false, "PDF library load nahi hui", false); return; }
                     const { jsPDF } = window.jspdf;
                     const doc = new jsPDF({ orientation: "landscape" });
-                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 7);
-                    doc.setFontSize(12); doc.setTextColor(0); doc.text(reportTitle, 148, 12, { align: "center" });
+                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 6);
+                    doc.setFontSize(12); doc.setTextColor(0); doc.text(reportTitle, 148, 14, { align: "center" });
                     doc.setFontSize(9);
-                    doc.text(filterLine1, 148, 17, { align: "center" });
-                    doc.text(filterLine2, 148, 22, { align: "center" });
-                    doc.text(periodLine, 148, 27, { align: "center" });
-                    doc.autoTable({ startY: 33, head: [headers], body: rows, theme: "grid", styles: { fontSize: 6, cellPadding: 1, overflow: "linebreak" }, headStyles: { fillColor: [21, 128, 61] } });
+                    doc.text(filterLine1, 148, 19, { align: "center" });
+                    doc.text(filterLine2, 148, 24, { align: "center" });
+                    doc.text(periodLine, 148, 29, { align: "center" });
+                    doc.autoTable({ startY: 35, head: [headers], body: rows, theme: "grid", styles: { fontSize: 6, cellPadding: 1, overflow: "linebreak" }, headStyles: { fillColor: [21, 128, 61] } });
                     savePdfDocumentForDevice(doc, `${fileName}.pdf`);
                     setRevenueHqVillageListDownloadState(false, "PDF download ho chuki hai", true);
                     return;
@@ -20017,10 +20107,10 @@
                     if (!window.jspdf?.jsPDF) { setVrDownloadLogDownloadState(false, "PDF library load nahi hui", false); return; }
                     const { jsPDF } = window.jspdf;
                     const doc = new jsPDF({ orientation: "landscape" });
-                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
-                    doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 12, { align: "center" });
-                    doc.setFontSize(9); doc.text(scopeLine, 148, 19, { align: "center" });
-                    doc.autoTable({ startY: 25, head: [headers], body: bodyRows, theme: "grid", styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" }, headStyles: { fillColor: [29, 78, 216] } });
+                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 8);
+                    doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 15, { align: "center" });
+                    doc.setFontSize(9); doc.text(scopeLine, 148, 22, { align: "center" });
+                    doc.autoTable({ startY: 28, head: [headers], body: bodyRows, theme: "grid", styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" }, headStyles: { fillColor: [29, 78, 216] } });
                     savePdfDocumentForDevice(doc, `${fileName}.pdf`);
                     setVrDownloadLogDownloadState(false, "PDF download ho chuki hai", true);
                     return;
@@ -20904,12 +20994,12 @@
                     if (!window.jspdf?.jsPDF) { setMeterCheckingReportDownloadState(false, "PDF library load nahi hui"); return; }
                     const { jsPDF } = window.jspdf;
                     const doc = new jsPDF({ orientation: "landscape" });
-                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
-                    doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 12, { align: "center" });
-                    doc.setFontSize(9); doc.text(`Period: ${periodLabel}`, 148, 19, { align: "center" });
+                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 8);
+                    doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 15, { align: "center" });
+                    doc.setFontSize(9); doc.text(`Period: ${periodLabel}`, 148, 22, { align: "center" });
                     const remarkColIndex = headers.length - 1;
                     doc.autoTable({
-                        startY: 25, head: [headers], body: bodyRows, theme: "grid",
+                        startY: 28, head: [headers], body: bodyRows, theme: "grid",
                         styles: { fontSize: 6, cellPadding: 1, overflow: "linebreak" },
                         headStyles: { fillColor: [111, 66, 38] },
                         didDrawCell: (cellData) => {
@@ -21026,10 +21116,10 @@
                     if (!window.jspdf?.jsPDF) { setMeterCheckingLiveDownloadState(false, "PDF library load nahi hui"); return; }
                     const { jsPDF } = window.jspdf;
                     const doc = new jsPDF();
-                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
-                    doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 105, 14, { align: "center" });
-                    doc.setFontSize(9); doc.text(`Date: ${todayLabel}`, 105, 21, { align: "center" });
-                    doc.autoTable({ startY: 27, head: [headers], body: bodyRows, theme: "grid", styles: { fontSize: 8, cellPadding: 2 }, headStyles: { fillColor: [111, 66, 38] } });
+                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 8);
+                    doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 105, 16, { align: "center" });
+                    doc.setFontSize(9); doc.text(`Date: ${todayLabel}`, 105, 23, { align: "center" });
+                    doc.autoTable({ startY: 29, head: [headers], body: bodyRows, theme: "grid", styles: { fontSize: 8, cellPadding: 2 }, headStyles: { fillColor: [111, 66, 38] } });
                     savePdfDocumentForDevice(doc, `${fileName}.pdf`);
                 } else {
                     const csvSafe = (value) => { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
