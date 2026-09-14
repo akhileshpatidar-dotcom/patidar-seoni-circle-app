@@ -612,8 +612,8 @@
         .report-type-box { display: flex; border: 2px solid var(--fixed-green); border-radius: 12px; margin-bottom: 10px; background: #f8fafc; overflow: hidden; }
         .report-opt { flex: 1; padding: 10px; font-size: 10px; font-weight: 900; text-align: center; cursor: pointer; text-transform: uppercase; color: var(--fixed-green); }
         .report-opt.active { background: var(--fixed-green) !important; color: white !important; }
-        .progress-module-box { display: flex; gap: 10px; margin-bottom: 12px; }
-        .progress-module-btn { flex: 1; padding: 12px 10px; border-radius: 14px; border: 2px solid #fecaca; background: #fff1f2; color: #991b1b; font-size: 10px; font-weight: 900; text-align: center; cursor: pointer; text-transform: uppercase; box-shadow: 0 6px 15px rgba(239, 68, 68, 0.08); }
+        .progress-module-box { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+        .progress-module-btn { flex: 1 1 calc(50% - 5px); padding: 12px 10px; border-radius: 14px; border: 2px solid #fecaca; background: #fff1f2; color: #991b1b; font-size: 10px; font-weight: 900; text-align: center; cursor: pointer; text-transform: uppercase; box-shadow: 0 6px 15px rgba(239, 68, 68, 0.08); }
         .progress-module-btn.active { background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%); color: #ffffff; border-color: #b91c1c; }
         .summary-footer { background: #f1f5f9; padding: 20px; border-radius: 12px; border: 1.5px solid var(--fixed-green); margin-top: 20px; margin-bottom: 40px; }
         .btn-export-row { display: flex; gap: 10px; margin-top: 15px; }

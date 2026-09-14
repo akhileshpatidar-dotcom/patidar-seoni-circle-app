@@ -311,6 +311,14 @@
         let feederReportRows = [];
         let feederReportLoaded = false;
         let feederReportLoadMessage = "";
+        // USER REQUEST (2026-09-14): Sub DN Chhapara ke "Daily Progress" me SHMS/
+        // Feeder Reading ki tarah ab "Daily Hourly Peak Load" ka bhi report - isi
+        // pattern (poora history ek baar load, Daily/Monthly date select karke
+        // Excel/PDF) me, existing peakLoadSubmitScriptUrl?action=getSummary endpoint
+        // (pehle se hi loadPeakLoadSubmittedRows() me istemal hota tha) se hi.
+        let peakLoadReportRows = [];
+        let peakLoadReportLoaded = false;
+        let peakLoadReportLoadMessage = "";
         // BUG FIX (2026-09-14): substation-wise lightweight history cache - dekhein
         // loadFeederSubstationHistory_() aur getAllFeederHistoryEntries_().
         let feederSubstationHistoryCache_ = {};
@@ -3587,7 +3595,21 @@
             const rowsWithStatus = rowsWithStatusUnsorted.slice().sort((a, b) => Number(b.pending_amount || 0) - Number(a.pending_amount || 0));
             let paidCount = 0, paidAmount = 0, totalFrozenAmount = 0, pendingAmount = 0;
             rowsWithStatus.forEach((r) => {
-                if (r.isPaidNow) { paidCount += 1; paidAmount += r.paidAmountNow; }
+                // BUG FIX (2026-09-14) - USER-REPORTED: Circle/Division/DC summary
+                // aur consumer list me "PAID AMOUNT" kabhi-kabhi ekdum bada (galat)
+                // dikh raha tha (jaise ek consumer ka frozen pending sirf ~9,378
+                // tha lekin "paid" 3,00,128 dikh raha tha). ASLI WAJAH: r.paidAmountNow
+                // us consumer ki cash list me AB TAK ki SAARI payments ka total hai
+                // (koi date-filter nahi, taaki purani upload hui cash list bhi
+                // match ho - yeh 2026-09-12 ka jaanboojh kar kiya gaya fix hai),
+                // jabki AG/seasonal consumer jaisi baar-baar payment karne wali
+                // entries ke liye yeh unka POORA payment history total ban jaata
+                // hai, sirf isi freeze ke pending bill ka nahi. isPaidNow ke liye
+                // yeh sahi hai (agar total payment >= frozen pending, to PAID),
+                // lekin "kitna PAID hua" dikhane ke liye sirf itna hi sahi hai
+                // jitna is frozen bill ka tha (r.pending_amount) - baaki unka
+                // purana/anya payment history hai, is report se related nahi.
+                if (r.isPaidNow) { paidCount += 1; paidAmount += Number(r.pending_amount || 0); }
                 totalFrozenAmount += Number(r.pending_amount || 0);
                 // USER REQUEST (2026-09-13): Division/Circle summary me "abhi kitna
                 // bakaya hai" saaf dikhna chahiye - "Frozen Total Amount" wahi
@@ -3878,7 +3900,12 @@
                 if (!map[key]) map[key] = emptyGroup(key);
                 const g = map[key];
                 g.totalCount += 1;
-                if (r.isPaidNow) { g.paidCount += 1; g.paidAmount += Number(r.paidAmountNow || 0); }
+                // BUG FIX (2026-09-14): dekhein computeRevenueFreezeReportData() me
+                // upar wala comment - "paid amount" yahan bhi sirf is frozen bill
+                // (pending_amount) tak seemित hai, consumer ki poori purani payment
+                // history tak nahi (jo AG/seasonal consumers ke liye ekdum bada
+                // galat number dikhata tha).
+                if (r.isPaidNow) { g.paidCount += 1; g.paidAmount += Number(r.pending_amount || 0); }
                 else { g.pendingCount += 1; g.pendingAmount += Number(r.remainingPending || 0); }
             });
 
@@ -3980,7 +4007,12 @@
                 if (!map[key]) map[key] = emptyGroup(key);
                 const g = map[key];
                 g.totalCount += 1;
-                if (r.isPaidNow) { g.paidCount += 1; g.paidAmount += Number(r.paidAmountNow || 0); }
+                // BUG FIX (2026-09-14): dekhein computeRevenueFreezeReportData() me
+                // upar wala comment - "paid amount" yahan bhi sirf is frozen bill
+                // (pending_amount) tak seemित hai, consumer ki poori purani payment
+                // history tak nahi (jo AG/seasonal consumers ke liye ekdum bada
+                // galat number dikhata tha).
+                if (r.isPaidNow) { g.paidCount += 1; g.paidAmount += Number(r.pending_amount || 0); }
                 else { g.pendingCount += 1; g.pendingAmount += Number(r.remainingPending || 0); }
             });
             return Object.values(map).sort((a, b) => String(a.name).localeCompare(String(b.name)));
@@ -4306,7 +4338,10 @@
                         // badalta, sirf colour se pehchana jaata hai.
                         const statusColor = r.isPaidNow ? "#166534" : (r.paidAmountNow > 0 ? "#dc2626" : "#1e293b");
                         cells.push(`<div class="font-black" style="color:${statusColor};">${paidStatusLabel}</div>`);
-                        cells.push(`<div class="font-black">${formatProgressReportAmount(r.isPaidNow ? r.paidAmountNow : r.remainingPending)}</div>`);
+                        // BUG FIX (2026-09-14): PAID row ka AMOUNT bhi sirf is frozen
+                        // bill (r.pending_amount) tak seemित, consumer ki poori
+                        // purani payment history (r.paidAmountNow) tak nahi.
+                        cells.push(`<div class="font-black">${formatProgressReportAmount(r.isPaidNow ? Number(r.pending_amount || 0) : r.remainingPending)}</div>`);
                         return `<div class="summary-table-row" style="grid-template-columns: ${showDcColumn ? "0.8fr 1.2fr 0.8fr 1fr" : "1.4fr 0.8fr 1fr"};">${cells.join("")}</div>`;
                     };
                     const dividerRow = (label, color, bg) => `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div style="text-align:center; font-weight:900; color:${color}; background:${bg}; border-radius:8px; padding:5px; margin-top:${label.startsWith("GOVT") ? "6px" : "0"};">${label}</div></div>`;
@@ -4374,7 +4409,9 @@
                         ...(showDcColumn ? [r.dc_name || ""] : []),
                         r.ivrs_no || "", r.consumer_name || "", r.hq_name || "", r.village || "", r.mobile_no || "",
                         getFreezeRowStatusLabel(r),
-                        formatProgressReportAmount(r.isPaidNow ? r.paidAmountNow : r.remainingPending)
+                        // BUG FIX (2026-09-14): dekhein upar wale comments - PAID row ka
+                        // AMOUNT sirf is frozen bill (pending_amount) tak seemित.
+                        formatProgressReportAmount(r.isPaidNow ? Number(r.pending_amount || 0) : r.remainingPending)
                     ]);
                     paymentStateFlags.push(r.isPaidNow ? 2 : (r.paidAmountNow > 0 ? 1 : 0));
                 };
@@ -8506,6 +8543,167 @@
             return parsePeakLoadSubmittedCsv(csvText);
         }
 
+        // NEW FEATURE (2026-09-14): "Daily Hourly Peak Load" ka Daily Progress report
+        // (Feeder Reading report jaisa hi pattern) - poori submitted history (full
+        // row detail, sirf substation/date nahi) yahan alag se load hoti hai kyonki
+        // upar wala parsePeakLoadSubmittedJson() sirf substation+date extract karta
+        // hai (pending-check ke liye kaafi tha), report ke liye poori row chahiye.
+        function normalizePeakLoadReportRow_(row) {
+            if (Array.isArray(row)) {
+                return {
+                    "33/11 KV SUBSTATION": String(row[0] || "").replace(/\s+/g, " ").trim(),
+                    "11 KV FEEDER": String(row[1] || "").replace(/\s+/g, " ").trim(),
+                    "METER NO": String(row[2] || "").trim(),
+                    "DATE (DD-MM-YYYY)": String(row[3] || "").trim(),
+                    "TIME (HH:MM)": String(row[4] || "").trim(),
+                    "PEAK LOAD (A)": String(row[5] || "").trim(),
+                    "NAME OF OPERATOR": String(row[6] || "").trim()
+                };
+            }
+            return {
+                "33/11 KV SUBSTATION": String(row["33/11 KV SUBSTATION"] || row.substation || "").replace(/\s+/g, " ").trim(),
+                "11 KV FEEDER": String(row["11 KV FEEDER"] || row.feeder || "").replace(/\s+/g, " ").trim(),
+                "METER NO": String(row["METER NO"] || row.meter_no || "").trim(),
+                "DATE (DD-MM-YYYY)": String(row["DATE (DD-MM-YYYY)"] || row.date || "").trim(),
+                "TIME (HH:MM)": String(row["TIME (HH:MM)"] || row.time || "").trim(),
+                "PEAK LOAD (A)": String(row["PEAK LOAD (A)"] || row.peak_load || "").trim(),
+                "NAME OF OPERATOR": String(row["NAME OF OPERATOR"] || row.operator_name || "").trim()
+            };
+        }
+
+        async function loadPeakLoadReportData(forceRefresh = false) {
+            if (!forceRefresh && peakLoadReportLoaded && peakLoadReportRows.length) return true;
+            peakLoadReportLoadMessage = "";
+            let rawData = null, lastErr = null;
+            for (let attempt = 1; attempt <= 2 && rawData === null; attempt++) {
+                try {
+                    rawData = await loadRemoteJson(`${peakLoadSubmitScriptUrl}?action=getSummary&t=${Date.now()}`, 45000);
+                } catch (err) {
+                    lastErr = err;
+                    if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 2000));
+                }
+            }
+            try {
+                if (rawData === null) throw lastErr || new Error("Peak load summary load fail");
+                const summaryRows = Array.isArray(rawData)
+                    ? rawData
+                    : Array.isArray(rawData?.data)
+                        ? rawData.data
+                        : Array.isArray(rawData?.rows)
+                            ? rawData.rows
+                            : [];
+                peakLoadReportRows = summaryRows.map(normalizePeakLoadReportRow_).filter((row) => row["33/11 KV SUBSTATION"] || row["11 KV FEEDER"]);
+                if (peakLoadReportRows.length) {
+                    peakLoadReportLoaded = true;
+                    return true;
+                }
+                peakLoadReportLoadMessage = "Peak Load report source se data nahi mila";
+                return false;
+            } catch (_) {
+                peakLoadReportLoadMessage = "Peak Load report source load nahi ho paya";
+                peakLoadReportRows = [];
+                peakLoadReportLoaded = false;
+                return false;
+            }
+        }
+
+        function getFilteredPeakLoadReportRows() {
+            const label = getFeederReportFilterLabel();
+            if (!label) return [];
+            if (shmsProgressMode === "MONTHLY") {
+                return peakLoadReportRows.filter((row) => {
+                    const dateKey = buildFeederDateKey_(row["DATE (DD-MM-YYYY)"] || "");
+                    return buildShmsMonthKeyFromDateKey_(dateKey) === label;
+                });
+            }
+            const dailyKey = buildShmsDateKey_(label);
+            return peakLoadReportRows.filter((row) => buildFeederDateKey_(row["DATE (DD-MM-YYYY)"] || "") === dailyKey);
+        }
+
+        async function renderPeakLoadReportSummary() {
+            const summary = document.getElementById("shms-progress-summary");
+            if (!summary) return;
+            await loadPeakLoadReportData(true);
+            const label = getFeederReportFilterLabel();
+            const rows = getFilteredPeakLoadReportRows();
+            summary.style.display = label ? "block" : "none";
+            if (!label) {
+                summary.innerHTML = "";
+                return;
+            }
+            const debugMessage = rows.length
+                ? `${label} ke liye ${rows.length} peak load entries ready hain`
+                : (peakLoadReportLoadMessage
+                    ? `${label} ke liye 0 peak load entries ready hain<br><span style="display:block; margin-top:6px; font-size:11px; color:#b91c1c;">${peakLoadReportLoadMessage}</span>`
+                    : `${label} ke liye 0 peak load entries ready hain`);
+            summary.innerHTML = `<div style="margin-top:14px; background:#f8fafc; border:1.5px solid #cbd5e1; border-radius:16px; padding:14px; text-align:center; font-size:13px; font-weight:900; color:#0f172a;">${debugMessage}</div>`;
+        }
+
+        async function downloadPeakLoadReport(fmt) {
+            try {
+                await loadPeakLoadReportData(true);
+                setShmsProgressStatus("Peak Load report data ready ki ja rahi hai...");
+                const rows = getFilteredPeakLoadReportRows();
+                const label = getFeederReportFilterLabel();
+                setShmsProgressStatus("");
+                if (!label) return showToast("Pehle date ya month select kijiye", false);
+
+                const headers = ["33/11 KV SUBSTATION", "11 KV FEEDER", "METER NO", "DATE (DD-MM-YYYY)", "TIME (HH:MM)", "PEAK LOAD (A)", "NAME OF OPERATOR"];
+                const bodyRows = rows.map((row) => headers.map((key) => String(row[key] ?? "")));
+                const safeLabel = label.replace(/[\\/:*?"<>|]+/g, "_");
+
+                if (fmt === "XLS") {
+                    const csvRows = [
+                        ["DAILY HOURLY PEAK LOAD REPORT"],
+                        [shmsProgressMode === "MONTHLY" ? `MONTH - ${label}` : `DATE - ${label}`],
+                        [],
+                        headers,
+                        ...bodyRows
+                    ];
+                    const csv = csvRows.map((row) => row.map((cell) => {
+                        const value = String(cell ?? "");
+                        return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+                    }).join(",")).join("\n");
+                    await saveShmsBlob(`PEAKLOAD_${shmsProgressMode}_${safeLabel}.csv`, new Blob([csv], { type: "text/csv;charset=utf-8" }), "text/csv;charset=utf-8");
+                    return showToast(bodyRows.length ? "Excel report ka request bhej diya gaya. Agar preview me file na aaye to browser ya GitHub version me check kijiye." : "Blank Excel report ka request bhej diya gaya. Agar preview me file na aaye to browser ya GitHub version me check kijiye.", true);
+                }
+
+                if (!window.jspdf || !window.jspdf.jsPDF) {
+                    return showToast("PDF library load nahi hui", false);
+                }
+
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF("l", "mm", "a4");
+                doc.setFontSize(7);
+                doc.setTextColor(100);
+                doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 8);
+                doc.setFontSize(15);
+                doc.setTextColor(0);
+                doc.text("DAILY HOURLY PEAK LOAD REPORT", 148, 16, { align: "center" });
+                doc.setFontSize(11);
+                doc.text(shmsProgressMode === "MONTHLY" ? `MONTH - ${label}` : `DATE - ${label}`, 148, 23, { align: "center" });
+                doc.autoTable({
+                    startY: 29,
+                    head: [headers],
+                    body: bodyRows.length ? bodyRows : [["", "", "", "", "", "", ""]],
+                    theme: "grid",
+                    headStyles: { fillColor: [17, 24, 39], halign: "center" },
+                    styles: { fontSize: 7, cellPadding: 2, halign: "center" },
+                    columnStyles: {
+                        0: { halign: "left" },
+                        1: { halign: "left" },
+                        6: { halign: "left" }
+                    }
+                });
+                const pdfBlob = doc.output("blob");
+                await saveShmsBlob(`PEAKLOAD_${shmsProgressMode}_${safeLabel}.pdf`, pdfBlob, "application/pdf");
+                showToast(bodyRows.length ? "PDF report ka request bhej diya gaya. Agar preview me file na aaye to browser ya GitHub version me check kijiye." : "Blank PDF report ka request bhej diya gaya. Agar preview me file na aaye to browser ya GitHub version me check kijiye.", true);
+            } catch (error) {
+                setShmsProgressStatus("");
+                showToast(error?.message || "Peak Load report download nahi ho paya", false);
+            }
+        }
+
         async function getPeakLoadMissingDateKeys(substation, selectedDateIso) {
             const startKey = "2026-07-03";
             const selectedKey = normalizePeakLoadDateKey(selectedDateIso);
@@ -10202,6 +10400,21 @@
                 await renderFeederReportSummary();
                 return;
             }
+            // NEW FEATURE (2026-09-14): "Daily Hourly Peak Load" ka Daily Progress -
+            // SHMS/Feeder Reading jaisa hi pattern (2 se badhakar ab 4 option).
+            if (progressReportSource === "PEAKLOAD") {
+                await renderPeakLoadReportSummary();
+                return;
+            }
+            // STM Complaint ke liye abhi backend me koi history/getSummary action
+            // nahi hai (sirf submit hota hai) - isliye yahan report nahi ban sakti
+            // jab tak backend (.gs) me yeh action add na ho. Saaf message dikhate
+            // hain taaki user confuse na ho.
+            if (progressReportSource === "STM") {
+                summary.style.display = "block";
+                summary.innerHTML = `<div style="margin-top:14px; background:#fff7ed; border:1.5px solid #fdba74; border-radius:16px; padding:14px; text-align:center; font-size:13px; font-weight:900; color:#9a3412;">STM Complaint report abhi available nahi hai - backend (.gs) me history/summary action add karna baaki hai.</div>`;
+                return;
+            }
             const filtered = getFilteredShmsProgressRows();
             const label = getShmsProgressFilterLabel();
             summary.style.display = label ? "block" : "none";
@@ -10272,12 +10485,23 @@
         }
 
         function setReportSource(source) {
-            progressReportSource = source === "FEEDER" ? "FEEDER" : "SHMS";
+            // USER REQUEST (2026-09-14): pehle sirf SHMS/FEEDER 2 option the, ab
+            // STM Complaint aur Daily Hourly Peak Load bhi (Sub DN Chhapara ke
+            // menu ke sabhi 4 module) isi Daily Progress toggle me add kiye.
+            const validSources = ["SHMS", "FEEDER", "STM", "PEAKLOAD"];
+            progressReportSource = validSources.includes(source) ? source : "SHMS";
             document.getElementById("progress-shms-btn")?.classList.toggle("active", progressReportSource === "SHMS");
             document.getElementById("progress-feeder-btn")?.classList.toggle("active", progressReportSource === "FEEDER");
+            document.getElementById("progress-stm-btn")?.classList.toggle("active", progressReportSource === "STM");
+            document.getElementById("progress-peakload-btn")?.classList.toggle("active", progressReportSource === "PEAKLOAD");
             const titleNode = document.querySelector("#shms-progress-view .title-text-bold");
             if (titleNode) {
-                titleNode.innerText = progressReportSource === "FEEDER" ? "FEEDER READING REPORT" : "SHMS DAILY PROGRESS";
+                const titleMap = {
+                    FEEDER: "FEEDER READING REPORT",
+                    STM: "STM COMPLAINT REPORT",
+                    PEAKLOAD: "DAILY HOURLY PEAK LOAD REPORT"
+                };
+                titleNode.innerText = titleMap[progressReportSource] || "SHMS DAILY PROGRESS";
             }
             renderShmsProgressSummary();
         }
@@ -10410,6 +10634,12 @@
         async function downloadShmsProgress(fmt) {
             if (progressReportSource === "FEEDER") {
                 return downloadFeederReport(fmt);
+            }
+            if (progressReportSource === "PEAKLOAD") {
+                return downloadPeakLoadReport(fmt);
+            }
+            if (progressReportSource === "STM") {
+                return showToast("STM Complaint report abhi available nahi hai - backend update baaki hai", false);
             }
             try {
                 setShmsProgressStatus("SYNCING DATA... PLEASE WAIT");
