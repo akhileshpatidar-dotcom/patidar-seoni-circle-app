@@ -6037,10 +6037,11 @@
         // Isliye yahi standard text ab default label hai, aur baaki sabhi
         // call-sites (Mobile/Revenue/Freeze/SHMS/Pending List) bhi apna pehle
         // wala custom text hata kar isi ek jaisa text pass karte hain.
-        function renderSyncingProgress(cont, isStillValid, label = "SYNCING DATA... PLEASE WAIT") {
+        function renderSyncingProgress(cont, isStillValid, label = "SYNCING DATA... PLEASE WAIT", subLabel = "") {
             cont.innerHTML = `
                 <div class="text-center py-10">
                     <p class="font-black text-slate-500" style="font-size:0.85rem;">${escapeHtml(label)}</p>
+                    ${subLabel ? `<p class="font-bold text-slate-400" style="font-size:0.66rem; margin-top:3px;">${escapeHtml(subLabel)}</p>` : ""}
                     <div class="app-sync-spinner"></div>
                     <div style="max-width:220px; margin:14px auto 0; background:#e2e8f0; border-radius:999px; height:8px; overflow:hidden;">
                         <div id="summary-sync-progress-fill" style="height:100%; width:2%; background:linear-gradient(90deg,#0d9488,#0f766e); border-radius:999px; transition:width 0.25s ease;"></div>
@@ -9207,17 +9208,45 @@
             return Object.keys(divisionConfigs).flatMap((divisionName) => getDivisionDcNames(divisionName));
         }
 
+        // BUG FIX (2026-09-14, user reported: "pehle time leta tha par khul jaati
+        // thi, ab error aane laga" after re-upload): root cause - `Promise.all`
+        // fail-fast hai, poore 24-DC Circle fetch (jo already 2-2.5 minute leta
+        // hai, `withAppsScriptConcurrencyGate_` sirf 2 concurrent allow karta
+        // hai isliye) me agar EK bhi DC ka call dono retry attempts ke baad bhi
+        // fail ho (transient echo-404/network glitch, poori list itni der chalne
+        // par iska chance bhi badh jaata hai), to POORA fetch turant reject ho
+        // jaata tha - baaki 23 DC ka safal data bhi fenk diya jaata tha aur user
+        // ko seedha "data load nahi ho payi" error dikhta tha. FIX: ab har DC ka
+        // fetch alag try/catch me hai (ek DC fail ho to baaki chalte rehte hain,
+        // koi Promise.all reject nahi hota), aur sabhi batch poore hone ke baad
+        // jo bhi DC pehli baar fail hui thi unke liye EK final retry-round chalta
+        // hai (transient glitch aksar dusri baar chal jaata hai). Sirf tabhi error
+        // throw hota hai jab is final round ke baad bhi koi DC fail rahe.
         async function fetchOmvigPendingForDcs_(dcNames) {
             const BATCH = 5; // Freeze module jaisa hi - max 5 DC parallel
             let freezeDateOut = "";
             const allRows = [];
-            for (let i = 0; i < dcNames.length; i += BATCH) {
-                const batch = dcNames.slice(i, i + BATCH);
-                const batchResults = await Promise.all(batch.map((dcName) => fetchOmvigPendingSingleDc_(dcName)));
-                batchResults.forEach((r) => {
+            const failedDcs = [];
+            const fetchOneDc = async (dcName) => {
+                try {
+                    const r = await fetchOmvigPendingSingleDc_(dcName);
                     allRows.push(...r.rows);
                     if (!freezeDateOut && r.freeze_date) freezeDateOut = r.freeze_date;
-                });
+                } catch (e) {
+                    failedDcs.push(dcName);
+                }
+            };
+            for (let i = 0; i < dcNames.length; i += BATCH) {
+                const batch = dcNames.slice(i, i + BATCH);
+                await Promise.all(batch.map(fetchOneDc));
+            }
+            if (failedDcs.length) {
+                const retryList = failedDcs.slice();
+                failedDcs.length = 0;
+                await Promise.all(retryList.map(fetchOneDc));
+            }
+            if (failedDcs.length) {
+                throw new Error(`O&M/VIG data load nahi ho payi - DC(s): ${failedDcs.join(", ")}`);
             }
             return { rows: allRows, freeze_date: freezeDateOut };
         }
@@ -9541,10 +9570,15 @@
             const body = document.getElementById("summary-content");
             if (!body) return;
             const myToken = ++omvigProgressToken;
-            const label = activeViewLevel === "DC"
-                ? "SYNCING DATA... PLEASE WAIT"
-                : "SYNCING DATA... PLEASE WAIT (Division/Circle me 1-2 minute tak lag sakte hain)";
-            const progress = renderSyncingProgress(body, () => myToken === omvigProgressToken, label);
+            // USER REQUEST (2026-09-14): pehle yahan hamesha "Division/Circle me..."
+            // dono likha rehta tha (chahe user Circle dekh raha ho ya Division) -
+            // confusing tha. Ab jis level ki report abhi khul rahi hai SIRF uska
+            // hi naam dikhta hai, aur wait-note (English) ab ek alag niche wali
+            // row me hai (renderSyncingProgress ka naya subLabel param), "SYNCING
+            // DATA... PLEASE WAIT" wali upar wali line ab hamesha clean rehti hai.
+            const levelLabel = activeViewLevel === "DIVISION" ? "Division" : (activeViewLevel === "CIRCLE" ? "Circle" : "DC");
+            const subLabel = activeViewLevel === "DC" ? "" : `(${levelLabel} level may take 1-2 minutes)`;
+            const progress = renderSyncingProgress(body, () => myToken === omvigProgressToken, "SYNCING DATA... PLEASE WAIT", subLabel);
             try {
                 const data = await loadOmvigReportData_(forceRefresh);
                 if (myToken !== omvigProgressToken) { progress.stop(); return; }
