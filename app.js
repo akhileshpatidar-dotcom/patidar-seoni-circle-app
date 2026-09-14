@@ -9162,18 +9162,60 @@
             return omvigFreezeStatusCache_;
         }
 
-        async function fetchOmvigPending_(dc) {
-            const key = dc || "ALL";
+        // BUG FIX PART 3 (2026-09-14, USER-REPORTED - error persisted even
+        // after gate+retry, aur is baar sirf EK tab khula tha, dono retry
+        // attempts bhi 404 ho gaye Network tab me): concurrency/retry dono
+        // theek jagah lage the, lekin asli wajah kuch aur nikli - unscoped
+        // (Division/Circle) `getPendingSummary` ek hi call me ~9500+ rows ka
+        // bahut bada JSON response deta hai, aur Apps Script ka "echo"
+        // content-delivery layer itne BADE response ko reliably serve hi
+        // nahi kar pa raha (bar-bar 404, sirf transient glitch nahi) - isse
+        // koi bhi retry help nahi karta, dono attempt bhi fail ho jaate hain.
+        // Fix: Freeze module jaisa hi chunking - poora Circle/Division ka
+        // data ab EK badi call me nahi, balki har DC ki apni CHHOTI call
+        // (jo already DC-level par reliably kaam karti hai) se, max 5 ek
+        // saath (parallel), fetch + client-side merge karte hain. Koi bhi
+        // ek DC ka response ab kabhi bhi itna bada nahi hoga ki echo layer
+        // usse serve na kar paaye.
+        async function fetchOmvigPendingSingleDc_(dcName) {
+            const key = dcName;
             if (omvigPendingCache_[key]) return omvigPendingCache_[key];
-            const url = `${omvigSubmitScriptUrl}?action=getPendingSummary${dc ? `&dc=${encodeURIComponent(dc)}` : ""}&t=${Date.now()}`;
-            // Poore Circle ka data (dc param ke bina, Division/Circle scope) ~9500+
-            // rows tak ho sakta hai - Apps Script se aana genuinely 1-2+ min le
-            // sakta hai, isliye DC-scoped se kaafi zyada timeout (4 min).
-            const data = await withOmvigRetry_(() => withAppsScriptConcurrencyGate_(omvigSubmitScriptUrl, () => loadRemoteJson(url, dc ? 45000 : 240000)));
+            const url = `${omvigSubmitScriptUrl}?action=getPendingSummary&dc=${encodeURIComponent(dcName)}&t=${Date.now()}`;
+            const data = await withOmvigRetry_(() => withAppsScriptConcurrencyGate_(omvigSubmitScriptUrl, () => loadRemoteJson(url, 45000)));
             const rows = Array.isArray(data?.data) ? data.data : [];
             const result = { rows: rows.map(normalizeOmvigPendingRow_), freeze_date: data?.freeze_date || "" };
             omvigPendingCache_[key] = result;
             return result;
+        }
+
+        function getAllOmvigDcNames_() {
+            return Object.keys(divisionConfigs).flatMap((divisionName) => getDivisionDcNames(divisionName));
+        }
+
+        async function fetchOmvigPendingForDcs_(dcNames) {
+            const BATCH = 5; // Freeze module jaisa hi - max 5 DC parallel
+            let freezeDateOut = "";
+            const allRows = [];
+            for (let i = 0; i < dcNames.length; i += BATCH) {
+                const batch = dcNames.slice(i, i + BATCH);
+                const batchResults = await Promise.all(batch.map((dcName) => fetchOmvigPendingSingleDc_(dcName)));
+                batchResults.forEach((r) => {
+                    allRows.push(...r.rows);
+                    if (!freezeDateOut && r.freeze_date) freezeDateOut = r.freeze_date;
+                });
+            }
+            return { rows: allRows, freeze_date: freezeDateOut };
+        }
+
+        // Purane call-sites (agar kahin bhi ho) ke liye backward-compatible -
+        // `dc` diya ho to single-DC, na diya ho to POORI Circle (sabhi DC
+        // chunked) - lekin `loadOmvigReportData_` ab Division ke liye seedhe
+        // `fetchOmvigPendingForDcs_(getDivisionDcNames(activeDiv))` use karta
+        // hai (poori Circle fetch karke baad me filter karne se behtar - kam
+        // DC = kam calls = fast).
+        async function fetchOmvigPending_(dc) {
+            if (dc) return fetchOmvigPendingSingleDc_(dc);
+            return fetchOmvigPendingForDcs_(getAllOmvigDcNames_());
         }
 
         async function fetchOmvigPaid_(dc) {
@@ -9242,15 +9284,21 @@
             }
 
             const dcParam = activeViewLevel === "DC" ? activeDC : "";
-            const pending = await fetchOmvigPending_(dcParam);
+            // BUG FIX (2026-09-14): pehle Division level bhi POORI Circle
+            // (sabhi 24 DC) fetch karke baad me client-side filter karta tha -
+            // ab seedha sirf USI Division ki DC list chunked-fetch hoti hai
+            // (kam call = kam data = fast, aur echo-404 ka risk bhi kam).
+            let pending;
+            if (activeViewLevel === "DC") {
+                pending = await fetchOmvigPendingSingleDc_(activeDC);
+            } else if (activeViewLevel === "DIVISION") {
+                pending = await fetchOmvigPendingForDcs_(getDivisionDcNames(activeDiv));
+            } else {
+                pending = await fetchOmvigPendingForDcs_(getAllOmvigDcNames_());
+            }
             const paid = await fetchOmvigPaid_(dcParam);
 
-            let pendingRows = pending.rows;
-            if (activeViewLevel === "DIVISION") {
-                const dcNamesInDiv = new Set(getDivisionDcNames(activeDiv).map((n) => normalizeDcName(n)));
-                pendingRows = pendingRows.filter((r) => dcNamesInDiv.has(normalizeDcName(r.dc_name)));
-            }
-
+            const pendingRows = pending.rows;
             const paidMap = groupOmvigPaidByPanchanama_(paid);
             const rowsWithStatus = computeOmvigReportRows_(pendingRows, paidMap, pending.freeze_date);
 
