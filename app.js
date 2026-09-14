@@ -9111,7 +9111,7 @@
         // "data load nahi ho payi" error deti thi).
         async function fetchOmvigFreezeStatus_(forceRefresh = false) {
             if (!forceRefresh && omvigFreezeStatusCache_) return omvigFreezeStatusCache_;
-            const data = await loadRemoteJson(`${omvigSubmitScriptUrl}?action=getFreezeStatus&t=${Date.now()}`, 30000);
+            const data = await loadRemoteJson(`${omvigSubmitScriptUrl}?action=getFreezeStatus&t=${Date.now()}`, 45000);
             let freezeDate = data?.freeze_date || "";
             const pendingCount = Number(data?.pending_count) || 0;
             // USER REQUEST (2026-09-14): koi bhi (admin panel ya seedha report)
