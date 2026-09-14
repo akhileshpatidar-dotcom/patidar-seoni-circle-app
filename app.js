@@ -9123,9 +9123,30 @@
         // bina hi likhi gayi thi, isliye yahi purana bug yahan wapas aa gaya.
         // Fix: teeno call ab bhi wahi gate use karti hain - future me koi
         // bhi naya O&M/VIG fetch bhi isi gate se hokar jaana chahiye.
+        // BUG FIX PART 2 (2026-09-14): sirf concurrency gate se poora fix nahi
+        // hua tha - Freeze module ke asli fix (ensureRevenueFreezeActiveInfo/
+        // fetchRevenueFreezeSnapshotRows, ~line 3379/3420) me ek DOOSRA hissa
+        // bhi tha jo O&M/VIG me chhoot gaya tha: agar "echo" layer ka 404/HTML
+        // error kabhi phir bhi aa jaaye (JSON.parse fail), to sirf EK attempt
+        // hone se poora call turant fail ho jaata tha. Fix: yahan bhi wahi 2
+        // attempt + 800ms gap wala retry (`withOmvigRetry_`) laga diya - ab
+        // ek transient "echo" glitch dusri koshish me aksar chal jaata hai.
+        async function withOmvigRetry_(task, attempts = 2) {
+            let lastErr = null;
+            for (let attempt = 1; attempt <= attempts; attempt++) {
+                try {
+                    return await task();
+                } catch (err) {
+                    lastErr = err;
+                    if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, 800));
+                }
+            }
+            throw lastErr;
+        }
+
         async function fetchOmvigFreezeStatus_(forceRefresh = false) {
             if (!forceRefresh && omvigFreezeStatusCache_) return omvigFreezeStatusCache_;
-            const data = await withAppsScriptConcurrencyGate_(omvigSubmitScriptUrl, () => loadRemoteJson(`${omvigSubmitScriptUrl}?action=getFreezeStatus&t=${Date.now()}`, 45000));
+            const data = await withOmvigRetry_(() => withAppsScriptConcurrencyGate_(omvigSubmitScriptUrl, () => loadRemoteJson(`${omvigSubmitScriptUrl}?action=getFreezeStatus&t=${Date.now()}`, 45000)));
             let freezeDate = data?.freeze_date || "";
             const pendingCount = Number(data?.pending_count) || 0;
             // USER REQUEST (2026-09-14): koi bhi (admin panel ya seedha report)
@@ -9148,7 +9169,7 @@
             // Poore Circle ka data (dc param ke bina, Division/Circle scope) ~9500+
             // rows tak ho sakta hai - Apps Script se aana genuinely 1-2+ min le
             // sakta hai, isliye DC-scoped se kaafi zyada timeout (4 min).
-            const data = await withAppsScriptConcurrencyGate_(omvigSubmitScriptUrl, () => loadRemoteJson(url, dc ? 45000 : 240000));
+            const data = await withOmvigRetry_(() => withAppsScriptConcurrencyGate_(omvigSubmitScriptUrl, () => loadRemoteJson(url, dc ? 45000 : 240000)));
             const rows = Array.isArray(data?.data) ? data.data : [];
             const result = { rows: rows.map(normalizeOmvigPendingRow_), freeze_date: data?.freeze_date || "" };
             omvigPendingCache_[key] = result;
@@ -9159,7 +9180,7 @@
             const key = dc || "ALL";
             if (omvigPaidCache_[key]) return omvigPaidCache_[key];
             const url = `${omvigSubmitScriptUrl}?action=getPaidSummary${dc ? `&dc=${encodeURIComponent(dc)}` : ""}&t=${Date.now()}`;
-            const data = await withAppsScriptConcurrencyGate_(omvigSubmitScriptUrl, () => loadRemoteJson(url, dc ? 45000 : 90000));
+            const data = await withOmvigRetry_(() => withAppsScriptConcurrencyGate_(omvigSubmitScriptUrl, () => loadRemoteJson(url, dc ? 45000 : 90000)));
             const rows = Array.isArray(data?.data) ? data.data : [];
             const result = rows.map(normalizeOmvigPaidRow_);
             omvigPaidCache_[key] = result;
