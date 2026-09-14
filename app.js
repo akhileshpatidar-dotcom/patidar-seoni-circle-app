@@ -2296,7 +2296,7 @@
             if (summaryModule === "OMVIG") {
                 const body = document.getElementById("summary-content");
                 const waitNote = activeViewLevel === "DC" ? "" : "<br><span style=\"font-size:0.6rem; font-weight:700; color:#64748b;\">Division/Circle me poora Circle data hai, 1-2 minute tak lag sakte hain</span>";
-                if (body) body.innerHTML = `<div style="text-align:center; font-size:0.72rem; font-weight:900; color:#1d4ed8; padding:20px 0;">SYNCING DATA... PLEASE WAIT${waitNote}</div>`;
+                if (body) body.innerHTML = `<div style="text-align:center; font-size:0.72rem; font-weight:900; color:#1d4ed8; padding:20px 0;">SYNCING DATA... PLEASE WAIT${waitNote}<div class="app-sync-spinner"></div></div>`;
                 loadAndRenderOmvigReport();
                 return;
             }
@@ -3197,7 +3197,7 @@
                 listBox.innerHTML = `<div style="text-align:center; color:#991b1b; font-size:0.68rem;">Freeze script URL set nahi hai</div>`;
                 return;
             }
-            listBox.innerHTML = `<div style="text-align:center; color:#64748b; font-size:0.68rem;">SYNCING DATA... PLEASE WAIT</div>`;
+            listBox.innerHTML = `<div style="text-align:center; color:#64748b; font-size:0.68rem;">SYNCING DATA... PLEASE WAIT<div class="app-sync-spinner"></div></div>`;
             try {
                 const parsed = await loadRemoteJson(`${revenueFreezeTrackingScriptUrl}?action=listFreezes`);
                 const freezes = Array.isArray(parsed?.freezes) ? parsed.freezes : [];
@@ -4231,7 +4231,7 @@
                 return `${categorySelectHtml}<div style="text-align:center; color:#64748b; font-size:0.72rem; font-weight:800; padding:20px 0;">Upar diye gaye dropdown se report type chunein.</div>`;
             }
             if (progressFreezeLoading || !lastRevenueProgressFreezeResult) {
-                return `${categorySelectHtml}<div style="text-align:center; font-size:0.72rem; font-weight:900; color:#1d4ed8; padding:20px 0;">SYNCING DATA... PLEASE WAIT</div>`;
+                return `${categorySelectHtml}<div style="text-align:center; font-size:0.72rem; font-weight:900; color:#1d4ed8; padding:20px 0;">SYNCING DATA... PLEASE WAIT<div class="app-sync-spinner"></div></div>`;
             }
             const data = computeRevenueFreezeReportData();
             if (!data || data.error) {
@@ -6019,6 +6019,7 @@
             cont.innerHTML = `
                 <div class="text-center py-10">
                     <p class="font-black text-slate-500" style="font-size:0.85rem;">${escapeHtml(label)}</p>
+                    <div class="app-sync-spinner"></div>
                     <div style="max-width:220px; margin:14px auto 0; background:#e2e8f0; border-radius:999px; height:8px; overflow:hidden;">
                         <div id="summary-sync-progress-fill" style="height:100%; width:2%; background:linear-gradient(90deg,#0d9488,#0f766e); border-radius:999px; transition:width 0.25s ease;"></div>
                     </div>
@@ -8930,19 +8931,10 @@
                 // USER-REPORTED SLOWNESS FIX (2026-09-14): pehle yahan poori
                 // getPendingSummary (poore Circle ki ~9500 rows) call hoti thi
                 // sirf freeze_date + count ke liye - bahut slow (1-2+ min).
-                // Ab fast `getFreezeStatus` (row-count-only, poora data nahi)
-                // use karte hain.
-                const data = await loadRemoteJson(`${omvigSubmitScriptUrl}?action=getFreezeStatus&t=${Date.now()}`, 30000);
-                omvigAdminStatus = { freeze_date: data?.freeze_date || "", pending_count: Number(data?.pending_count) || 0 };
-                // USER REQUEST (2026-09-14): "Freeze" ab ek manual button nahi hai -
-                // di gayi Pending sheet hamesha hi frozen baseline maani jaati hai,
-                // isliye admin panel khulte hi (agar pehli baar hai) khud-b-khud
-                // (silently) ek hi baar freeze ho jaata hai - backend `setFreezeDateOnce`
-                // already guarded hai (dobara set nahi hoti), isliye baar-baar panel
-                // khulne se bhi koi farak nahi padta.
-                if (!omvigAdminStatus.freeze_date) {
-                    await autoFreezeOmvigBaseline_();
-                }
+                // Ab fast, self-healing `fetchOmvigFreezeStatus_()` use karte hain
+                // (yeh khud hi auto-freeze bhi kar deta hai agar zaroorat ho).
+                const status = await fetchOmvigFreezeStatus_(true);
+                omvigAdminStatus = { freeze_date: status.freeze_date, pending_count: status.pending_count };
             } catch (_) {
                 omvigAdminStatus = null;
                 if (statusBox) statusBox.innerHTML = `<div style="text-align:center; font-size:0.75rem; font-weight:800; color:#b91c1c;">Status load nahi ho payi - internet check kijiye</div>`;
@@ -8951,6 +8943,12 @@
             renderOmvigAdminStatus();
         }
 
+        // USER REQUEST (2026-09-14): "Freeze" ab ek manual button nahi hai - di
+        // gayi Pending sheet hamesha hi frozen baseline maani jaati hai. Backend
+        // `setFreezeDateOnce` already guarded hai (dobara set nahi hoti), isliye
+        // yeh helper JIS BHI entry point se pehli baar call ho (admin panel ya
+        // seedha DC/Division/Circle report khol ke) - usi se silently ek hi baar
+        // freeze ho jaati hai, koi bhi manual step chahiye hi nahi.
         async function autoFreezeOmvigBaseline_() {
             try {
                 const response = await fetch(omvigSubmitScriptUrl, {
@@ -8961,14 +8959,11 @@
                 const text = await response.text();
                 let parsed = {};
                 try { parsed = JSON.parse(text || "{}"); } catch (_) {}
-                if (parsed.status === "success" && parsed.freeze_date) {
-                    omvigAdminStatus = { freeze_date: parsed.freeze_date, pending_count: omvigAdminStatus?.pending_count || 0 };
-                    omvigPendingCache_ = {}; omvigReportCache_ = null; omvigFreezeStatusCache_ = null;
-                }
+                if (parsed.status === "success" && parsed.freeze_date) return parsed.freeze_date;
             } catch (_) {
-                // Chup rehte hain - admin ko error nahi dikhana, agli baar panel
-                // khulne par phir try ho jayega (guarded, safe).
+                // Chup rehte hain - agli baar phir try ho jayega (guarded, safe).
             }
+            return "";
         }
 
         function renderOmvigAdminStatus() {
@@ -9110,7 +9105,18 @@
         async function fetchOmvigFreezeStatus_(forceRefresh = false) {
             if (!forceRefresh && omvigFreezeStatusCache_) return omvigFreezeStatusCache_;
             const data = await loadRemoteJson(`${omvigSubmitScriptUrl}?action=getFreezeStatus&t=${Date.now()}`, 30000);
-            omvigFreezeStatusCache_ = { freeze_date: data?.freeze_date || "", pending_count: Number(data?.pending_count) || 0 };
+            let freezeDate = data?.freeze_date || "";
+            const pendingCount = Number(data?.pending_count) || 0;
+            // USER REQUEST (2026-09-14): koi bhi (admin panel ya seedha report)
+            // sabse pehle yahi fast check karta hai - agar freeze abhi tak nahi
+            // hui, yahin se silently ek hi baar auto-freeze kar dete hain, taaki
+            // report kabhi bhi "not frozen" error na de sirf isliye ki admin
+            // panel kabhi khola hi nahi gaya.
+            if (!freezeDate) {
+                freezeDate = await autoFreezeOmvigBaseline_();
+                if (freezeDate) { omvigPendingCache_ = {}; omvigReportCache_ = null; }
+            }
+            omvigFreezeStatusCache_ = { freeze_date: freezeDate, pending_count: pendingCount };
             return omvigFreezeStatusCache_;
         }
 
@@ -9273,6 +9279,14 @@
                 const fileName = `${reportTitle}-${getTodayIsoDate()}`.replace(/[\\/:*?"<>|]+/g, "_");
 
                 const listHeaders = ["CIRCLE", "DIVISION", "DC", "CHECKED BY", "INSPECTION DATE", "PANCHANAMA NO", "EZ NO", "CONSUMER NAME", "CONSUMER NO", "TARIFF NAME", "CASE NAME", "BALANCED AMOUNT", "STATUS", "PAID AMT", "PAID DATE"];
+                const statusColIndex = 12; // 0-based, matches listHeaders order above
+                // USER REQUEST (2026-09-14): Freeze NP jaisa hi - PAID row GREEN
+                // (PDF), PART PAID row RED (PDF); CSV plain text hai (colour
+                // support nahi), isliye wahan "++ PAID ++"/"** PART PAID **"
+                // marker se alag pehchana jaata hai. `paymentStateFlags` sirf
+                // colour/marker ke liye hai, row ka position/order isse bilkul
+                // nahi badalta.
+                const paymentStateFlags = rowsWithStatus.map((r) => (r.isPaidNow ? 2 : (r.paidAmountNow > 0 ? 1 : 0)));
                 const listBodyRows = rowsWithStatus.map((r) => [
                     r.circle, r.division, r.dc_name, r.checked_by, r.inspection_date, r.panchanama_no, r.ez_no,
                     r.consumer_name, r.consumer_no, r.tariff_name, r.case_name, r.balanced_amount,
@@ -9281,7 +9295,30 @@
                 ]);
 
                 if (fmt === "XLS") {
-                    const csvSafe = (value) => { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
+                    // BUG FIX (2026-09-14): user ne download me ek column ka data
+                    // left-right shift hote dekha - root cause: kuch pending-sheet
+                    // cell (Consumer Name/Case Name jaise text field) me embedded
+                    // \r ya \n ho sakta hai (Sheets me multi-line cell), jo purana
+                    // csvSafe (sirf `,`/`"`/`\n` quote karta tha, `\r` nahi) hamesha
+                    // sahi se escape nahi karta tha - kuch CSV viewer bare `\r` ko
+                    // row-break maan lete hain, jisse agli row ka data pichli row
+                    // ke galat column me chala jaata dikhta hai. Fix: `\r` bhi
+                    // quote-trigger me shamil kiya, AUR extra safety ke liye har
+                    // cell ke andar ka koi bhi line-break pehle hi single space se
+                    // replace kar dete hain (data kho nahi raha, sirf ek line me
+                    // aa raha hai) - taaki kisi bhi CSV viewer me row/column shift
+                    // ki gunjaish hi na rahe.
+                    const csvSafe = (value) => {
+                        const text = String(value ?? "").replace(/\r\n|\r|\n/g, " ");
+                        return /[",]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+                    };
+                    const markedListBodyRows = listBodyRows.map((row, i) => {
+                        const copy = row.slice();
+                        const state = paymentStateFlags[i];
+                        if (state === 2) copy[statusColIndex] = `++ ${copy[statusColIndex]} ++`;
+                        else if (state === 1) copy[statusColIndex] = `** ${copy[statusColIndex]} **`;
+                        return copy;
+                    });
                     const rows = [[reportTitle], [`Freeze Date: ${data.freeze_date}`], [],
                         ["TOTAL CASES", "PAID COUNT", "PAID %", "PENDING COUNT", "PENDING %"],
                         [totalCount, paidCount, `${paidPercent}%`, pendingCount, `${pendingPercent}%`], []];
@@ -9291,7 +9328,7 @@
                         summaryRows.forEach((r) => rows.push([r.name, r.totalCount, r.paidCount, r.paidAmount, r.pendingCount, r.pendingAmount, `${r.paidPercent}%`, `${r.pendingPercent}%`]));
                         rows.push([]);
                     }
-                    rows.push(listHeaders, ...listBodyRows);
+                    rows.push(listHeaders, ...markedListBodyRows);
                     const csv = rows.map((row) => row.map(csvSafe).join(",")).join("\n");
                     await saveShmsBlob(`${fileName}.csv`, new Blob([csv], { type: "text/csv;charset=utf-8" }), "text/csv;charset=utf-8");
                     return showToast("Excel report ka request bhej diya gaya. Agar preview me file na aaye to browser ya GitHub version me check kijiye.", true);
@@ -9349,6 +9386,15 @@
                     // cell check hoti hai) - Hindi cell ke upar ek chhoti sahi
                     // Devanagari image chipka di jaati hai, English/number cell
                     // bilkul normal PDF text hi rehte hain.
+                    // USER REQUEST (2026-09-14): STATUS column me bhi Freeze NP
+                    // jaisa hi colour - PAID = green, PART PAID = red.
+                    didParseCell: (cellData) => {
+                        if (cellData.section === "body" && cellData.column.index === statusColIndex) {
+                            const state = paymentStateFlags[cellData.row.index];
+                            if (state === 2) { cellData.cell.styles.textColor = [22, 101, 52]; cellData.cell.styles.fontStyle = "bold"; }
+                            else if (state === 1) { cellData.cell.styles.textColor = [220, 38, 38]; cellData.cell.styles.fontStyle = "bold"; }
+                        }
+                    },
                     didDrawCell: (cellData) => {
                         if (cellData.section === "body" && meterCheckingCellHasDevanagari_(cellData.cell.raw)) {
                             drawMeterCheckingHindiCell_(doc, cellData);

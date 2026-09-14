@@ -61,6 +61,19 @@
         .app-refresh-spinning {
             animation: appRefreshSpin 0.8s linear infinite;
         }
+        /* USER REQUEST (2026-09-14): jahan bhi "SYNCING DATA... PLEASE WAIT"
+           dikhta hai, uske niche ek medium-size professional round spinner
+           dikhna chahiye - taaki user ko clearly pata chale process chal
+           raha hai. Ek hi shared class taaki poori app me look same rahe. */
+        .app-sync-spinner {
+            width: 34px;
+            height: 34px;
+            margin: 14px auto 0;
+            border: 3.5px solid #e2e8f0;
+            border-top-color: #0d9488;
+            border-radius: 50%;
+            animation: appRefreshSpin 0.8s linear infinite;
+        }
         .pwa-install-banner {
             position: fixed;
             top: 0;
