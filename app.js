@@ -101,6 +101,10 @@
         let omvigFilterDivision = "";
         let omvigFilterDc = "";
         let omvigFilterStatus = ""; // "" | "PAID" (part paid samet) | "PENDING"
+        // USER REQUEST (2026-09-14): Revenue Live Progress jaisa hi animated
+        // "%" progress-bar (renderSyncingProgress) - stale render race se bachne
+        // ke liye token pattern (Revenue ke revenueLiveProgressToken jaisa hi).
+        let omvigProgressToken = 0;
         const vehicleReadingStorageKey = "seoni_vehicle_reading_state_v1";
         const vehicleReadingListStorageKey = "seoni_vehicle_reading_list_v1";
         const vehicleReadingCsvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQIv4JMsV1n8vy9cJ0o2UaS45-fh_c3n9u-rqwXjuCZWDNZNRaJlgUKnT4gtP3_kTtpCrQvrTcojWQo/pub?output=csv";
@@ -2308,9 +2312,12 @@
                 return;
             }
             if (summaryModule === "OMVIG") {
-                const body = document.getElementById("summary-content");
-                const waitNote = activeViewLevel === "DC" ? "" : "<br><span style=\"font-size:0.6rem; font-weight:700; color:#64748b;\">Division/Circle me poora Circle data hai, 1-2 minute tak lag sakte hain</span>";
-                if (body) body.innerHTML = `<div style="text-align:center; font-size:0.72rem; font-weight:900; color:#1d4ed8; padding:20px 0;">SYNCING DATA... PLEASE WAIT${waitNote}<div class="app-sync-spinner"></div></div>`;
+                // USER REQUEST (2026-09-14): pehle yahan ek plain spinner-only
+                // message dikhta tha - ab Revenue Live Progress jaisa hi ek-sa
+                // animated "%" progress-bar dikhta hai (loadAndRenderOmvigReport
+                // khud renderSyncingProgress se yeh UI banata hai), taaki poori
+                // app me jahan bhi data sync hota hai wahan ek jaisa hi pattern
+                // dikhe.
                 loadAndRenderOmvigReport();
                 return;
             }
@@ -9533,14 +9540,27 @@
         async function loadAndRenderOmvigReport(forceRefresh = false) {
             const body = document.getElementById("summary-content");
             if (!body) return;
+            const myToken = ++omvigProgressToken;
+            const label = activeViewLevel === "DC"
+                ? "SYNCING DATA... PLEASE WAIT"
+                : "SYNCING DATA... PLEASE WAIT (Division/Circle me 1-2 minute tak lag sakte hain)";
+            const progress = renderSyncingProgress(body, () => myToken === omvigProgressToken, label);
             try {
                 const data = await loadOmvigReportData_(forceRefresh);
+                if (myToken !== omvigProgressToken) { progress.stop(); return; }
                 if (!data.freeze_date) {
+                    progress.stop();
+                    if (myToken !== omvigProgressToken) return;
                     body.innerHTML = `<div style="text-align:center; color:#9f1239; font-size:0.72rem; margin-top:10px;">Abhi tak O&M/VIG freeze nahi hua hai. Sub DN Chhapara ke Admin panel se "🔒 ADMIN O&M/VIG UPLOAD" me Freeze Date set karein.</div>`;
                     return;
                 }
-                body.innerHTML = renderOmvigReportHtml_(data);
+                const html = renderOmvigReportHtml_(data);
+                await progress.finish();
+                if (myToken !== omvigProgressToken) return;
+                body.innerHTML = html;
             } catch (error) {
+                progress.stop();
+                if (myToken !== omvigProgressToken) return;
                 body.innerHTML = `<div style="text-align:center; color:#991b1b; font-size:0.72rem; margin-top:10px;">O&M/VIG data load nahi ho payi (network slow ho sakta hai, khaaskar Division/Circle me)</div><button class="btn-unique" style="width:100%; margin-top:8px; background:#0891b2; color:#fff;" onclick="loadAndRenderOmvigReport(true)">Try Again</button>`;
             }
         }
