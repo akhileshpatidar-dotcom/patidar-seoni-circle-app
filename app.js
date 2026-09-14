@@ -3928,9 +3928,14 @@
                 const isTotal = r.type === "SUB_TOTAL" || r.type === "GRAND_TOTAL";
                 const rowBg = r.type === "GRAND_TOTAL" ? "background:#dbeafe;" : (r.type === "SUB_TOTAL" ? "background:#f1f5f9;" : "");
                 const fw = isTotal ? "font-weight:900;" : "font-weight:700;";
+                // USER REQUEST (2026-09-14): SUB_TOTAL/GRAND_TOTAL rows pehle sirf
+                // BOLD + halka background se hi alag dikhte the - ab NAME/TOTAL
+                // CONSUMER column ka TEXT COLOUR bhi alag (SUB_TOTAL = blue, GRAND_TOTAL
+                // = rose/red) taaki total rows ekdum saaf alag pehchani jaayein.
+                const totalColor = r.type === "GRAND_TOTAL" ? "#9f1239" : (r.type === "SUB_TOTAL" ? "#1d4ed8" : "#0f172a");
                 return `<tr style="${rowBg}">
-                    <td style="${bodyCellStyle} ${fw} text-align:left;">${escapeHtml(r.name)}</td>
-                    <td style="${bodyCellStyle} ${fw}">${r.totalCount}</td>
+                    <td style="${bodyCellStyle} ${fw} color:${totalColor}; text-align:left;">${escapeHtml(r.name)}</td>
+                    <td style="${bodyCellStyle} ${fw} color:${totalColor};">${r.totalCount}</td>
                     <td style="${bodyCellStyle} ${fw} color:#166534;">${r.paidCount}</td>
                     <td style="${bodyCellStyle} ${fw} color:#166534;">${formatRevenueLakhValue(r.paidAmount)}</td>
                     <td style="${bodyCellStyle} ${fw} color:#9f1239;">${r.pendingCount}</td>
@@ -3985,6 +3990,29 @@
             return renderFreezeGroupSummaryTableHtml(revenueHqLabelUpper(), buildFreezeHqWiseSummaryRows(rowsWithStatus), "HQ WISE SUMMARY (AMOUNT IN LAKH)");
         }
 
+        // USER REQUEST (2026-09-14): Freeze Report (NP3/NP6/Since Connection/Top20/50)
+        // ki har download (full list ho ya summary, Excel ho ya PDF) me ab yeh bhi
+        // saaf dikhna chahiye ki us waqt kaunse filter dropdown selection active the
+        // (taaki baad me dekhne par pata chale kis filter ke saath report nikli thi).
+        // Yeh ek chhota "Filters: ..." label banata hai jo teeno download function
+        // (list, DC-wise summary, HQ-wise summary) apne PDF title ke neeche aur
+        // CSV/Excel ke header rows me daalte hain.
+        function buildFreezeActiveFiltersLabel_() {
+            if (isFreezeCategoryDefaultersType()) {
+                const g = freezeDefaultersGovtFilter === "GOVT" ? "Govt" : (freezeDefaultersGovtFilter === "NONGOVT" ? "Non Govt" : "All (Govt + Non Govt)");
+                return `Filter: ${g}`;
+            }
+            const f = freezeNonPayeeFilterState;
+            const parts = [];
+            if (activeViewLevel !== "DC") parts.push(`DC: ${f.dc || "All"}`);
+            parts.push(`HQ: ${f.hq || "All"}`);
+            parts.push(`Village: ${f.village || "All"}`);
+            parts.push(`Category: ${f.category || "All"}`);
+            parts.push(`Slab: ${f.slab || "All"}`);
+            parts.push(`Govt: ${f.govt === "GOVT" ? "Govt" : (f.govt === "NONGOVT" ? "Non Govt" : "All")}`);
+            return `Filters: ${parts.join(" | ")}`;
+        }
+
         // Freeze Report (NP3/NP6/Since Connection) ke Division/Circle download ke
         // liye DC-wise summary Excel/PDF banata hai (list ki jagah) - downloadRevenueFreezeReport()
         // se hi (uske try/catch ke andar) call hota hai.
@@ -4003,6 +4031,7 @@
             const scope = activeViewLevel === "DIVISION" ? activeDiv : "SEONI CIRCLE";
             const reportTitle = `Freeze-Revenue Report - ${getRevenueFreezeCategoryLabel(progressFreezeCategory)} - ${scope} - Summary`;
             const freezeLine = `Freeze Date: ${data.active.freeze_label || data.active.freeze_date || ""}`;
+            const filtersLine = buildFreezeActiveFiltersLabel_();
             const fileName = `${reportTitle}-${getTodayIsoDate()}`.replace(/[\\/:*?"<>|]+/g, "_");
             if (fmt === "PDF") {
                 if (!window.jspdf?.jsPDF) { setProgressCategoryDownloadState(false, "PDF library load nahi hui"); return; }
@@ -4011,28 +4040,80 @@
                 doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
                 doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 12, { align: "center" });
                 doc.setFontSize(9); doc.text(freezeLine, 148, 19, { align: "center" });
+                doc.setFontSize(8); doc.setTextColor(80); doc.text(filtersLine, 148, 25, { align: "center" });
                 doc.autoTable({
-                    startY: 25, head: [headers], body: bodyRows, theme: "grid",
+                    startY: 30, head: [headers], body: bodyRows, theme: "grid",
                     styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" },
                     headStyles: { fillColor: [8, 145, 178] },
                     didParseCell: function (hookData) {
                         if (hookData.section === "body") {
                             const flag = rowTypeFlags[hookData.row.index];
-                            if (flag === 2) { hookData.cell.styles.fillColor = [219, 234, 254]; hookData.cell.styles.fontStyle = "bold"; }
-                            else if (flag === 1) { hookData.cell.styles.fontStyle = "bold"; }
+                            if (flag === 2) { hookData.cell.styles.fillColor = [219, 234, 254]; hookData.cell.styles.fontStyle = "bold"; hookData.cell.styles.textColor = [159, 18, 57]; }
+                            else if (flag === 1) { hookData.cell.styles.fontStyle = "bold"; hookData.cell.styles.textColor = [29, 78, 216]; }
                         }
                     }
                 });
                 savePdfDocumentForDevice(doc, `${fileName}.pdf`);
             } else {
                 const csvSafe = (value) => { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
-                const csv = [[reportTitle], [`Scope: ${scope}`], [freezeLine], [], headers, ...bodyRows].map((row) => row.map(csvSafe).join(",")).join("\n");
+                const csv = [[reportTitle], [`Scope: ${scope}`], [freezeLine], [filtersLine], [], headers, ...bodyRows].map((row) => row.map(csvSafe).join(",")).join("\n");
                 const link = document.createElement("a");
                 link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
                 link.download = `${fileName}.csv`;
                 link.click();
             }
             setTimeout(() => setProgressCategoryDownloadState(false, `${downloadTypeLabel} download ho chuki hai`), 500);
+        }
+
+        // USER REQUEST (2026-09-14): DC level par bhi Division/Circle jaisa ek
+        // "Summary Download" (Excel/PDF) chahiye - yeh HQ-wise summary (screen par
+        // jo renderFreezeHqWiseSummaryHtml dikhata hai, wahi data) download karta
+        // hai. DC-level ki poori consumer LIST (downloadRevenueFreezeReport) bilkul
+        // untouched/alag button se hi milti rahegi ("Full List Download").
+        function downloadRevenueFreezeHqWiseSummary(fmt, data, downloadTypeLabel) {
+            if (!data || !data.active || !data.rowsWithStatus.length) return showToast("Download ke liye data nahi hai", false);
+            setProgressCategoryDownloadState(true, `${downloadTypeLabel} downloading... kripya wait kijiye`);
+            try {
+            const summaryRows = buildFreezeHqWiseSummaryRows(data.rowsWithStatus);
+            const nameColLabel = revenueHqLabelUpper();
+            const headers = [nameColLabel, "TOTAL CONSUMER", "PAID COUNT", "PAID AMT (LAKH)", "PENDING COUNT", "PENDING AMT (LAKH)", "PAID %", "PENDING %"];
+            const bodyRows = summaryRows.map((r) => {
+                const paidPercent = r.totalCount ? ((r.paidCount / r.totalCount) * 100).toFixed(1) : "0.0";
+                const pendingPercent = r.totalCount ? ((r.pendingCount / r.totalCount) * 100).toFixed(1) : "0.0";
+                return [r.name, r.totalCount, r.paidCount, formatRevenueLakhValue(r.paidAmount), r.pendingCount, formatRevenueLakhValue(r.pendingAmount), `${paidPercent}%`, `${pendingPercent}%`];
+            });
+            const scope = `DC - ${activeDC}`;
+            const reportTitle = `Freeze-Revenue Report - ${getRevenueFreezeCategoryLabel(progressFreezeCategory)} - ${scope} - Summary`;
+            const freezeLine = `Freeze Date: ${data.active.freeze_label || data.active.freeze_date || ""}`;
+            const filtersLine = buildFreezeActiveFiltersLabel_();
+            const fileName = `${reportTitle}-${getTodayIsoDate()}`.replace(/[\\/:*?"<>|]+/g, "_");
+            if (fmt === "PDF") {
+                if (!window.jspdf?.jsPDF) { setProgressCategoryDownloadState(false, "PDF library load nahi hui"); return; }
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF({ orientation: "landscape" });
+                doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
+                doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 12, { align: "center" });
+                doc.setFontSize(9); doc.text(freezeLine, 148, 19, { align: "center" });
+                doc.setFontSize(8); doc.setTextColor(80); doc.text(filtersLine, 148, 25, { align: "center" });
+                doc.autoTable({
+                    startY: 30, head: [headers], body: bodyRows, theme: "grid",
+                    styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" },
+                    headStyles: { fillColor: [8, 145, 178] }
+                });
+                savePdfDocumentForDevice(doc, `${fileName}.pdf`);
+            } else {
+                const csvSafe = (value) => { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
+                const csv = [[reportTitle], [`Scope: ${scope}`], [freezeLine], [filtersLine], [], headers, ...bodyRows].map((row) => row.map(csvSafe).join(",")).join("\n");
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+                link.download = `${fileName}.csv`;
+                link.click();
+            }
+            setTimeout(() => setProgressCategoryDownloadState(false, `${downloadTypeLabel} download ho chuki hai`), 500);
+            } catch (error) {
+                setProgressCategoryDownloadState(false, "Download nahi ho paya");
+                showToast(error?.message || "Freeze summary download nahi ho payi", false);
+            }
         }
 
         function renderRevenueNonPayeeGroupSummaryHtml(normalizedRows) {
@@ -4169,10 +4250,23 @@
                         ? renderFreezeHqWiseSummaryHtml(data.rowsWithStatus)
                         : renderFreezeDcWiseSummaryHtml(data.rowsWithStatus)
                 ) : ""}
+                ${(activeViewLevel === "DC" && !isFreezeCategoryDefaultersType()) ? `
+                <div style="font-size:0.56rem; font-weight:850; color:#64748b; text-align:center; margin-top:10px;">SUMMARY DOWNLOAD (${escapeHtml(revenueHqLabelUpper())} WISE)</div>
+                <div class="btn-export-row" style="margin-top:4px;">
+                    <button class="btn-unique btn-excel-unique" onclick="downloadRevenueFreezeHqWiseSummary('XLS', computeRevenueFreezeReportData(), 'Excel')">Summary Excel</button>
+                    <button class="btn-unique btn-pdf-unique" onclick="downloadRevenueFreezeHqWiseSummary('PDF', computeRevenueFreezeReportData(), 'PDF')">Summary PDF</button>
+                </div>
+                <div style="font-size:0.56rem; font-weight:850; color:#64748b; text-align:center; margin-top:10px;">FULL LIST DOWNLOAD</div>
+                <div class="btn-export-row" style="margin-top:4px;">
+                    <button class="btn-unique btn-excel-unique" onclick="downloadRevenueFreezeReport('XLS')">Full List Excel</button>
+                    <button class="btn-unique btn-pdf-unique" onclick="downloadRevenueFreezeReport('PDF')">Full List PDF</button>
+                </div>
+                ` : `
                 <div class="btn-export-row" style="margin-top:10px;">
                     <button class="btn-unique btn-excel-unique" onclick="downloadRevenueFreezeReport('XLS')">Freeze Report Excel</button>
                     <button class="btn-unique btn-pdf-unique" onclick="downloadRevenueFreezeReport('PDF')">Freeze Report PDF</button>
                 </div>
+                `}
                 <div id="progress-category-download-status" style="display:none; text-align:center; font-weight:900; border-radius:14px; padding:8px 10px; width:100%; margin-top:8px;"></div>
             `;
             // USER REQUEST (2026-09-13): Division/Circle adhikari sirf SUMMARY
@@ -4293,6 +4387,7 @@
                 const scope = activeViewLevel === "DC" ? `DC - ${activeDC}` : (activeViewLevel === "DIVISION" ? activeDiv : "SEONI CIRCLE");
                 const reportTitle = `Freeze-Revenue Report - ${getRevenueFreezeCategoryLabel(progressFreezeCategory)} - ${scope}`;
                 const freezeLine = `Freeze Date: ${data.active.freeze_label || data.active.freeze_date || ""}`;
+                const filtersLine = buildFreezeActiveFiltersLabel_();
                 const fileName = `${reportTitle}-${getTodayIsoDate()}`.replace(/[\\/:*?"<>|]+/g, "_");
                 if (fmt === "PDF") {
                     if (!window.jspdf?.jsPDF) { setProgressCategoryDownloadState(false, "PDF library load nahi hui"); return; }
@@ -4301,8 +4396,9 @@
                     doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 10);
                     doc.setFontSize(13); doc.setTextColor(0); doc.text(reportTitle, 148, 12, { align: "center" });
                     doc.setFontSize(9); doc.text(freezeLine, 148, 19, { align: "center" });
+                    doc.setFontSize(8); doc.setTextColor(80); doc.text(filtersLine, 148, 25, { align: "center" });
                     doc.autoTable({
-                        startY: 25, head: [headers], body: bodyRows, theme: "grid",
+                        startY: 30, head: [headers], body: bodyRows, theme: "grid",
                         styles: { fontSize: 6, cellPadding: 1, overflow: "linebreak" },
                         headStyles: { fillColor: [8, 145, 178] },
                         didParseCell: function (hookData) {
@@ -4325,7 +4421,7 @@
                         else if (state === 1) row[statusColIndex] = `** ${row[statusColIndex]} **`;
                     });
                     const csvSafe = (value) => { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
-                    const csv = [[reportTitle], [`Scope: ${scope}`], [freezeLine], [], headers, ...bodyRows].map((row) => row.map(csvSafe).join(",")).join("\n");
+                    const csv = [[reportTitle], [`Scope: ${scope}`], [freezeLine], [filtersLine], [], headers, ...bodyRows].map((row) => row.map(csvSafe).join(",")).join("\n");
                     const link = document.createElement("a");
                     link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
                     link.download = `${fileName}.csv`;
