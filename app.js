@@ -105,6 +105,12 @@
         // "%" progress-bar (renderSyncingProgress) - stale render race se bachne
         // ke liye token pattern (Revenue ke revenueLiveProgressToken jaisa hi).
         let omvigProgressToken = 0;
+        // USER REQUEST (2026-09-14): Revenue jaisa hi Daily/Monthly toggle - Daily
+        // FAST rahe isliye ek alag lightweight path hai (dekhein
+        // loadOmvigDailyReportData_). Default MONTHLY (purana/existing poora
+        // PAID/PENDING/PART-PAID view, koi badlav nahi) - user khud "DAILY" chun
+        // sakta hai fast view ke liye.
+        let omvigReportMode = "MONTHLY"; // "DAILY" | "MONTHLY"
         const vehicleReadingStorageKey = "seoni_vehicle_reading_state_v1";
         const vehicleReadingListStorageKey = "seoni_vehicle_reading_list_v1";
         const vehicleReadingCsvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQIv4JMsV1n8vy9cJ0o2UaS45-fh_c3n9u-rqwXjuCZWDNZNRaJlgUKnT4gtP3_kTtpCrQvrTcojWQo/pub?output=csv";
@@ -9116,7 +9122,13 @@
                 pay_date: String(row[4] || "").trim(),
                 pay_mode: String(row[5] || "").trim(),
                 tx_number: String(row[6] || "").trim(),
-                uploaded_at: String(row[7] || "").trim()
+                uploaded_at: String(row[7] || "").trim(),
+                // USER REQUEST (2026-09-14): Daily (fast) mode ke liye - backend ab
+                // is 9th column me DC naam bhejta hai (PAID sheet ke naam se hi
+                // derive hota hai server-side, koi extra sheet-read nahi) - purane
+                // backend (jab tak .gs redeploy na ho) is index par khaali string
+                // dega, tab yeh empty rahega (koi crash nahi).
+                dc_name: String(row[8] || "").trim()
             };
         }
 
@@ -9566,10 +9578,46 @@
             return freezeLine + bodyHtml + downloadButtons;
         }
 
+        // USER REQUEST (2026-09-14): "Daily/Monthly" toggle - Revenue jaisa hi,
+        // top par hamesha dikhta hai (loading/error/success sabhi state me) taaki
+        // user kabhi bhi switch kar sake.
+        function renderOmvigModeToggleHtml_() {
+            const dailyActive = omvigReportMode === "DAILY";
+            const btnStyle = (active) => `flex:1; height:38px; border-radius:10px; border:2px solid #0d9488; font-size:0.72rem; font-weight:900; ${active ? "background:#0d9488; color:#fff;" : "background:#fff; color:#0d9488;"}`;
+            return `<div style="display:flex; gap:8px; margin-bottom:10px;">
+                <button type="button" onclick="setOmvigReportMode('DAILY')" style="${btnStyle(dailyActive)}">⚡ DAILY (Fast)</button>
+                <button type="button" onclick="setOmvigReportMode('MONTHLY')" style="${btnStyle(!dailyActive)}">MONTHLY (Full)</button>
+            </div>`;
+        }
+
+        function setOmvigReportMode(mode) {
+            if (omvigReportMode === mode) return;
+            omvigReportMode = mode;
+            loadAndRenderOmvigReport(false);
+        }
+
         async function loadAndRenderOmvigReport(forceRefresh = false) {
             const body = document.getElementById("summary-content");
             if (!body) return;
             const myToken = ++omvigProgressToken;
+            const toggleHtml = renderOmvigModeToggleHtml_();
+            if (omvigReportMode === "DAILY") {
+                const progress = renderSyncingProgress(body, () => myToken === omvigProgressToken, "SYNCING DATA... PLEASE WAIT");
+                try {
+                    const data = await loadOmvigDailyReportData_(forceRefresh);
+                    if (myToken !== omvigProgressToken) { progress.stop(); return; }
+                    const html = toggleHtml + renderOmvigDailyReportHtml_(data);
+                    await progress.finish();
+                    if (myToken !== omvigProgressToken) return;
+                    body.innerHTML = html;
+                } catch (error) {
+                    progress.stop();
+                    if (myToken !== omvigProgressToken) return;
+                    body.innerHTML = toggleHtml + `<div style="text-align:center; color:#991b1b; font-size:0.72rem; margin-top:10px;">Daily data load nahi ho payi</div><button class="btn-unique" style="width:100%; margin-top:8px; background:#0891b2; color:#fff;" onclick="loadAndRenderOmvigReport(true)">Try Again</button>`;
+                }
+                return;
+            }
+            // MONTHLY (purana/existing poora PAID/PENDING/PART-PAID view, koi badlav nahi)
             // USER REQUEST (2026-09-14): pehle yahan hamesha "Division/Circle me..."
             // dono likha rehta tha (chahe user Circle dekh raha ho ya Division) -
             // confusing tha. Ab jis level ki report abhi khul rahi hai SIRF uska
@@ -9585,18 +9633,98 @@
                 if (!data.freeze_date) {
                     progress.stop();
                     if (myToken !== omvigProgressToken) return;
-                    body.innerHTML = `<div style="text-align:center; color:#9f1239; font-size:0.72rem; margin-top:10px;">Abhi tak O&M/VIG freeze nahi hua hai. Sub DN Chhapara ke Admin panel se "🔒 ADMIN O&M/VIG UPLOAD" me Freeze Date set karein.</div>`;
+                    body.innerHTML = toggleHtml + `<div style="text-align:center; color:#9f1239; font-size:0.72rem; margin-top:10px;">Abhi tak O&M/VIG freeze nahi hua hai. Sub DN Chhapara ke Admin panel se "🔒 ADMIN O&M/VIG UPLOAD" me Freeze Date set karein.</div>`;
                     return;
                 }
-                const html = renderOmvigReportHtml_(data);
+                const html = toggleHtml + renderOmvigReportHtml_(data);
                 await progress.finish();
                 if (myToken !== omvigProgressToken) return;
                 body.innerHTML = html;
             } catch (error) {
                 progress.stop();
                 if (myToken !== omvigProgressToken) return;
-                body.innerHTML = `<div style="text-align:center; color:#991b1b; font-size:0.72rem; margin-top:10px;">O&M/VIG data load nahi ho payi (network slow ho sakta hai, khaaskar Division/Circle me)</div><button class="btn-unique" style="width:100%; margin-top:8px; background:#0891b2; color:#fff;" onclick="loadAndRenderOmvigReport(true)">Try Again</button>`;
+                body.innerHTML = toggleHtml + `<div style="text-align:center; color:#991b1b; font-size:0.72rem; margin-top:10px;">O&M/VIG data load nahi ho payi (network slow ho sakta hai, khaaskar Division/Circle me)</div><button class="btn-unique" style="width:100%; margin-top:8px; background:#0891b2; color:#fff;" onclick="loadAndRenderOmvigReport(true)">Try Again</button>`;
             }
+        }
+
+        // USER REQUEST (2026-09-14): DAILY (fast) mode - Revenue ke "aaj ka data"
+        // jaisa hi concept, lekin O&M/VIG me Paid List HAMESHA 1 din lag se upload
+        // hoti hai (aaj upload hui list kal ke settlements ki hoti hai) - isliye
+        // "aaj ki date" hardcode karne ke bajaye, Paid data me jo bhi SABSE RECENT
+        // date maujood hai wahi "Daily" maana jaata hai. Fast isliye hai kyunki:
+        // (1) `fetchOmvigPaid_()` (unscoped) sirf ek hi chhoti call hai (paid data
+        // total pending se bahut chhota hota hai), (2) is din ke settlements jin
+        // DC me hue hain SIRF unhi DC ka pending-context (consumer naam wagera ke
+        // liye) fetch hota hai - saari 24 DC nahi, isliye 1-2 minute ki jagah
+        // aksar sirf kuch second lagte hain.
+        async function fetchOmvigLatestDayPaidRows_(forceRefresh = false) {
+            if (forceRefresh) omvigPaidCache_ = {};
+            const allPaid = await fetchOmvigPaid_();
+            let latestDate = "";
+            allPaid.forEach((r) => {
+                const d = String(r.pay_date || "").slice(0, 10);
+                if (d && d > latestDate) latestDate = d;
+            });
+            if (!latestDate) return { date: "", rows: [] };
+            return { date: latestDate, rows: allPaid.filter((r) => String(r.pay_date || "").slice(0, 10) === latestDate) };
+        }
+
+        function scopeOmvigDailyRowsToView_(rows) {
+            if (activeViewLevel === "DC" && activeDC) {
+                const dcNorm = normalizeDcName(activeDC);
+                return rows.filter((r) => normalizeDcName(r.dc_name) === dcNorm);
+            }
+            if (activeViewLevel === "DIVISION" && activeDiv) {
+                const dcSet = new Set(getDivisionDcNames(activeDiv).map((n) => normalizeDcName(n)));
+                return rows.filter((r) => dcSet.has(normalizeDcName(r.dc_name)));
+            }
+            return rows;
+        }
+
+        async function loadOmvigDailyReportData_(forceRefresh = false) {
+            const { date, rows } = await fetchOmvigLatestDayPaidRows_(forceRefresh);
+            const scoped = scopeOmvigDailyRowsToView_(rows);
+            // dc_name purane (abhi tak redeploy na hue) backend par khaali aa sakta
+            // hai - un rows ke liye DC-scoping/consumer-lookup skip ho jaayega
+            // (row phir bhi list me dikhega, bas DC/consumer naam khaali honge)
+            // jab tak .gs redeploy na ho.
+            const dcNames = [...new Set(scoped.map((r) => r.dc_name).filter(Boolean))];
+            let pendingByPanchanama = {};
+            if (dcNames.length) {
+                try {
+                    const pending = await fetchOmvigPendingForDcs_(dcNames);
+                    pending.rows.forEach((p) => { pendingByPanchanama[p.panchanama_no] = p; });
+                } catch (e) { /* consumer-detail lookup fail ho to bhi raw paid list dikha dete hain */ }
+            }
+            const enriched = scoped.map((r) => {
+                const p = pendingByPanchanama[r.panchanama_no] || {};
+                return {
+                    dc_name: r.dc_name || p.dc_name || "",
+                    consumer_name: p.consumer_name || "",
+                    panchanama_no: r.panchanama_no,
+                    amount: r.amount,
+                    pay_mode: r.pay_mode
+                };
+            });
+            return { date, rows: enriched };
+        }
+
+        function renderOmvigDailyReportHtml_(data) {
+            if (!data.date) {
+                return `<div style="text-align:center; color:#64748b; font-size:0.72rem; padding:20px 0;">Abhi tak koi Paid List upload nahi hui hai.</div>`;
+            }
+            const totalAmount = data.rows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+            let html = `<div style="text-align:center; font-size:0.66rem; font-weight:800; color:#475569; margin-bottom:8px;">Latest Paid Upload - Date: ${escapeHtml(data.date)}</div>`;
+            html += `<div class="summary-wrapper"><div class="summary-table-header" style="grid-template-columns: 1.4fr 0.9fr 0.8fr;"><div>Consumer / DC</div><div>Panchanama No</div><div>Amount</div></div>`;
+            if (!data.rows.length) {
+                html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div class="text-rose-600">Is date ke liye is scope me koi settlement nahi mila.</div></div>`;
+            } else {
+                data.rows.forEach((r) => {
+                    html += `<div class="summary-table-row" style="grid-template-columns: 1.4fr 0.9fr 0.8fr;"><div>${escapeHtml(r.consumer_name || "-")}<br><span style="font-size:0.58rem; color:#64748b;">${escapeHtml(r.dc_name)}${r.pay_mode ? " | " + escapeHtml(r.pay_mode) : ""}</span></div><div class="font-black">${escapeHtml(r.panchanama_no)}</div><div class="text-emerald-700 font-black">${formatProgressReportAmount(r.amount)}</div></div>`;
+                });
+            }
+            html += `</div><div class="summary-footer"><div class="font-black text-slate-800 text-center">TOTAL SETTLEMENTS: ${data.rows.length} | AMOUNT: ${formatProgressReportAmount(totalAmount)}</div></div>`;
+            return html;
         }
 
         // USER REQUEST (2026-09-14): on-screen dropdown filter (Division/DC/
