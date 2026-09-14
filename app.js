@@ -86,6 +86,7 @@
         let omvigPaidCache_ = {};    // key: DC name ya "ALL" -> rows[]
         let omvigReportCache_ = null; // { scopeKey, rowsWithStatus, freeze_date }
         let omvigAdminStatus = null;  // { freeze_date, pending_count }
+        let omvigFreezeStatusCache_ = null; // fast { freeze_date, pending_count } - see fetchOmvigFreezeStatus_
         const vehicleReadingStorageKey = "seoni_vehicle_reading_state_v1";
         const vehicleReadingListStorageKey = "seoni_vehicle_reading_list_v1";
         const vehicleReadingCsvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQIv4JMsV1n8vy9cJ0o2UaS45-fh_c3n9u-rqwXjuCZWDNZNRaJlgUKnT4gtP3_kTtpCrQvrTcojWQo/pub?output=csv";
@@ -2294,7 +2295,8 @@
             }
             if (summaryModule === "OMVIG") {
                 const body = document.getElementById("summary-content");
-                if (body) body.innerHTML = `<div style="text-align:center; font-size:0.72rem; font-weight:900; color:#1d4ed8; padding:20px 0;">SYNCING DATA... PLEASE WAIT</div>`;
+                const waitNote = activeViewLevel === "DC" ? "" : "<br><span style=\"font-size:0.6rem; font-weight:700; color:#64748b;\">Division/Circle me poora Circle data hai, 1-2 minute tak lag sakte hain</span>";
+                if (body) body.innerHTML = `<div style="text-align:center; font-size:0.72rem; font-weight:900; color:#1d4ed8; padding:20px 0;">SYNCING DATA... PLEASE WAIT${waitNote}</div>`;
                 loadAndRenderOmvigReport();
                 return;
             }
@@ -3315,6 +3317,11 @@
         function openFreezeAdmin() {
             closeHeaderMenu();
             askPassword("FREEZE_ADMIN");
+        }
+
+        function openOmvigAdmin() {
+            closeHeaderMenu();
+            askPassword("OMVIG_ADMIN");
         }
 
         function initFreezeAdmin() {
@@ -8920,8 +8927,22 @@
             if (paidStatusBox) paidStatusBox.style.display = "none";
             if (statusBox) statusBox.innerHTML = `<div style="text-align:center; font-size:0.75rem; font-weight:800; color:#1d4ed8;">Status load ho raha hai...</div>`;
             try {
-                const data = await loadRemoteJson(`${omvigSubmitScriptUrl}?action=getPendingSummary&t=${Date.now()}`, 45000);
-                omvigAdminStatus = { freeze_date: data?.freeze_date || "", pending_count: Array.isArray(data?.data) ? data.data.length : 0 };
+                // USER-REPORTED SLOWNESS FIX (2026-09-14): pehle yahan poori
+                // getPendingSummary (poore Circle ki ~9500 rows) call hoti thi
+                // sirf freeze_date + count ke liye - bahut slow (1-2+ min).
+                // Ab fast `getFreezeStatus` (row-count-only, poora data nahi)
+                // use karte hain.
+                const data = await loadRemoteJson(`${omvigSubmitScriptUrl}?action=getFreezeStatus&t=${Date.now()}`, 30000);
+                omvigAdminStatus = { freeze_date: data?.freeze_date || "", pending_count: Number(data?.pending_count) || 0 };
+                // USER REQUEST (2026-09-14): "Freeze" ab ek manual button nahi hai -
+                // di gayi Pending sheet hamesha hi frozen baseline maani jaati hai,
+                // isliye admin panel khulte hi (agar pehli baar hai) khud-b-khud
+                // (silently) ek hi baar freeze ho jaata hai - backend `setFreezeDateOnce`
+                // already guarded hai (dobara set nahi hoti), isliye baar-baar panel
+                // khulne se bhi koi farak nahi padta.
+                if (!omvigAdminStatus.freeze_date) {
+                    await autoFreezeOmvigBaseline_();
+                }
             } catch (_) {
                 omvigAdminStatus = null;
                 if (statusBox) statusBox.innerHTML = `<div style="text-align:center; font-size:0.75rem; font-weight:800; color:#b91c1c;">Status load nahi ho payi - internet check kijiye</div>`;
@@ -8930,25 +8951,7 @@
             renderOmvigAdminStatus();
         }
 
-        function renderOmvigAdminStatus() {
-            const statusBox = document.getElementById("omvig-admin-status");
-            const freezeBtn = document.getElementById("omvig-freeze-btn");
-            if (!statusBox) return;
-            const frozen = !!omvigAdminStatus?.freeze_date;
-            statusBox.innerHTML = frozen
-                ? `<div style="text-align:center; font-size:0.78rem; font-weight:900; color:#166534;">✅ FROZEN - Freeze Date: ${escapeHtml(omvigAdminStatus.freeze_date)}<br><span style="font-weight:800; color:#334155;">${omvigAdminStatus.pending_count} pending cases</span></div>`
-                : `<div style="text-align:center; font-size:0.78rem; font-weight:900; color:#9a3412;">⚠️ Abhi tak freeze nahi hua hai - pehle neeche button se freeze date set karein.</div>`;
-            if (freezeBtn) {
-                freezeBtn.disabled = frozen;
-                freezeBtn.style.opacity = frozen ? "0.5" : "1";
-                freezeBtn.innerText = frozen ? "ALREADY FROZEN" : "SET FREEZE DATE (ONE-TIME)";
-            }
-        }
-
-        async function setOmvigFreezeDateOnce() {
-            const btn = document.getElementById("omvig-freeze-btn");
-            if (omvigAdminStatus?.freeze_date) return showToast("Freeze date pehle se set hai", false);
-            setActionButtonState(btn, "processing", "Set Freeze Date");
+        async function autoFreezeOmvigBaseline_() {
             try {
                 const response = await fetch(omvigSubmitScriptUrl, {
                     method: "POST",
@@ -8958,17 +8961,23 @@
                 const text = await response.text();
                 let parsed = {};
                 try { parsed = JSON.parse(text || "{}"); } catch (_) {}
-                if (parsed.status !== "success") throw new Error(parsed.message || "Freeze date set nahi ho payi");
-                setActionButtonState(btn, "done", "Set Freeze Date");
-                showToast(parsed.message || "Freeze date set ho gayi", true);
-                omvigPendingCache_ = {}; omvigReportCache_ = null;
-                await initOmvigAdmin();
-            } catch (error) {
-                setActionButtonState(btn, "failed", "Set Freeze Date");
-                showToast(error?.message || "Freeze date set nahi ho payi", false);
-            } finally {
-                setTimeout(() => setActionButtonState(btn, "idle", "Set Freeze Date"), 900);
+                if (parsed.status === "success" && parsed.freeze_date) {
+                    omvigAdminStatus = { freeze_date: parsed.freeze_date, pending_count: omvigAdminStatus?.pending_count || 0 };
+                    omvigPendingCache_ = {}; omvigReportCache_ = null; omvigFreezeStatusCache_ = null;
+                }
+            } catch (_) {
+                // Chup rehte hain - admin ko error nahi dikhana, agli baar panel
+                // khulne par phir try ho jayega (guarded, safe).
             }
+        }
+
+        function renderOmvigAdminStatus() {
+            const statusBox = document.getElementById("omvig-admin-status");
+            if (!statusBox) return;
+            const frozen = !!omvigAdminStatus?.freeze_date;
+            statusBox.innerHTML = frozen
+                ? `<div style="text-align:center; font-size:0.78rem; font-weight:900; color:#166534;">✅ Baseline Frozen - Date: ${escapeHtml(omvigAdminStatus.freeze_date)}<br><span style="font-weight:800; color:#334155;">${omvigAdminStatus.pending_count} pending cases</span></div>`
+                : `<div style="text-align:center; font-size:0.78rem; font-weight:900; color:#9a3412;">⚠️ Baseline abhi set nahi ho payi - internet check karke panel dobara kholiye.</div>`;
         }
 
         function handleOmvigPaidFileSelect(event) {
@@ -9050,7 +9059,7 @@
                 setActionButtonState(uploadBtn, "done", "Upload Paid List");
                 showToast(parsed.message || "Paid list upload ho gayi", true);
                 if (statusBox) statusBox.innerHTML = `<div style="text-align:center; font-size:0.78rem; font-weight:900; color:#166534;">✅ ${parsed.matched} matched, ${parsed.unmatched} unmatched, ${parsed.skipped_duplicate} duplicate skip.<br><span style="font-weight:700; color:#334155;">DC tabs updated: ${(parsed.dc_tabs_updated || []).join(", ") || "-"}</span></div>`;
-                omvigPendingCache_ = {}; omvigPaidCache_ = {}; omvigReportCache_ = null;
+                omvigPendingCache_ = {}; omvigPaidCache_ = {}; omvigReportCache_ = null; omvigFreezeStatusCache_ = null;
                 if (fileInput) fileInput.value = "";
                 const nameBox = document.getElementById("omvig-paid-file-name");
                 if (nameBox) nameBox.innerText = "";
@@ -9093,11 +9102,26 @@
             };
         }
 
+        // USER-REPORTED SLOWNESS FIX (2026-09-14): fast, data-light check (sirf
+        // freeze_date + pending_count) - `loadOmvigReportData_` isse pehle call
+        // karta hai taaki "abhi freeze nahi hua" case me poori (~9500 row) Circle
+        // list fetch hi na karni pade (jo 1-2+ min leti hai aur pehle timeout+
+        // "data load nahi ho payi" error deti thi).
+        async function fetchOmvigFreezeStatus_(forceRefresh = false) {
+            if (!forceRefresh && omvigFreezeStatusCache_) return omvigFreezeStatusCache_;
+            const data = await loadRemoteJson(`${omvigSubmitScriptUrl}?action=getFreezeStatus&t=${Date.now()}`, 30000);
+            omvigFreezeStatusCache_ = { freeze_date: data?.freeze_date || "", pending_count: Number(data?.pending_count) || 0 };
+            return omvigFreezeStatusCache_;
+        }
+
         async function fetchOmvigPending_(dc) {
             const key = dc || "ALL";
             if (omvigPendingCache_[key]) return omvigPendingCache_[key];
             const url = `${omvigSubmitScriptUrl}?action=getPendingSummary${dc ? `&dc=${encodeURIComponent(dc)}` : ""}&t=${Date.now()}`;
-            const data = await loadRemoteJson(url, dc ? 45000 : 90000);
+            // Poore Circle ka data (dc param ke bina, Division/Circle scope) ~9500+
+            // rows tak ho sakta hai - Apps Script se aana genuinely 1-2+ min le
+            // sakta hai, isliye DC-scoped se kaafi zyada timeout (4 min).
+            const data = await loadRemoteJson(url, dc ? 45000 : 240000);
             const rows = Array.isArray(data?.data) ? data.data : [];
             const result = { rows: rows.map(normalizeOmvigPendingRow_), freeze_date: data?.freeze_date || "" };
             omvigPendingCache_[key] = result;
@@ -9159,6 +9183,15 @@
         async function loadOmvigReportData_(forceRefresh = false) {
             const scopeKey = `${activeViewLevel}:${activeViewLevel === "DC" ? activeDC : (activeViewLevel === "DIVISION" ? activeDiv : "CIRCLE")}`;
             if (!forceRefresh && omvigReportCache_ && omvigReportCache_.scopeKey === scopeKey) return omvigReportCache_;
+
+            // Pehle fast freeze-status check - agar freeze hua hi nahi hai to
+            // poori (potentially ~9500 row, slow) pending/paid list fetch karne
+            // ki zaroorat nahi, seedha empty result de dete hain.
+            const freezeStatus = await fetchOmvigFreezeStatus_(forceRefresh);
+            if (!freezeStatus.freeze_date) {
+                omvigReportCache_ = { scopeKey, rowsWithStatus: [], freeze_date: "" };
+                return omvigReportCache_;
+            }
 
             const dcParam = activeViewLevel === "DC" ? activeDC : "";
             const pending = await fetchOmvigPending_(dcParam);
@@ -22167,6 +22200,8 @@
                 if (imageToExcelToolAdminMenuItem) imageToExcelToolAdminMenuItem.style.display = id === "subdn-chhapara" ? "block" : "none";
                 const freezeAdminMenuItem = document.getElementById("freeze-admin-header-menu-item");
                 if (freezeAdminMenuItem) freezeAdminMenuItem.style.display = id === "subdn-chhapara" ? "block" : "none";
+                const omvigAdminMenuItem = document.getElementById("omvig-admin-header-menu-item");
+                if (omvigAdminMenuItem) omvigAdminMenuItem.style.display = id === "subdn-chhapara" ? "block" : "none";
                 closeHeaderMenu();
                 const searchBtn = document.getElementById("search-btn");
                 if (id === "home") {

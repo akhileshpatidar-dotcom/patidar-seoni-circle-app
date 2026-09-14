@@ -110,6 +110,7 @@
                     <button id="arrange-excel-tool-admin-header-menu-item" type="button" class="header-menu-item" onclick="openArrangeExcelToolAdminUpload()" style="display:none; background:#f0fdf4; color:#14532d; border:1.5px solid #86efac;">🔒 ADMIN ARRANGE EXCEL FILE</button>
                     <button id="image-to-excel-tool-admin-header-menu-item" type="button" class="header-menu-item" onclick="openImageToExcelToolAdminUpload()" style="display:none; background:#fff1f2; color:#9f1239; border:1.5px solid #fda4af;">🔒 ADMIN IMAGE TO EXCEL CONVERTER</button>
                     <button id="freeze-admin-header-menu-item" type="button" class="header-menu-item" onclick="openFreezeAdmin()" style="display:none; background:#ecfeff; color:#0e7490; border:1.5px solid #67e8f9;">🔒 ADMIN FREEZE CONTROL</button>
+                    <button id="omvig-admin-header-menu-item" type="button" class="header-menu-item" onclick="openOmvigAdmin()" style="display:none; background:#dc2626; color:#ffffff; border:1.5px solid #dc2626; font-weight:950;">🔒 ADMIN O&amp;M/VIG UPLOAD</button>
                     <button type="button" class="header-menu-item meter-checking-header-menu-item live-progress-menu-item" onclick="openMeterCheckingLiveProgress()" style="display:none;">⏱️ Live Progress</button>
                     <button type="button" class="header-menu-item meter-checking-header-menu-item" onclick="openMeterCheckingReport()" style="display:none; background:#ef4444; color:#ffffff; border:1.5px solid #ef4444;">📄 Download Report</button>
                     <button type="button" class="header-menu-item vr-header-menu-item" onclick="openVrSavedMapsMenu()" style="display:none;">🗺️ Saved Feeder Maps</button>
@@ -203,12 +204,10 @@
             <div class="search-panel" style="padding-top:18px;">
                 <div style="width:100%; max-width:360px; background:#f1f5f9; border:1.5px solid #94a3b8; border-radius:18px; padding:16px; text-align:center; margin-bottom:16px;">
                     <div style="font-size:0.85rem; font-weight:950; color:#0f172a;">O&amp;M/VIG MODULE ADMIN</div>
-                    <div style="font-size:0.62rem; font-weight:800; color:#334155; margin-top:6px; line-height:1.6;">Pehle ek baar "Freeze Date" set karein (yeh permanent hoga, dobara set nahi hoga). Uske baad jab bhi Paid List upload hogi, sirf freeze date ke baad ke payment hi "PAID" count honge - DC/Division/Circle Daily Progress me O&amp;M/VIG Report tile me turant dikhega.</div>
+                    <div style="font-size:0.62rem; font-weight:800; color:#334155; margin-top:6px; line-height:1.6;">Di gayi Pending list hamesha permanent baseline (freeze) mani jaati hai. Jab bhi Paid List upload hogi, sirf baseline ke baad ke payment hi "PAID" count honge - DC/Division/Circle Daily Progress me O&amp;M/VIG Report tile me turant dikhega.</div>
                 </div>
 
                 <div id="omvig-admin-status" style="width:100%; max-width:360px; margin:0 auto 14px; background:#ffffff; border:1.5px solid #cbd5e1; border-radius:16px; padding:12px;"></div>
-
-                <button id="omvig-freeze-btn" class="dashboard-btn" style="width:100%; max-width:360px; background:linear-gradient(135deg,#22d3ee 0%,#0891b2 100%); color:#ffffff !important;" onclick="setOmvigFreezeDateOnce()">SET FREEZE DATE (ONE-TIME)</button>
 
                 <div style="font-size:0.68rem; font-weight:900; color:#0f172a; text-align:center; margin-top:22px;">DAILY PAID LIST UPLOAD</div>
                 <label style="display:block; width:100%; max-width:360px; margin:10px auto 0; border:2px dashed #94a3b8; border-radius:16px; padding:18px; text-align:center; cursor:pointer; background:#f8fafc;">
@@ -329,7 +328,6 @@
                     <button class="dashboard-btn btn-daily-houry-peak-load" onclick="switchView('daily-hourly-peak-load')">DAILY HOURLY PEAK LOAD</button>
                     <button class="dashboard-btn btn-vehicle-reading" onclick="switchView('vehicle-reading')">VEHICLE READING</button>
                     <button class="dashboard-btn btn-progress-black" onclick="switchView('shms-progress')" style="width:72%; min-height:54px; margin:0 auto; display:block; font-size:1.05rem;">DAILY PROGRESS</button>
-                    <button class="dashboard-btn" style="background:linear-gradient(135deg,#334155 0%,#0f172a 100%); color:#fff !important;" onclick="askPassword('OMVIG_ADMIN')">🔒 ADMIN O&amp;M/VIG UPLOAD</button>
                 </div>
             </main>
 
