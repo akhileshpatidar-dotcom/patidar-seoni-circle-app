@@ -9264,6 +9264,38 @@
             return g;
         }
 
+        // USER REQUEST (2026-09-14): Paid/Unpaid dropdown chunne par SUMMARY
+        // row bhi usi status tak simat jaani chahiye (jaise poori app me
+        // filter lagate hi screen filter hoti hai) - total/dusra column ab
+        // 0 rahega, sirf jo status choose kiya wahi count/amount dikhega,
+        // niche ki list se exactly match karega.
+        function buildOmvigStatusSummaryRow_(filteredRows, dcName, status) {
+            const g = { name: dcName || "-", totalCount: filteredRows.length, paidCount: 0, paidAmount: 0, pendingCount: 0, pendingAmount: 0 };
+            filteredRows.forEach((r) => {
+                if (status === "PAID") { g.paidCount += 1; g.paidAmount += Number(r.isPaidNow ? r.pending_amount : r.paidAmountNow) || 0; }
+                else { g.pendingCount += 1; g.pendingAmount += Number(r.remainingPending || 0); }
+            });
+            return g;
+        }
+
+        // USER REQUEST (2026-09-14): Circle level par sirf Division chuni ho
+        // (DC abhi nahi) to summary bhi sirf USI Division ki DC-wise table
+        // dikhaye, sabhi 24 DC ki nahi - Division-level jaisa hi DC-list
+        // (bina sub-total/grand-total ke).
+        function buildOmvigDivisionDcSummaryRows_(rowsWithStatus, divisionName) {
+            const emptyGroup = (key) => ({ name: key, totalCount: 0, paidCount: 0, paidAmount: 0, pendingCount: 0, pendingAmount: 0 });
+            const map = {};
+            rowsWithStatus.forEach((r) => {
+                const key = normalizeDcName(r.dc_name) || "-";
+                if (!map[key]) map[key] = emptyGroup(key);
+                const g = map[key];
+                g.totalCount += 1;
+                if (r.isPaidNow) { g.paidCount += 1; g.paidAmount += Number(r.pending_amount || 0); }
+                else { g.pendingCount += 1; g.pendingAmount += Number(r.remainingPending || 0); }
+            });
+            return getDivisionDcNames(divisionName).map((dcName) => map[normalizeDcName(dcName)] || emptyGroup(normalizeDcName(dcName)));
+        }
+
         function omvigFilterSelectHtml_(id, placeholder, options, selectedValue) {
             const optionsHtml = options.map((opt) => `<option value="${escapeHtml(opt.value)}" ${selectedValue === opt.value ? "selected" : ""}>${escapeHtml(opt.label)}</option>`).join("");
             return `<select id="${id}" onchange="onOmvigFilterChange()" style="width:100%; max-width:360px; height:40px; margin:10px auto 0; display:block; border:1.5px solid #94a3b8; border-radius:10px; padding:0 10px; font-size:0.72rem; font-weight:900; color:#0f172a; background:#ffffff;">
@@ -9272,57 +9304,87 @@
             </select>`;
         }
 
-        const OMVIG_STATUS_OPTIONS_ = [{ value: "PAID", label: "PAID (Part Paid samet)" }, { value: "PENDING", label: "PENDING" }];
+        const OMVIG_STATUS_OPTIONS_ = [{ value: "PAID", label: "PAID (incl. Part Paid)" }, { value: "PENDING", label: "PENDING" }];
 
-        // USER REQUEST (2026-09-14): DC level par ab poori list seedhe nahi
-        // dikhti - sirf is DC ka ek-row SUMMARY (Circle/Division ke DC-wise
-        // table jaisa hi shape). List sirf Paid/Unpaid dropdown chunne par
-        // niche dikhti hai (kyunki date/month filter nahi hai, ek hi DC ka
-        // data ek saath dikhana lamba ho jaata).
+        // USER REQUEST (2026-09-14 + fix): DC level par ab poori list seedhe
+        // nahi dikhti - sirf is DC ka ek-row SUMMARY. Paid/Unpaid dropdown
+        // chunte hi SUMMARY bhi usi status tak simat jaati hai (poori app ke
+        // pattern jaisa - filter lagte hi screen filter ho jaani chahiye) aur
+        // niche filtered list bhi dikhti hai (DC level par yeh dropdown hi
+        // list dikhane ke liye hai, isliye yahan list intentionally rehti hai
+        // - sirf Circle/Division level par list on-screen nahi aani chahiye,
+        // per user's latest request).
         function renderOmvigDcLevelHtml_(rowsWithStatus) {
-            const summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [buildOmvigSingleDcSummaryRow_(rowsWithStatus, activeDC)], "DC SUMMARY (AMOUNT IN LAKH)");
-            const statusSelectHtml = omvigFilterSelectHtml_("omvig-dc-status-select", "-- List Dekhne Ke Liye Paid/Unpaid Chunein --", OMVIG_STATUS_OPTIONS_, omvigFilterStatus);
-            const listHtml = omvigFilterStatus ? renderOmvigDcListHtml_(filterOmvigRowsByStatus_(rowsWithStatus, omvigFilterStatus)) : "";
+            const statusSelectHtml = omvigFilterSelectHtml_("omvig-dc-status-select", "-- Select Paid/Unpaid to View List --", OMVIG_STATUS_OPTIONS_, omvigFilterStatus);
+            let summaryHtml, listHtml = "";
+            if (omvigFilterStatus) {
+                const filteredRows = filterOmvigRowsByStatus_(rowsWithStatus, omvigFilterStatus);
+                summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [buildOmvigStatusSummaryRow_(filteredRows, activeDC, omvigFilterStatus)], `DC SUMMARY - ${omvigFilterStatus} (AMOUNT IN LAKH)`);
+                listHtml = renderOmvigDcListHtml_(filteredRows);
+            } else {
+                summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [buildOmvigSingleDcSummaryRow_(rowsWithStatus, activeDC)], "DC SUMMARY (AMOUNT IN LAKH)");
+            }
             return summaryHtml + statusSelectHtml + listHtml;
         }
 
-        // USER REQUEST (2026-09-14): Division level - DC-wise summary (jaisa
-        // pehle se tha) + 2 dropdown (DC, phir Paid/Unpaid) se us DC ka list.
+        // USER REQUEST (2026-09-14 + fix): Division level - DC dropdown
+        // chunne se pehle poori Division ki DC-wise summary. DC chunte hi
+        // summary bhi sirf USI DC tak simat jaati hai; Paid/Unpaid chunte hi
+        // summary aur bhi aage usi status tak simat jaati hai - har filter
+        // step par screen filter hoti hai. USER REQUEST (2026-09-14, follow-up):
+        // Division level par status select karne par case-LIST on-screen
+        // NAHI khulni chahiye - sirf summary hi filtered dikhe (list sirf
+        // download me milegi).
         function renderOmvigDivisionLevelHtml_(rowsWithStatus) {
-            const summaryHtml = renderFreezeDcWiseSummaryHtml(rowsWithStatus);
             const dcOptions = getDivisionDcNames(activeDiv).map((n) => ({ value: n, label: n }));
-            const dcSelectHtml = omvigFilterSelectHtml_("omvig-division-dc-select", "-- DC Chunein --", dcOptions, omvigFilterDc);
-            let statusSelectHtml = "", listHtml = "";
-            if (omvigFilterDc) {
-                statusSelectHtml = omvigFilterSelectHtml_("omvig-division-status-select", "-- Paid/Unpaid Chunein --", OMVIG_STATUS_OPTIONS_, omvigFilterStatus);
-                if (omvigFilterStatus) {
-                    const dcRows = rowsWithStatus.filter((r) => normalizeDcName(r.dc_name) === normalizeDcName(omvigFilterDc));
-                    listHtml = renderOmvigDcListHtml_(filterOmvigRowsByStatus_(dcRows, omvigFilterStatus));
+            const dcSelectHtml = omvigFilterSelectHtml_("omvig-division-dc-select", "-- Select DC --", dcOptions, omvigFilterDc);
+            let summaryHtml, statusSelectHtml = "";
+            if (!omvigFilterDc) {
+                summaryHtml = renderFreezeDcWiseSummaryHtml(rowsWithStatus);
+            } else {
+                const dcRows = rowsWithStatus.filter((r) => normalizeDcName(r.dc_name) === normalizeDcName(omvigFilterDc));
+                statusSelectHtml = omvigFilterSelectHtml_("omvig-division-status-select", "-- Select Paid/Unpaid --", OMVIG_STATUS_OPTIONS_, omvigFilterStatus);
+                if (!omvigFilterStatus) {
+                    summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [buildOmvigSingleDcSummaryRow_(dcRows, omvigFilterDc)], "DC SUMMARY (AMOUNT IN LAKH)");
+                } else {
+                    const filteredRows = filterOmvigRowsByStatus_(dcRows, omvigFilterStatus);
+                    summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [buildOmvigStatusSummaryRow_(filteredRows, omvigFilterDc, omvigFilterStatus)], `DC SUMMARY - ${omvigFilterStatus} (AMOUNT IN LAKH)`);
                 }
             }
-            return summaryHtml + dcSelectHtml + statusSelectHtml + listHtml;
+            return summaryHtml + dcSelectHtml + statusSelectHtml;
         }
 
-        // USER REQUEST (2026-09-14): Circle level - DC-wise summary (pehle se
-        // tha) + 3 dropdown (Division -> us Division ki DC -> Paid/Unpaid) se
-        // us DC ka list.
+        // USER REQUEST (2026-09-14 + fix): Circle level - Division dropdown
+        // chunne se pehle poori Circle ki DC-wise summary (sabhi division).
+        // Division chunte hi summary sirf USI Division ki DC-wise table tak
+        // simat jaati hai (sabhi 24 DC nahi); DC chunte hi single-DC row tak;
+        // status chunte hi usi status tak - har step par screen filter hoti
+        // hai. USER REQUEST (2026-09-14, follow-up): Circle level par bhi
+        // status select karne par case-LIST on-screen NAHI khulni chahiye -
+        // sirf summary hi filtered dikhe (list sirf download me milegi).
         function renderOmvigCircleLevelHtml_(rowsWithStatus) {
-            const summaryHtml = renderFreezeDcWiseSummaryHtml(rowsWithStatus);
             const divOptions = Object.keys(divisionConfigs).map((n) => ({ value: n, label: n.replace(/^DIVISION\s+/i, "") }));
-            const divSelectHtml = omvigFilterSelectHtml_("omvig-circle-division-select", "-- Division Chunein --", divOptions, omvigFilterDivision);
-            let dcSelectHtml = "", statusSelectHtml = "", listHtml = "";
-            if (omvigFilterDivision) {
+            const divSelectHtml = omvigFilterSelectHtml_("omvig-circle-division-select", "-- Select Division --", divOptions, omvigFilterDivision);
+            let summaryHtml, dcSelectHtml = "", statusSelectHtml = "";
+            if (!omvigFilterDivision) {
+                summaryHtml = renderFreezeDcWiseSummaryHtml(rowsWithStatus);
+            } else {
                 const dcOptions = getDivisionDcNames(omvigFilterDivision).map((n) => ({ value: n, label: n }));
-                dcSelectHtml = omvigFilterSelectHtml_("omvig-circle-dc-select", "-- DC Chunein --", dcOptions, omvigFilterDc);
-                if (omvigFilterDc) {
-                    statusSelectHtml = omvigFilterSelectHtml_("omvig-circle-status-select", "-- Paid/Unpaid Chunein --", OMVIG_STATUS_OPTIONS_, omvigFilterStatus);
-                    if (omvigFilterStatus) {
-                        const dcRows = rowsWithStatus.filter((r) => normalizeDcName(r.dc_name) === normalizeDcName(omvigFilterDc));
-                        listHtml = renderOmvigDcListHtml_(filterOmvigRowsByStatus_(dcRows, omvigFilterStatus));
+                dcSelectHtml = omvigFilterSelectHtml_("omvig-circle-dc-select", "-- Select DC --", dcOptions, omvigFilterDc);
+                if (!omvigFilterDc) {
+                    summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", buildOmvigDivisionDcSummaryRows_(rowsWithStatus, omvigFilterDivision), "DC-WISE SUMMARY (AMOUNT IN LAKH)");
+                } else {
+                    const dcRows = rowsWithStatus.filter((r) => normalizeDcName(r.dc_name) === normalizeDcName(omvigFilterDc));
+                    statusSelectHtml = omvigFilterSelectHtml_("omvig-circle-status-select", "-- Select Paid/Unpaid --", OMVIG_STATUS_OPTIONS_, omvigFilterStatus);
+                    if (!omvigFilterStatus) {
+                        summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [buildOmvigSingleDcSummaryRow_(dcRows, omvigFilterDc)], "DC SUMMARY (AMOUNT IN LAKH)");
+                    } else {
+                        const filteredRows = filterOmvigRowsByStatus_(dcRows, omvigFilterStatus);
+                        summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [buildOmvigStatusSummaryRow_(filteredRows, omvigFilterDc, omvigFilterStatus)], `DC SUMMARY - ${omvigFilterStatus} (AMOUNT IN LAKH)`);
                     }
                 }
             }
-            return summaryHtml + divSelectHtml + dcSelectHtml + statusSelectHtml + listHtml;
+            return summaryHtml + divSelectHtml + dcSelectHtml + statusSelectHtml;
         }
 
         // Dropdown badalte hi sirf state update karke poora report block dobara
