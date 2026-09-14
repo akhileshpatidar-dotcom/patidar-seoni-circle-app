@@ -7950,8 +7950,29 @@
         async function loadFeederReportData(forceRefresh = false) {
             if (!forceRefresh && feederReportLoaded && feederReportRows.length) return true;
             feederReportLoadMessage = "";
+            // BUG FIX (2026-09-14) - USER-REPORTED: Feeder Reading me kabhi-kabhi
+            // (khaaskar Chhapara jaisi badi DC me) saari purani dates "Entry Pending"
+            // dikha deta tha, jabki reading pehle hi submit ho chuki thi. Live
+            // diagnose karne par pata chala ASLI WAJAH: yeh "getSummary" call poori
+            // feeder history (1.5+ MB JSON, sabhi DC/substation/date) ek saath laata
+            // hai - itna bada response Apps Script se laane me kabhi 6 second
+            // (loadRemoteJson ka default timeout) se zyada lag jaata tha, aur kabhi
+            // Apps Script ka wahi known "echo" glitch (jo Freeze module me bhi dekha
+            // gaya) HTML bhej deta tha JSON ki jagah - dono case me feederReportRows
+            // KHAALI reh jaata tha, isliye code ko lagta tha "kisi bhi din koi
+            // reading submit hi nahi hui" aur poori list "Pending" dikha deta tha.
+            // Ab timeout 45 second tak badhaya aur 2 attempt (2s gap) try karte hain.
+            let rawData = null, lastFeederSummaryErr = null;
+            for (let attempt = 1; attempt <= 2 && rawData === null; attempt++) {
+                try {
+                    rawData = await loadRemoteJson(`${feederSubmitScriptUrl}?action=getSummary`, 45000);
+                } catch (err) {
+                    lastFeederSummaryErr = err;
+                    if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 2000));
+                }
+            }
             try {
-                const rawData = await loadRemoteJson(`${feederSubmitScriptUrl}?action=getSummary`);
+                if (rawData === null) throw lastFeederSummaryErr || new Error("Feeder summary load fail");
                 if (rawData && !Array.isArray(rawData) && rawData.status === "success" && rawData.message) {
                     feederReportLoadMessage = String(rawData.message || "").trim();
                 }
