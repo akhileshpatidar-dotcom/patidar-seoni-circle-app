@@ -74,6 +74,18 @@
         const stockSubmitScriptUrl = "https://script.google.com/macros/s/AKfycbwdjxhm7IyGlV8RACo3zIIZogwyu8HNLsWgtFp-XkSzDac4SeN_rlKDgrxsbDj6pdfK/exec";
         const shmsSubmitScriptUrl = "https://script.google.com/macros/s/AKfycbyoMfuaxupxeZip7DoSoTkjCIM-43Ns4EkR-t5TX0ud222TIMbj9FdlbV0l8q-B8z8/exec";
         const stmComplaintScriptUrl = "https://script.google.com/macros/s/AKfycby9ZIXl5g_690kavCweIkYfGAz2NnAEiqgJzct5xhKaBjyCF08ELpguYTbgvTV_lAN6UQ/exec";
+        // NEW MODULE (2026-09-14): O&M/VIG Report - DC/Division/Circle "Daily
+        // Progress" ka 4th tile (Mobile/Live-Revenue/Freeze-Revenue ke saath).
+        // Backend (om-vig-submit-script.gs) usi Google Sheet par bana hai jisme
+        // "Pending Consumer Details" wali tab (frozen baseline, hamesha ke liye)
+        // hai - paid list Circle-wide ek sath upload hoti hai, backend khud
+        // Panchanama_No se match karke har DC ke apne "PAID - {DC}" tab me daal
+        // deta hai (Revenue cash-list jaisa hi pattern, user ne khud request kiya).
+        const omvigSubmitScriptUrl = "https://script.google.com/macros/s/AKfycbwiDzuW3_k50fqPcKp-FU5BiFeQc9lCywoBI5cDbXSU95GHsRvbKrQvDNYuw8-sKYOL/exec";
+        let omvigPendingCache_ = {}; // key: DC name ya "ALL" -> { rows, freeze_date }
+        let omvigPaidCache_ = {};    // key: DC name ya "ALL" -> rows[]
+        let omvigReportCache_ = null; // { scopeKey, rowsWithStatus, freeze_date }
+        let omvigAdminStatus = null;  // { freeze_date, pending_count }
         const vehicleReadingStorageKey = "seoni_vehicle_reading_state_v1";
         const vehicleReadingListStorageKey = "seoni_vehicle_reading_list_v1";
         const vehicleReadingCsvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQIv4JMsV1n8vy9cJ0o2UaS45-fh_c3n9u-rqwXjuCZWDNZNRaJlgUKnT4gtP3_kTtpCrQvrTcojWQo/pub?output=csv";
@@ -1541,7 +1553,7 @@
         }
 
         function verifyPassword() {
-            const pws = { STOCK: "AE123", EXCEL_TOOL_ADMIN: "AE123", PANCHNAMA_TOOL_ADMIN: "AE123", ARRANGE_EXCEL_TOOL_ADMIN: "AE123", IMAGE_TO_EXCEL_TOOL_ADMIN: "AE123", FREEZE_ADMIN: "AE123" };
+            const pws = { STOCK: "AE123", EXCEL_TOOL_ADMIN: "AE123", PANCHNAMA_TOOL_ADMIN: "AE123", ARRANGE_EXCEL_TOOL_ADMIN: "AE123", IMAGE_TO_EXCEL_TOOL_ADMIN: "AE123", FREEZE_ADMIN: "AE123", OMVIG_ADMIN: "admin123" };
             if (document.getElementById("pwd-input").value === pws[pendingLevel]) {
                 activeViewLevel = pendingLevel;
                 closePwdModal();
@@ -1572,6 +1584,11 @@
                 if (pendingLevel === "FREEZE_ADMIN") {
                     initFreezeAdmin();
                     switchView("freeze-admin");
+                    return;
+                }
+                if (pendingLevel === "OMVIG_ADMIN") {
+                    initOmvigAdmin();
+                    switchView("omvig-admin");
                     return;
                 }
                 switchView("summary");
@@ -2209,6 +2226,7 @@
             MOBILE: { icon: "📱", label: "Updated Mobile No" },
             REVENUE: { icon: "💰", label: "Live-Revenue Report" },
             FREEZE: { icon: "🧊", label: "Freeze-Revenue Report" },
+            OMVIG: { icon: "🛡️", label: "O&M/VIG Report" },
             LOK_ADALAT: { icon: "⚖️", label: "Lok Adalat Notice" }
         };
 
@@ -2272,6 +2290,12 @@
                 lastRevenueProgressFreezeResult = null;
                 const body = document.getElementById("summary-content");
                 if (body) body.innerHTML = renderFreezeModuleSummaryHtml();
+                return;
+            }
+            if (summaryModule === "OMVIG") {
+                const body = document.getElementById("summary-content");
+                if (body) body.innerHTML = `<div style="text-align:center; font-size:0.72rem; font-weight:900; color:#1d4ed8; padding:20px 0;">SYNCING DATA... PLEASE WAIT</div>`;
+                loadAndRenderOmvigReport();
                 return;
             }
             refreshSummary();
@@ -8874,6 +8898,436 @@
             } catch (error) {
                 setShmsProgressStatus("");
                 showToast(error?.message || "STM Complaint report download nahi ho paya", false);
+            }
+        }
+
+        // =====================================================================
+        // O&M/VIG MODULE (2026-09-14) - admin (Sub DN Chhapara, password admin123)
+        // + DC/Division/Circle "Daily Progress" 4th tile report/download.
+        // =====================================================================
+        function cleanOmvigAmount_(value) {
+            const num = Number(String(value == null ? "" : value).replace(/[^\d.-]/g, ""));
+            return Number.isFinite(num) ? num : 0;
+        }
+
+        async function initOmvigAdmin() {
+            const statusBox = document.getElementById("omvig-admin-status");
+            const paidFileInput = document.getElementById("omvig-paid-file-input");
+            const paidFileNameBox = document.getElementById("omvig-paid-file-name");
+            const paidStatusBox = document.getElementById("omvig-paid-upload-status");
+            if (paidFileInput) paidFileInput.value = "";
+            if (paidFileNameBox) paidFileNameBox.innerText = "";
+            if (paidStatusBox) paidStatusBox.style.display = "none";
+            if (statusBox) statusBox.innerHTML = `<div style="text-align:center; font-size:0.75rem; font-weight:800; color:#1d4ed8;">Status load ho raha hai...</div>`;
+            try {
+                const data = await loadRemoteJson(`${omvigSubmitScriptUrl}?action=getPendingSummary&t=${Date.now()}`, 45000);
+                omvigAdminStatus = { freeze_date: data?.freeze_date || "", pending_count: Array.isArray(data?.data) ? data.data.length : 0 };
+            } catch (_) {
+                omvigAdminStatus = null;
+                if (statusBox) statusBox.innerHTML = `<div style="text-align:center; font-size:0.75rem; font-weight:800; color:#b91c1c;">Status load nahi ho payi - internet check kijiye</div>`;
+                return;
+            }
+            renderOmvigAdminStatus();
+        }
+
+        function renderOmvigAdminStatus() {
+            const statusBox = document.getElementById("omvig-admin-status");
+            const freezeBtn = document.getElementById("omvig-freeze-btn");
+            if (!statusBox) return;
+            const frozen = !!omvigAdminStatus?.freeze_date;
+            statusBox.innerHTML = frozen
+                ? `<div style="text-align:center; font-size:0.78rem; font-weight:900; color:#166534;">✅ FROZEN - Freeze Date: ${escapeHtml(omvigAdminStatus.freeze_date)}<br><span style="font-weight:800; color:#334155;">${omvigAdminStatus.pending_count} pending cases</span></div>`
+                : `<div style="text-align:center; font-size:0.78rem; font-weight:900; color:#9a3412;">⚠️ Abhi tak freeze nahi hua hai - pehle neeche button se freeze date set karein.</div>`;
+            if (freezeBtn) {
+                freezeBtn.disabled = frozen;
+                freezeBtn.style.opacity = frozen ? "0.5" : "1";
+                freezeBtn.innerText = frozen ? "ALREADY FROZEN" : "SET FREEZE DATE (ONE-TIME)";
+            }
+        }
+
+        async function setOmvigFreezeDateOnce() {
+            const btn = document.getElementById("omvig-freeze-btn");
+            if (omvigAdminStatus?.freeze_date) return showToast("Freeze date pehle se set hai", false);
+            setActionButtonState(btn, "processing", "Set Freeze Date");
+            try {
+                const response = await fetch(omvigSubmitScriptUrl, {
+                    method: "POST",
+                    headers: { "Content-Type": "text/plain;charset=utf-8" },
+                    body: JSON.stringify({ action: "setFreezeDateOnce" })
+                });
+                const text = await response.text();
+                let parsed = {};
+                try { parsed = JSON.parse(text || "{}"); } catch (_) {}
+                if (parsed.status !== "success") throw new Error(parsed.message || "Freeze date set nahi ho payi");
+                setActionButtonState(btn, "done", "Set Freeze Date");
+                showToast(parsed.message || "Freeze date set ho gayi", true);
+                omvigPendingCache_ = {}; omvigReportCache_ = null;
+                await initOmvigAdmin();
+            } catch (error) {
+                setActionButtonState(btn, "failed", "Set Freeze Date");
+                showToast(error?.message || "Freeze date set nahi ho payi", false);
+            } finally {
+                setTimeout(() => setActionButtonState(btn, "idle", "Set Freeze Date"), 900);
+            }
+        }
+
+        function handleOmvigPaidFileSelect(event) {
+            const file = event?.target?.files?.[0];
+            const nameBox = document.getElementById("omvig-paid-file-name");
+            if (nameBox) nameBox.innerText = file ? file.name : "";
+        }
+
+        function formatOmvigCellDate_(value) {
+            if (value instanceof Date) {
+                const y = value.getFullYear(), m = String(value.getMonth() + 1).padStart(2, "0"), d = String(value.getDate()).padStart(2, "0");
+                const hh = String(value.getHours()).padStart(2, "0"), mm = String(value.getMinutes()).padStart(2, "0");
+                return `${y}-${m}-${d} ${hh}:${mm}`;
+            }
+            return String(value ?? "").trim();
+        }
+
+        async function readOmvigPaidFile(file) {
+            if (!file) return [];
+            if (!window.XLSX) throw new Error("Excel reader load nahi hua. Internet check karke refresh kijiye.");
+            const buffer = await file.arrayBuffer();
+            const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+            const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+            if (!rows.length) return [];
+            const headers = (rows[0] || []).map((h) => String(h || "").trim().toLowerCase());
+            const idx = (names) => {
+                for (const n of names) {
+                    const i = headers.indexOf(n.toLowerCase());
+                    if (i > -1) return i;
+                }
+                return -1;
+            };
+            const circleIdx = idx(["Circle"]);
+            const divisionIdx = idx(["Division"]);
+            const panchanamaIdx = idx(["Panchanama_no", "Panchanama_No"]);
+            const amountIdx = idx(["amount", "Amount"]);
+            const payDateIdx = idx(["Pay_date", "Pay Date"]);
+            const payModeIdx = idx(["Pay_mode", "Pay Mode"]);
+            const txIdx = idx(["Tx_number", "Tx Number"]);
+            if (panchanamaIdx < 0 || amountIdx < 0) throw new Error("Paid list file ka format match nahi hua (Panchanama_no / amount column nahi mila)");
+
+            return rows.slice(1).map((row) => {
+                const panchanamaNo = String(row[panchanamaIdx] || "").trim();
+                if (!panchanamaNo) return null;
+                return {
+                    Circle: circleIdx > -1 ? String(row[circleIdx] || "").trim() : "",
+                    Division: divisionIdx > -1 ? String(row[divisionIdx] || "").trim() : "",
+                    Panchanama_no: panchanamaNo,
+                    amount: row[amountIdx],
+                    Pay_date: payDateIdx > -1 ? formatOmvigCellDate_(row[payDateIdx]) : "",
+                    Pay_mode: payModeIdx > -1 ? String(row[payModeIdx] || "").trim() : "",
+                    Tx_number: txIdx > -1 ? String(row[txIdx] || "").trim() : ""
+                };
+            }).filter(Boolean);
+        }
+
+        async function uploadOmvigPaidList() {
+            const fileInput = document.getElementById("omvig-paid-file-input");
+            const uploadBtn = document.getElementById("omvig-paid-upload-btn");
+            const statusBox = document.getElementById("omvig-paid-upload-status");
+            const file = fileInput?.files?.[0] || null;
+            if (!file) return showToast("Pehle Paid List file select kijiye", false);
+            setActionButtonState(uploadBtn, "processing", "Upload Paid List");
+            if (statusBox) { statusBox.style.display = "block"; statusBox.innerHTML = `<div style="text-align:center; font-size:0.75rem; font-weight:800; color:#1d4ed8;">File read ho rahi hai...</div>`; }
+            try {
+                const rows = await readOmvigPaidFile(file);
+                if (!rows.length) throw new Error("File me koi valid row nahi mili");
+                if (statusBox) statusBox.innerHTML = `<div style="text-align:center; font-size:0.75rem; font-weight:800; color:#1d4ed8;">${rows.length} rows upload ho rahi hain... kripya wait kijiye</div>`;
+                const response = await fetchWithTimeout(omvigSubmitScriptUrl, {
+                    method: "POST",
+                    headers: { "Content-Type": "text/plain;charset=utf-8" },
+                    body: JSON.stringify({ action: "uploadPaidList", rows })
+                }, 90000);
+                const text = await response.text();
+                let parsed = {};
+                try { parsed = JSON.parse(text || "{}"); } catch (_) {}
+                if (parsed.status !== "success") throw new Error(parsed.message || "Upload fail ho gaya");
+                setActionButtonState(uploadBtn, "done", "Upload Paid List");
+                showToast(parsed.message || "Paid list upload ho gayi", true);
+                if (statusBox) statusBox.innerHTML = `<div style="text-align:center; font-size:0.78rem; font-weight:900; color:#166534;">✅ ${parsed.matched} matched, ${parsed.unmatched} unmatched, ${parsed.skipped_duplicate} duplicate skip.<br><span style="font-weight:700; color:#334155;">DC tabs updated: ${(parsed.dc_tabs_updated || []).join(", ") || "-"}</span></div>`;
+                omvigPendingCache_ = {}; omvigPaidCache_ = {}; omvigReportCache_ = null;
+                if (fileInput) fileInput.value = "";
+                const nameBox = document.getElementById("omvig-paid-file-name");
+                if (nameBox) nameBox.innerText = "";
+            } catch (error) {
+                setActionButtonState(uploadBtn, "failed", "Upload Paid List");
+                showToast(error?.message || "Paid list upload nahi ho payi", false);
+                if (statusBox) statusBox.innerHTML = `<div style="text-align:center; font-size:0.75rem; font-weight:800; color:#b91c1c;">Upload fail: ${escapeHtml(error?.message || "")}</div>`;
+            } finally {
+                setTimeout(() => setActionButtonState(uploadBtn, "idle", "Upload Paid List"), 900);
+            }
+        }
+
+        function normalizeOmvigPendingRow_(row) {
+            return {
+                circle: String(row[0] || "").trim(),
+                division: String(row[1] || "").trim(),
+                dc_name: String(row[2] || "").trim(),
+                checked_by: String(row[3] || "").trim(),
+                inspection_date: String(row[4] || "").trim(),
+                panchanama_no: String(row[5] || "").trim(),
+                ez_no: String(row[6] || "").trim(),
+                consumer_name: String(row[7] || "").trim(),
+                consumer_no: String(row[8] || "").trim(),
+                tariff_name: String(row[9] || "").trim(),
+                case_name: String(row[10] || "").trim(),
+                balanced_amount: cleanOmvigAmount_(row[11])
+            };
+        }
+
+        function normalizeOmvigPaidRow_(row) {
+            return {
+                circle: String(row[0] || "").trim(),
+                division: String(row[1] || "").trim(),
+                panchanama_no: String(row[2] || "").trim(),
+                amount: cleanOmvigAmount_(row[3]),
+                pay_date: String(row[4] || "").trim(),
+                pay_mode: String(row[5] || "").trim(),
+                tx_number: String(row[6] || "").trim(),
+                uploaded_at: String(row[7] || "").trim()
+            };
+        }
+
+        async function fetchOmvigPending_(dc) {
+            const key = dc || "ALL";
+            if (omvigPendingCache_[key]) return omvigPendingCache_[key];
+            const url = `${omvigSubmitScriptUrl}?action=getPendingSummary${dc ? `&dc=${encodeURIComponent(dc)}` : ""}&t=${Date.now()}`;
+            const data = await loadRemoteJson(url, dc ? 45000 : 90000);
+            const rows = Array.isArray(data?.data) ? data.data : [];
+            const result = { rows: rows.map(normalizeOmvigPendingRow_), freeze_date: data?.freeze_date || "" };
+            omvigPendingCache_[key] = result;
+            return result;
+        }
+
+        async function fetchOmvigPaid_(dc) {
+            const key = dc || "ALL";
+            if (omvigPaidCache_[key]) return omvigPaidCache_[key];
+            const url = `${omvigSubmitScriptUrl}?action=getPaidSummary${dc ? `&dc=${encodeURIComponent(dc)}` : ""}&t=${Date.now()}`;
+            const data = await loadRemoteJson(url, dc ? 45000 : 90000);
+            const rows = Array.isArray(data?.data) ? data.data : [];
+            const result = rows.map(normalizeOmvigPaidRow_);
+            omvigPaidCache_[key] = result;
+            return result;
+        }
+
+        function groupOmvigPaidByPanchanama_(paidRows) {
+            const map = {};
+            paidRows.forEach((p) => {
+                if (!p.panchanama_no) return;
+                if (!map[p.panchanama_no]) map[p.panchanama_no] = [];
+                map[p.panchanama_no].push(p);
+            });
+            return map;
+        }
+
+        // USER REQUEST (2026-09-14): sirf woh payments ginte hain jinki Pay_date
+        // FREEZE DATE ke BAAD ki hai (isse purani, freeze se pehle ki koi bhi
+        // payment count nahi hoti) - aur dikhaya gaya paid amount hamesha is
+        // case ke Balanced Amount tak hi seemित (capped) rehta hai, jaisa
+        // Freeze NP ke us bug-fix me tha (kabhi bhi consumer ki poori history
+        // ka number nahi dikhna chahiye).
+        function computeOmvigReportRows_(pendingRows, paidByPanchanama, freezeDate) {
+            return pendingRows.map((r) => {
+                const paidList = paidByPanchanama[r.panchanama_no] || [];
+                let paidAmountNow = 0, paidDateNow = "";
+                paidList.forEach((p) => {
+                    const payDateKey = String(p.pay_date || "").slice(0, 10);
+                    if (freezeDate && payDateKey && payDateKey > freezeDate) {
+                        paidAmountNow += p.amount;
+                        if (!paidDateNow || payDateKey > paidDateNow) paidDateNow = payDateKey;
+                    }
+                });
+                const balancedAmount = r.balanced_amount;
+                const remainingPending = Math.max(0, balancedAmount - paidAmountNow);
+                const isPaidNow = paidAmountNow > 0 && remainingPending <= 0;
+                return {
+                    ...r,
+                    pending_amount: balancedAmount, // buildFreezeDcWiseSummaryRows ke saath field-name reuse ke liye
+                    paidAmountNow,
+                    remainingPending,
+                    isPaidNow,
+                    paidDateNow
+                };
+            });
+        }
+
+        async function loadOmvigReportData_(forceRefresh = false) {
+            const scopeKey = `${activeViewLevel}:${activeViewLevel === "DC" ? activeDC : (activeViewLevel === "DIVISION" ? activeDiv : "CIRCLE")}`;
+            if (!forceRefresh && omvigReportCache_ && omvigReportCache_.scopeKey === scopeKey) return omvigReportCache_;
+
+            const dcParam = activeViewLevel === "DC" ? activeDC : "";
+            const pending = await fetchOmvigPending_(dcParam);
+            const paid = await fetchOmvigPaid_(dcParam);
+
+            let pendingRows = pending.rows;
+            if (activeViewLevel === "DIVISION") {
+                const dcNamesInDiv = new Set(getDivisionDcNames(activeDiv).map((n) => normalizeDcName(n)));
+                pendingRows = pendingRows.filter((r) => dcNamesInDiv.has(normalizeDcName(r.dc_name)));
+            }
+
+            const paidMap = groupOmvigPaidByPanchanama_(paid);
+            const rowsWithStatus = computeOmvigReportRows_(pendingRows, paidMap, pending.freeze_date);
+
+            omvigReportCache_ = { scopeKey, rowsWithStatus, freeze_date: pending.freeze_date };
+            return omvigReportCache_;
+        }
+
+        function renderOmvigDcListHtml_(rowsWithStatus) {
+            if (!rowsWithStatus.length) return `<div style="text-align:center; color:#9f1239; font-size:0.72rem; margin-top:10px;">Is DC ke liye koi O&M/VIG case nahi mila.</div>`;
+            const totalCount = rowsWithStatus.length;
+            const paidCount = rowsWithStatus.filter((r) => r.isPaidNow).length;
+            const partPaidCount = rowsWithStatus.filter((r) => !r.isPaidNow && r.paidAmountNow > 0).length;
+            const pendingCount = totalCount - paidCount;
+            const rowsHtml = rowsWithStatus.map((r) => {
+                const statusLabel = r.isPaidNow ? `PAID${r.paidDateNow ? ` (${r.paidDateNow})` : ""}` : (r.paidAmountNow > 0 ? `PENDING - PART PAID${r.paidDateNow ? ` (${r.paidDateNow})` : ""}` : "PENDING");
+                const statusColor = r.isPaidNow ? "#166534" : (r.paidAmountNow > 0 ? "#dc2626" : "#1e293b");
+                return `<div class="summary-table-row" style="grid-template-columns: 2fr 1.3fr 1fr; text-align:left;">
+                    <div>${escapeHtml(r.consumer_name)}<br><span style="font-size:0.58rem; color:#64748b;">${escapeHtml(r.panchanama_no)} | ${escapeHtml(r.case_name)}</span></div>
+                    <div style="font-weight:900; color:${statusColor};">${statusLabel}</div>
+                    <div class="font-black">${formatProgressReportAmount(r.isPaidNow ? r.balanced_amount : r.remainingPending)}</div>
+                </div>`;
+            }).join("");
+            return `
+                <div style="text-align:center; font-size:0.7rem; font-weight:900; color:#0f172a; margin-top:6px;">Total: ${totalCount} | Paid: ${paidCount} | Part Paid: ${partPaidCount} | Pending: ${pendingCount}</div>
+                <div class="summary-wrapper" style="margin-top:6px;"><div class="summary-table-header" style="grid-template-columns: 2fr 1.3fr 1fr;"><div>CASE</div><div>STATUS</div><div>AMOUNT</div></div>${rowsHtml}</div>`;
+        }
+
+        function renderOmvigReportHtml_(data) {
+            const freezeLine = `<div style="text-align:center; font-size:0.66rem; font-weight:800; color:#475569; margin-top:4px;">Freeze Date: ${escapeHtml(data.freeze_date)}</div>`;
+            const downloadButtons = `
+                <div style="display:flex; gap:8px; margin-top:12px;">
+                    <button class="btn-unique" style="flex:1; background:#16a34a; color:#fff;" onclick="downloadOmvigReport('XLS')">⬇️ Excel</button>
+                    <button class="btn-unique" style="flex:1; background:#dc2626; color:#fff;" onclick="downloadOmvigReport('PDF')">⬇️ PDF</button>
+                </div>`;
+            if (activeViewLevel === "DC") {
+                return freezeLine + renderOmvigDcListHtml_(data.rowsWithStatus) + downloadButtons;
+            }
+            return freezeLine + renderFreezeDcWiseSummaryHtml(data.rowsWithStatus) + downloadButtons;
+        }
+
+        async function loadAndRenderOmvigReport(forceRefresh = false) {
+            const body = document.getElementById("summary-content");
+            if (!body) return;
+            try {
+                const data = await loadOmvigReportData_(forceRefresh);
+                if (!data.freeze_date) {
+                    body.innerHTML = `<div style="text-align:center; color:#9f1239; font-size:0.72rem; margin-top:10px;">Abhi tak O&M/VIG freeze nahi hua hai. Sub DN Chhapara ke Admin panel se "🔒 ADMIN O&M/VIG UPLOAD" me Freeze Date set karein.</div>`;
+                    return;
+                }
+                body.innerHTML = renderOmvigReportHtml_(data);
+            } catch (error) {
+                body.innerHTML = `<div style="text-align:center; color:#991b1b; font-size:0.72rem; margin-top:10px;">O&M/VIG data load nahi ho payi (network slow ho sakta hai, khaaskar Division/Circle me)</div><button class="btn-unique" style="width:100%; margin-top:8px; background:#0891b2; color:#fff;" onclick="loadAndRenderOmvigReport(true)">Try Again</button>`;
+            }
+        }
+
+        async function downloadOmvigReport(fmt) {
+            try {
+                const data = await loadOmvigReportData_();
+                if (!data.freeze_date) return showToast("Pehle Freeze Date set karein", false);
+                const rowsWithStatus = data.rowsWithStatus;
+                const totalCount = rowsWithStatus.length;
+                const paidCount = rowsWithStatus.filter((r) => r.isPaidNow).length;
+                const pendingCount = totalCount - paidCount;
+                const paidPercent = totalCount ? ((paidCount / totalCount) * 100).toFixed(1) : "0.0";
+                const pendingPercent = totalCount ? ((pendingCount / totalCount) * 100).toFixed(1) : "0.0";
+                const scope = activeViewLevel === "DC" ? `DC - ${activeDC}` : (activeViewLevel === "DIVISION" ? activeDiv : "SEONI CIRCLE");
+                const reportTitle = `O&M-VIG Report - ${scope}`;
+                const fileName = `${reportTitle}-${getTodayIsoDate()}`.replace(/[\\/:*?"<>|]+/g, "_");
+
+                const listHeaders = ["CIRCLE", "DIVISION", "DC", "CHECKED BY", "INSPECTION DATE", "PANCHANAMA NO", "EZ NO", "CONSUMER NAME", "CONSUMER NO", "TARIFF NAME", "CASE NAME", "BALANCED AMOUNT", "STATUS", "PAID AMT", "PAID DATE"];
+                const listBodyRows = rowsWithStatus.map((r) => [
+                    r.circle, r.division, r.dc_name, r.checked_by, r.inspection_date, r.panchanama_no, r.ez_no,
+                    r.consumer_name, r.consumer_no, r.tariff_name, r.case_name, r.balanced_amount,
+                    r.isPaidNow ? "PAID" : (r.paidAmountNow > 0 ? "PART PAID" : "PENDING"),
+                    r.isPaidNow ? r.balanced_amount : r.paidAmountNow, r.paidDateNow || ""
+                ]);
+
+                if (fmt === "XLS") {
+                    const csvSafe = (value) => { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
+                    const rows = [[reportTitle], [`Freeze Date: ${data.freeze_date}`], [],
+                        ["TOTAL CASES", "PAID COUNT", "PAID %", "PENDING COUNT", "PENDING %"],
+                        [totalCount, paidCount, `${paidPercent}%`, pendingCount, `${pendingPercent}%`], []];
+                    if (activeViewLevel !== "DC") {
+                        const summaryRows = buildFreezeDcWiseSummaryRows(rowsWithStatus);
+                        rows.push(["DC NAME", "TOTAL", "PAID COUNT", "PAID AMT", "PENDING COUNT", "PENDING AMT", "PAID %", "PENDING %"]);
+                        summaryRows.forEach((r) => rows.push([r.name, r.totalCount, r.paidCount, r.paidAmount, r.pendingCount, r.pendingAmount, `${r.paidPercent}%`, `${r.pendingPercent}%`]));
+                        rows.push([]);
+                    }
+                    rows.push(listHeaders, ...listBodyRows);
+                    const csv = rows.map((row) => row.map(csvSafe).join(",")).join("\n");
+                    await saveShmsBlob(`${fileName}.csv`, new Blob([csv], { type: "text/csv;charset=utf-8" }), "text/csv;charset=utf-8");
+                    return showToast("Excel report ka request bhej diya gaya. Agar preview me file na aaye to browser ya GitHub version me check kijiye.", true);
+                }
+
+                if (!window.jspdf?.jsPDF) return showToast("PDF library load nahi hui", false);
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF("l", "mm", "a4");
+                doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 8);
+                doc.setFontSize(15); doc.setTextColor(0); doc.text(reportTitle, 148, 16, { align: "center" });
+                doc.setFontSize(10); doc.text(`Freeze Date: ${data.freeze_date}`, 148, 23, { align: "center" });
+
+                doc.autoTable({
+                    startY: 29,
+                    head: [["TOTAL CASES", "PAID COUNT", "PAID %", "PENDING COUNT", "PENDING %"]],
+                    body: [[totalCount, paidCount, `${paidPercent}%`, pendingCount, `${pendingPercent}%`]],
+                    theme: "grid", headStyles: { fillColor: [17, 24, 39], halign: "center" }, styles: { fontSize: 9, halign: "center" }
+                });
+
+                if (activeViewLevel !== "DC") {
+                    const summaryRows = buildFreezeDcWiseSummaryRows(rowsWithStatus);
+                    const rowTypeFlags = summaryRows.map((r) => (r.type === "GRAND_TOTAL" ? 2 : (r.type === "SUB_TOTAL" ? 1 : 0)));
+                    doc.autoTable({
+                        startY: doc.lastAutoTable.finalY + 6,
+                        head: [["DC NAME", "TOTAL", "PAID COUNT", "PAID AMT", "PENDING COUNT", "PENDING AMT", "PAID %", "PENDING %"]],
+                        body: summaryRows.map((r) => [r.name, r.totalCount, r.paidCount, r.paidAmount, r.pendingCount, r.pendingAmount, `${r.paidPercent}%`, `${r.pendingPercent}%`]),
+                        theme: "grid", headStyles: { fillColor: [8, 145, 178], halign: "center" }, styles: { fontSize: 7, cellPadding: 1.5, halign: "center" },
+                        didParseCell: function (hookData) {
+                            if (hookData.section === "body") {
+                                const flag = rowTypeFlags[hookData.row.index];
+                                if (flag === 2) { hookData.cell.styles.fillColor = [219, 234, 254]; hookData.cell.styles.fontStyle = "bold"; hookData.cell.styles.textColor = [159, 18, 57]; }
+                                else if (flag === 1) { hookData.cell.styles.fontStyle = "bold"; hookData.cell.styles.textColor = [29, 78, 216]; }
+                            }
+                        }
+                    });
+                }
+
+                doc.addPage("a4", "l");
+                doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 8);
+                doc.setFontSize(13); doc.setTextColor(0); doc.text(`${reportTitle} - Full List`, 148, 15, { align: "center" });
+                doc.autoTable({
+                    startY: 20,
+                    head: [listHeaders],
+                    body: listBodyRows.length ? listBodyRows : [listHeaders.map(() => "")],
+                    theme: "grid", headStyles: { fillColor: [17, 24, 39], halign: "center" },
+                    styles: { fontSize: 5.5, cellPadding: 1, halign: "center", overflow: "linebreak" },
+                    columnStyles: { 7: { halign: "left" }, 10: { halign: "left" } },
+                    // USER REQUEST (2026-09-14): Pending sheet ke text columns
+                    // (CHECKED BY / CONSUMER NAME / CASE NAME / TARIFF NAME etc.)
+                    // me Devanagari/Hindi text ho sakta hai - jsPDF khud usko
+                    // render nahi kar paata, isliye Meter Checking report me pehle
+                    // se bana Canvas-image fix (`meterCheckingCellHasDevanagari_`/
+                    // `drawMeterCheckingHindiCell_`) yahan bhi reuse kiya hai, ab
+                    // koi bhi column ho (remark-column-specific nahi, har body
+                    // cell check hoti hai) - Hindi cell ke upar ek chhoti sahi
+                    // Devanagari image chipka di jaati hai, English/number cell
+                    // bilkul normal PDF text hi rehte hain.
+                    didDrawCell: (cellData) => {
+                        if (cellData.section === "body" && meterCheckingCellHasDevanagari_(cellData.cell.raw)) {
+                            drawMeterCheckingHindiCell_(doc, cellData);
+                        }
+                    }
+                });
+
+                const pdfBlob = doc.output("blob");
+                await saveShmsBlob(`${fileName}.pdf`, pdfBlob, "application/pdf");
+                showToast("PDF report ka request bhej diya gaya. Agar preview me file na aaye to browser ya GitHub version me check kijiye.", true);
+            } catch (error) {
+                showToast(error?.message || "O&M/VIG report download nahi ho paya", false);
             }
         }
 

@@ -199,6 +199,28 @@
             </div>
         </main>
 
+        <main id="omvig-admin-view" class="view">
+            <div class="search-panel" style="padding-top:18px;">
+                <div style="width:100%; max-width:360px; background:#f1f5f9; border:1.5px solid #94a3b8; border-radius:18px; padding:16px; text-align:center; margin-bottom:16px;">
+                    <div style="font-size:0.85rem; font-weight:950; color:#0f172a;">O&amp;M/VIG MODULE ADMIN</div>
+                    <div style="font-size:0.62rem; font-weight:800; color:#334155; margin-top:6px; line-height:1.6;">Pehle ek baar "Freeze Date" set karein (yeh permanent hoga, dobara set nahi hoga). Uske baad jab bhi Paid List upload hogi, sirf freeze date ke baad ke payment hi "PAID" count honge - DC/Division/Circle Daily Progress me O&amp;M/VIG Report tile me turant dikhega.</div>
+                </div>
+
+                <div id="omvig-admin-status" style="width:100%; max-width:360px; margin:0 auto 14px; background:#ffffff; border:1.5px solid #cbd5e1; border-radius:16px; padding:12px;"></div>
+
+                <button id="omvig-freeze-btn" class="dashboard-btn" style="width:100%; max-width:360px; background:linear-gradient(135deg,#22d3ee 0%,#0891b2 100%); color:#ffffff !important;" onclick="setOmvigFreezeDateOnce()">SET FREEZE DATE (ONE-TIME)</button>
+
+                <div style="font-size:0.68rem; font-weight:900; color:#0f172a; text-align:center; margin-top:22px;">DAILY PAID LIST UPLOAD</div>
+                <label style="display:block; width:100%; max-width:360px; margin:10px auto 0; border:2px dashed #94a3b8; border-radius:16px; padding:18px; text-align:center; cursor:pointer; background:#f8fafc;">
+                    <span style="font-size:0.72rem; font-weight:900; color:#0f172a;">Click to select Paid List Excel file</span>
+                    <input type="file" id="omvig-paid-file-input" accept=".xlsx,.xls,.csv" style="display:none;" onchange="handleOmvigPaidFileSelect(event)">
+                </label>
+                <div id="omvig-paid-file-name" style="font-size:0.62rem; font-weight:800; color:#1d4ed8; text-align:center; margin-top:10px;"></div>
+                <button id="omvig-paid-upload-btn" class="dashboard-btn" style="width:100%; max-width:360px; margin-top:12px; background:#000; color:#fff !important;" onclick="uploadOmvigPaidList()">UPLOAD PAID LIST</button>
+                <div id="omvig-paid-upload-status" style="display:none; margin-top:12px; max-width:360px; margin-left:auto; margin-right:auto; border-radius:14px; padding:10px 14px; font-size:0.68rem; font-weight:850; text-align:center;"></div>
+            </div>
+        </main>
+
         <main id="arrange-excel-tool-admin-view" class="view">
             <div class="search-panel" style="padding-top:18px;">
                 <div style="width:100%; max-width:360px; background:#f0fdf4; border:1.5px solid #86efac; border-radius:18px; padding:16px; text-align:center; margin-bottom:16px;">
@@ -307,6 +329,7 @@
                     <button class="dashboard-btn btn-daily-houry-peak-load" onclick="switchView('daily-hourly-peak-load')">DAILY HOURLY PEAK LOAD</button>
                     <button class="dashboard-btn btn-vehicle-reading" onclick="switchView('vehicle-reading')">VEHICLE READING</button>
                     <button class="dashboard-btn btn-progress-black" onclick="switchView('shms-progress')" style="width:72%; min-height:54px; margin:0 auto; display:block; font-size:1.05rem;">DAILY PROGRESS</button>
+                    <button class="dashboard-btn" style="background:linear-gradient(135deg,#334155 0%,#0f172a 100%); color:#fff !important;" onclick="askPassword('OMVIG_ADMIN')">🔒 ADMIN O&amp;M/VIG UPLOAD</button>
                 </div>
             </main>
 
@@ -1735,6 +1758,14 @@
                         <div class="report-tile-txt">
                             <div class="report-tile-t1">Freeze-Revenue Report</div>
                             <div class="report-tile-t2">Freeze snapshot vs abhi tak bhugtan</div>
+                        </div>
+                        <div class="report-tile-chev">&rsaquo;</div>
+                    </div>
+                    <div class="report-tile omvig" onclick="setProgressModule('OMVIG')">
+                        <div class="report-tile-ic">🛡️</div>
+                        <div class="report-tile-txt">
+                            <div class="report-tile-t1">O&amp;M/VIG Report</div>
+                            <div class="report-tile-t2">Panchanama pending vs paid (freeze based)</div>
                         </div>
                         <div class="report-tile-chev">&rsaquo;</div>
                     </div>
