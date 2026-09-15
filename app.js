@@ -8424,6 +8424,7 @@
         async function loadFeederReportData(forceRefresh = false) {
             if (!forceRefresh && feederReportLoaded && feederReportRows.length) return true;
             feederReportLoadMessage = "";
+            const previousFeederReportRows = Array.isArray(feederReportRows) ? feederReportRows.slice() : [];
             // BUG FIX (2026-09-14) - USER-REPORTED: Feeder Reading me kabhi-kabhi
             // (khaaskar Chhapara jaisi badi DC me) saari purani dates "Entry Pending"
             // dikha deta tha, jabki reading pehle hi submit ho chuki thi. Live
@@ -8509,16 +8510,21 @@
                 if (!feederReportLoadMessage) {
                     feederReportLoadMessage = "Feeder report source se data nahi mila";
                 }
-                feederReportRows = [];
-                feederReportLoaded = false;
-                return false;
+                // RELIABILITY FIX (2026-09-15, USER-FLAGGED risk - STM report me
+                // flag hui thi, Feeder me bhi same class ka risk tha): forced
+                // refresh (jaise Download click) fail ho jaaye to pehle se
+                // successfully-loaded data khaali nahi karte - sirf tabhi khaali
+                // karte hain jab kabhi koi data mila hi na ho.
+                feederReportRows = previousFeederReportRows;
+                feederReportLoaded = previousFeederReportRows.length > 0;
+                return feederReportRows.length > 0;
             } catch (_) {
                 if (!feederReportLoadMessage) {
                     feederReportLoadMessage = "Feeder report source load nahi ho paya";
                 }
-                feederReportRows = [];
-                feederReportLoaded = false;
-                return false;
+                feederReportRows = previousFeederReportRows;
+                feederReportLoaded = previousFeederReportRows.length > 0;
+                return feederReportRows.length > 0;
             }
         }
 
@@ -8765,6 +8771,7 @@
         async function loadPeakLoadReportData(forceRefresh = false) {
             if (!forceRefresh && peakLoadReportLoaded && peakLoadReportRows.length) return true;
             peakLoadReportLoadMessage = "";
+            const previousPeakLoadReportRows = Array.isArray(peakLoadReportRows) ? peakLoadReportRows.slice() : [];
             let rawData = null, lastErr = null;
             for (let attempt = 1; attempt <= 2 && rawData === null; attempt++) {
                 try {
@@ -8789,12 +8796,17 @@
                     return true;
                 }
                 peakLoadReportLoadMessage = "Peak Load report source se data nahi mila";
-                return false;
+                // RELIABILITY FIX (2026-09-15, USER-FLAGGED risk): forced refresh
+                // (jaise Download click) empty result de to pehle se successfully-
+                // loaded data khaali nahi karte.
+                peakLoadReportRows = previousPeakLoadReportRows;
+                peakLoadReportLoaded = previousPeakLoadReportRows.length > 0;
+                return peakLoadReportRows.length > 0;
             } catch (_) {
                 peakLoadReportLoadMessage = "Peak Load report source load nahi ho paya";
-                peakLoadReportRows = [];
-                peakLoadReportLoaded = false;
-                return false;
+                peakLoadReportRows = previousPeakLoadReportRows;
+                peakLoadReportLoaded = previousPeakLoadReportRows.length > 0;
+                return peakLoadReportRows.length > 0;
             }
         }
 
@@ -8811,12 +8823,21 @@
             return peakLoadReportRows.filter((row) => buildFeederDateKey_(row["DATE (DD-MM-YYYY)"] || "") === dailyKey);
         }
 
-        async function renderPeakLoadReportSummary() {
+        async function renderPeakLoadReportSummary(forceRefresh = false, isStillValid = () => true) {
             const summary = document.getElementById("shms-progress-summary");
             if (!summary) return;
-            await loadPeakLoadReportData(true);
+            // SPEED FIX (2026-09-15, USER-REPORTED): pehle hamesha
+            // loadPeakLoadReportData(true) chalta tha - date/month toggle par bhi
+            // poori history dobara fetch hoti thi. Ab sirf tab-switch/first-load
+            // par force hota hai, baaki toggle sirf loaded data re-filter karta hai.
+            const needsFetch = forceRefresh || !peakLoadReportLoaded || !peakLoadReportRows.length;
+            const progress = needsFetch ? renderSyncingProgress(summary, isStillValid, "SYNCING DATA... PLEASE WAIT") : null;
+            await loadPeakLoadReportData(forceRefresh);
+            if (!isStillValid()) { if (progress) progress.stop(); return; }
             const label = getFeederReportFilterLabel();
             const rows = getFilteredPeakLoadReportRows();
+            if (progress) await progress.finish();
+            if (!isStillValid()) return;
             summary.style.display = label ? "block" : "none";
             if (!label) {
                 summary.innerHTML = "";
@@ -8832,11 +8853,16 @@
 
         async function downloadPeakLoadReport(fmt) {
             try {
-                await loadPeakLoadReportData(true);
-                setShmsProgressStatus("Peak Load report data ready ki ja rahi hai...");
+                // SPEED FIX (2026-09-15, USER-REPORTED): report screen par already
+                // load ho chuka data ho to Download usi ko reuse karta hai, poori
+                // history dobara fetch nahi karta.
+                if (!peakLoadReportLoaded || !peakLoadReportRows.length) {
+                    setShmsProgressStatus("Peak Load report data ready ki ja rahi hai...");
+                    await loadPeakLoadReportData(false);
+                    setShmsProgressStatus("");
+                }
                 const rows = getFilteredPeakLoadReportRows();
                 const label = getFeederReportFilterLabel();
-                setShmsProgressStatus("");
                 if (!label) return showToast("Pehle date ya month select kijiye", false);
 
                 const headers = ["33/11 KV SUBSTATION", "11 KV FEEDER", "METER NO", "DATE (DD-MM-YYYY)", "TIME (HH:MM)", "PEAK LOAD (A)", "NAME OF OPERATOR"];
@@ -8932,6 +8958,7 @@
         async function loadStmComplaintReportData(forceRefresh = false) {
             if (!forceRefresh && stmComplaintReportLoaded && stmComplaintReportRows.length) return true;
             stmComplaintReportLoadMessage = "";
+            const previousStmComplaintReportRows = Array.isArray(stmComplaintReportRows) ? stmComplaintReportRows.slice() : [];
             let rawData = null, lastErr = null;
             for (let attempt = 1; attempt <= 2 && rawData === null; attempt++) {
                 try {
@@ -8956,12 +8983,17 @@
                     return true;
                 }
                 stmComplaintReportLoadMessage = "STM Complaint report source se data nahi mila";
-                return false;
+                // RELIABILITY FIX (2026-09-15, USER-FLAGGED risk): forced refresh
+                // (jaise Download click) fail/empty ho to pehle se successfully-
+                // loaded data khaali/lost nahi hota.
+                stmComplaintReportRows = previousStmComplaintReportRows;
+                stmComplaintReportLoaded = previousStmComplaintReportRows.length > 0;
+                return stmComplaintReportRows.length > 0;
             } catch (_) {
                 stmComplaintReportLoadMessage = "STM Complaint report source load nahi ho paya";
-                stmComplaintReportRows = [];
-                stmComplaintReportLoaded = false;
-                return false;
+                stmComplaintReportRows = previousStmComplaintReportRows;
+                stmComplaintReportLoaded = previousStmComplaintReportRows.length > 0;
+                return stmComplaintReportRows.length > 0;
             }
         }
 
@@ -8978,12 +9010,21 @@
             return stmComplaintReportRows.filter((row) => buildFeederDateKey_(row["DATE"] || "") === dailyKey);
         }
 
-        async function renderStmComplaintReportSummary() {
+        async function renderStmComplaintReportSummary(forceRefresh = false, isStillValid = () => true) {
             const summary = document.getElementById("shms-progress-summary");
             if (!summary) return;
-            await loadStmComplaintReportData(true);
+            // SPEED FIX (2026-09-15, USER-REPORTED): pehle hamesha
+            // loadStmComplaintReportData(true) chalta tha - date/month toggle par
+            // bhi poori history dobara fetch hoti thi. Ab sirf tab-switch/first-load
+            // par force hota hai, baaki toggle sirf loaded data re-filter karta hai.
+            const needsFetch = forceRefresh || !stmComplaintReportLoaded || !stmComplaintReportRows.length;
+            const progress = needsFetch ? renderSyncingProgress(summary, isStillValid, "SYNCING DATA... PLEASE WAIT") : null;
+            await loadStmComplaintReportData(forceRefresh);
+            if (!isStillValid()) { if (progress) progress.stop(); return; }
             const label = getFeederReportFilterLabel();
             const rows = getFilteredStmComplaintReportRows();
+            if (progress) await progress.finish();
+            if (!isStillValid()) return;
             summary.style.display = label ? "block" : "none";
             if (!label) {
                 summary.innerHTML = "";
@@ -8999,11 +9040,18 @@
 
         async function downloadStmComplaintReport(fmt) {
             try {
-                await loadStmComplaintReportData(true);
-                setShmsProgressStatus("STM Complaint report data ready ki ja rahi hai...");
+                // SPEED FIX (2026-09-15, USER-REPORTED): report screen par already
+                // load ho chuka data ho to Download usi ko reuse karta hai, poori
+                // history dobara fetch nahi karta. Ye same forced-refetch fail hone
+                // par valid on-screen data lose hone wali risk bhi kam karta hai
+                // (jo aapne khud flag ki thi).
+                if (!stmComplaintReportLoaded || !stmComplaintReportRows.length) {
+                    setShmsProgressStatus("STM Complaint report data ready ki ja rahi hai...");
+                    await loadStmComplaintReportData(false);
+                    setShmsProgressStatus("");
+                }
                 const rows = getFilteredStmComplaintReportRows();
                 const label = getFeederReportFilterLabel();
-                setShmsProgressStatus("");
                 if (!label) return showToast("Pehle date ya month select kijiye", false);
 
                 const headers = ["SUBSTATION", "OPERATOR NAME", "MOBILE NO", "INFORMATION SHARED AT", "DATE", "TIME", "CALLING INFO", "COMPLAINT DETAILS", "PHOTO LINK", "SUBMIT DATE", "SUBMIT TIME"];
@@ -11124,10 +11172,24 @@
 
         async function loadShmsProgressData(forceRefresh = false) {
             if (!forceRefresh && shmsProgressLoaded && shmsProgressRows.length) return true;
+            loadRecentShmsSubmittedEntries_();
+            const previousShmsProgressRows = Array.isArray(shmsProgressRows) ? shmsProgressRows.slice() : [];
+            // SPEED/RELIABILITY FIX (2026-09-15, USER-REPORTED): pehle yahan bare
+            // fetch().json() tha - koi timeout na hone ki wajah se weak network par
+            // yeh request hamesha ke liye "latak" sakti thi (Feeder/STM/PeakLoad
+            // jaisi 45s-timeout + 2-retry safety yahan nahi thi). Ab wahi proven
+            // loadRemoteJson(...,45000) + 2-attempt pattern reuse kiya hai.
+            let data = null, lastShmsProgressErr = null;
+            for (let attempt = 1; attempt <= 2 && data === null; attempt++) {
+                try {
+                    data = await loadRemoteJson(`${shmsSubmitScriptUrl}?action=getSummary&t=${Date.now()}`, 45000);
+                } catch (err) {
+                    lastShmsProgressErr = err;
+                    if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 2000));
+                }
+            }
             try {
-                loadRecentShmsSubmittedEntries_();
-                const response = await fetch(`${shmsSubmitScriptUrl}?action=getSummary&t=${Date.now()}`);
-                const data = await response.json();
+                if (data === null) throw lastShmsProgressErr || new Error("SHMS summary load fail");
                 const summaryRows = Array.isArray(data)
                     ? data
                     : Array.isArray(data?.data)
@@ -11165,6 +11227,17 @@
                 shmsProgressLoaded = true;
                 return true;
             } catch (_) {
+                // RELIABILITY FIX (2026-09-15, USER-FLAGGED risk): pehle fetch fail
+                // hone par pichla successfully-loaded data bhi khaali kar diya jaata
+                // tha (screen par pehle se sahi dikh raha data bhi gayab ho jaata
+                // tha). Ab agar pehle se koi valid data tha, use hi wapas rakhte
+                // hain - sirf tab khaali karte hain jab kabhi koi data mila hi na ho.
+                if (previousShmsProgressRows.length) {
+                    shmsProgressRows = previousShmsProgressRows;
+                    shmsPendingTrackerRows = shmsProgressRows.slice();
+                    shmsProgressLoaded = true;
+                    return true;
+                }
                 shmsProgressRows = [];
                 shmsPendingTrackerRows = [];
                 shmsProgressLoaded = false;
@@ -11697,8 +11770,11 @@
                 return;
             }
             setShmsProgressStatus("");
+            // setReportSource() neeche khud renderShmsProgressSummary(true) call
+            // karta hai (tab-switch/dashboard-open par fresh fetch ke liye) - pehle
+            // yahan ek redundant extra call bhi hota tha (double network hit ka
+            // risk), ab hata diya (2026-09-15).
             setReportSource(progressReportSource);
-            renderShmsProgressSummary();
         }
 
         function setShmsProgressStatus(message) {
@@ -11763,27 +11839,37 @@
             });
         }
 
-        async function renderShmsProgressSummary() {
+        // STALE-RENDER PROTECTION (2026-09-15, USER-REPORTED): pehle report
+        // source (SHMS/FEEDER/STM/PEAKLOAD) fast switch karne par, purani tab ki
+        // in-flight fetch complete hoke naye tab ke render ko overwrite kar sakti
+        // thi (koi render-token check nahi tha). Ab Revenue/O&M-VIG jaisa hi
+        // proven token pattern - sirf sabse aakhri render call hi DOM likhta hai.
+        let shmsProgressSummaryRenderToken = 0;
+
+        async function renderShmsProgressSummary(forceRefresh = false) {
             const summary = document.getElementById("shms-progress-summary");
             if (!summary) return;
+            const myShmsProgressToken = ++shmsProgressSummaryRenderToken;
+            const isShmsProgressRenderValid = () => myShmsProgressToken === shmsProgressSummaryRenderToken;
             if (progressReportSource === "FEEDER") {
-                await renderFeederReportSummary();
+                await renderFeederReportSummary(forceRefresh, isShmsProgressRenderValid);
                 return;
             }
             // NEW FEATURE (2026-09-14): "Daily Hourly Peak Load" ka Daily Progress -
             // SHMS/Feeder Reading jaisa hi pattern (2 se badhakar ab 4 option).
             if (progressReportSource === "PEAKLOAD") {
-                await renderPeakLoadReportSummary();
+                await renderPeakLoadReportSummary(forceRefresh, isShmsProgressRenderValid);
                 return;
             }
             // FIXED (2026-09-14): STM Complaint backend (.gs) me ab getSummary
             // action mil gaya hai (user ne bhej diya), isliye Peak Load jaisa hi
             // report ab yahan bhi ban sakti hai.
             if (progressReportSource === "STM") {
-                await renderStmComplaintReportSummary();
+                await renderStmComplaintReportSummary(forceRefresh, isShmsProgressRenderValid);
                 return;
             }
             const filtered = getFilteredShmsProgressRows();
+            if (!isShmsProgressRenderValid()) return;
             const label = getShmsProgressFilterLabel();
             summary.style.display = label ? "block" : "none";
             summary.innerText = label ? `${label} ke liye ${filtered.length} entries ready hain` : "";
@@ -11871,7 +11957,12 @@
                 };
                 titleNode.innerText = titleMap[progressReportSource] || "SHMS DAILY PROGRESS";
             }
-            renderShmsProgressSummary();
+            // Tab (SHMS/Feeder/STM/PeakLoad) switch karna ek explicit "fresh data
+            // do" signal hai - isliye yahi ek jagah hai jahan force refresh hota
+            // hai. Date/Month toggle (setShmsProgressMode) aur date-input change
+            // isi renderShmsProgressSummary() ko bina force ke call karte hain,
+            // taaki loaded data reuse ho (SPEED FIX, 2026-09-15, USER-REPORTED).
+            renderShmsProgressSummary(true);
         }
 
         function getFeederReportFilterLabel() {
@@ -11884,12 +11975,36 @@
             return formatShmsDateDisplay(raw);
         }
 
+        function getFeederReportRowKey_(row) {
+            return [
+                normalizeFeederSubstationKey_(row["33/11 KV SUBSTATION"] || row.substation || ""),
+                String(row["33 AND 11 KV FEEDER"] || row.feeder || "").trim().toUpperCase(),
+                buildFeederDateKey_(row["DATE(DD/MM/YYY)"] || row.date || ""),
+                String(row["TIME(HH/MM)"] || row.time || "").trim(),
+                String(row["DC NAME"] || row.dc_name || "").trim().toUpperCase()
+            ].join("|");
+        }
+
         function getFilteredFeederReportRows() {
             const label = getFeederReportFilterLabel();
             if (!label) return [];
             const sheetRows = Array.isArray(feederReportRows) ? feederReportRows : [];
             const localRows = getRecentFeederSubmittedEntries_();
-            const allRows = [...sheetRows, ...localRows];
+            // DUPLICATE FIX (2026-09-15, USER-REPORTED risk): pehle sheetRows aur
+            // localRows seedhe jod diye jaate the - agar abhi-submit hui entry
+            // server sheet me bhi aa chuki ho (getSummary poori history laata hai)
+            // to wahi row count/download me DO baar aa jaati thi. Ab SHMS jaisa hi
+            // composite-key dedupe: server (sheetRows) row ko priority milti hai,
+            // sirf wahi localRows add hoti hain jinki key sheetRows me abhi tak
+            // nahi hai.
+            const seenFeederRowKeys = new Set(sheetRows.map(getFeederReportRowKey_));
+            const dedupedLocalRows = localRows.filter((row) => {
+                const key = getFeederReportRowKey_(row);
+                if (!key || seenFeederRowKeys.has(key)) return false;
+                seenFeederRowKeys.add(key);
+                return true;
+            });
+            const allRows = [...sheetRows, ...dedupedLocalRows];
             if (shmsProgressMode === "MONTHLY") {
                 return allRows.filter((row) => {
                     const dateKey = buildFeederDateKey_(row["DATE(DD/MM/YYY)"] || row.date || "");
@@ -11901,13 +12016,24 @@
             return allRows.filter((row) => buildFeederDateKey_(row["DATE(DD/MM/YYY)"] || row.date || "") === dailyKey);
         }
 
-        async function renderFeederReportSummary() {
+        async function renderFeederReportSummary(forceRefresh = false, isStillValid = () => true) {
             const summary = document.getElementById("shms-progress-summary");
             if (!summary) return;
             loadRecentFeederSubmittedEntries_();
-            await loadFeederReportData(true);
+            // SPEED FIX (2026-09-15, USER-REPORTED): pehle yahan hamesha
+            // loadFeederReportData(true) chalta tha - matlab date/month toggle ya
+            // dobara isi tab par aane par bhi poori feeder history dobara fetch
+            // hoti thi. Ab sirf tab force hota hai jab tab abhi-abhi select hui ho
+            // (setReportSource se) ya data pehle load hi nahi hua - date/month
+            // toggle sirf existing loaded data ko re-filter karta hai.
+            const needsFetch = forceRefresh || !feederReportLoaded || !feederReportRows.length;
+            const progress = needsFetch ? renderSyncingProgress(summary, isStillValid, "SYNCING DATA... PLEASE WAIT") : null;
+            await loadFeederReportData(forceRefresh);
+            if (!isStillValid()) { if (progress) progress.stop(); return; }
             const label = getFeederReportFilterLabel();
             const rows = getFilteredFeederReportRows();
+            if (progress) await progress.finish();
+            if (!isStillValid()) return;
             summary.style.display = label ? "block" : "none";
             if (!label) {
                 summary.innerHTML = "";
@@ -11924,11 +12050,17 @@
         async function downloadFeederReport(fmt) {
             try {
                 loadRecentFeederSubmittedEntries_();
-                await loadFeederReportData(true);
-                setShmsProgressStatus("Feeder report data ready ki ja rahi hai...");
+                // SPEED FIX (2026-09-15, USER-REPORTED): pehle Download hamesha
+                // poori feeder history dobara fetch karta tha, chahe report screen
+                // par abhi-abhi wahi data load ho chuka ho. Ab agar already loaded
+                // hai to seedha usi cached data se download banta hai.
+                if (!feederReportLoaded || !feederReportRows.length) {
+                    setShmsProgressStatus("Feeder report data ready ki ja rahi hai...");
+                    await loadFeederReportData(false);
+                    setShmsProgressStatus("");
+                }
                 const rows = getFilteredFeederReportRows();
                 const label = getFeederReportFilterLabel();
-                setShmsProgressStatus("");
                 if (!label) return showToast("Pehle date ya month select kijiye", false);
 
                 const headers = [
@@ -16894,7 +17026,20 @@
                 // chahiye utna lene denge (uske apne 3 attempt khud hi ek waqt ke
                 // baad give up kar dete hain), taaki bade DC me bhi poora sahi data
                 // mile chahe thoda zyada time lage.
-                const liveRows = await syncRevenueLiveEntriesFromSheet();
+                // SPEED FIX (2026-09-15, USER-REPORTED slowness): yeh call bina
+                // scopeDc ke poori Circle (sabhi 24 DC) ki Live Entries fetch karti
+                // thi, jabki Pending DO List hamesha sirf `activeDC` ke liye hi
+                // dikhti hai (neeche saara matching activeDC se hi hota hai) - Daily
+                // Progress (Revenue tab) me already isi tarah `scopeDc` diya jaata
+                // hai (`revenueSummaryScopeDc` dekhein) - wahi proven, safe pattern
+                // yahan bhi. `syncRevenueLiveEntriesFromSheet` khud hi apni scope-
+                // tracking (`revenueLiveEntriesCachedScopeDc`) rakhta hai, isliye
+                // agar kisi aur report ne pehle hi POORI (sabhi-DC) fetch kar rakhi
+                // ho to wahi turant reuse ho jaayegi - dobara scoped fetch nahi
+                // hogi. `activeDC` khaali ho (kabhi is screen ko Division/Circle
+                // scope me khola jaaye) to `scopeDc` bhi khaali jaayega, matlab
+                // pehle jaisa hi (poora) fetch hoga - koi regression nahi.
+                const liveRows = await syncRevenueLiveEntriesFromSheet(3, false, activeDC || null);
                 revenuePendingDiag.liveTotal = liveRows.length;
                 let liveDcMatched = 0;
                 liveRows.forEach((row) => {
@@ -18904,7 +19049,16 @@
             const scopeKey = activeDC || activeDiv || "CIRCLE";
             if (revenueReportLoadedScopeKey === scopeKey) return;
 
-            Promise.all([syncRevenueLiveEntriesFromSheet(), syncRevenueTdEntriesFromSheet()]).then(() => {
+            // SPEED FIX (2026-09-15, USER-REPORTED slowness): DC scope me (activeDC
+            // set) ab `scopeDc` diya jaata hai - Daily Progress jaisa hi proven
+            // pattern (poori history nahi chahiye yahan bhi, sirf DC-scope; date/
+            // month filter upar `getRevenueCombinedFilteredEntries` se local hi
+            // lagta hai, isliye scope-by-DC se koi filtering-logic nahi tootegi).
+            // Division/Circle scope me (activeDC khaali) `scopeDc` bhi khaali
+            // jaayega, matlab pehle jaisa hi poora (sabhi DC) fetch hoga - kyunki
+            // wahan sach me sabhi DC ka data chahiye, koi regression nahi.
+            const reportDownloadScopeDc = activeDC || null;
+            Promise.all([syncRevenueLiveEntriesFromSheet(3, false, reportDownloadScopeDc), syncRevenueTdEntriesFromSheet(3, false, reportDownloadScopeDc)]).then(() => {
                 revenueReportLoadedScopeKey = scopeKey;
                 if (renderToken !== revenueReportRenderToken || !document.getElementById("revenue-report-download-view")?.classList.contains("active")) return;
                 const refreshedBaseRows = revenueReportMode === "MONTHLY"
@@ -18939,7 +19093,17 @@
             if (revenueReportDownloadInProgress) return showToast("Download process chal raha hai, kripya wait kijiye", false);
             setRevenueReportDownloadState(true, "Downloading... kripya wait kijiye", true);
             try {
-                await Promise.all([syncRevenueLiveEntriesFromSheet(), syncRevenueTdEntriesFromSheet()]);
+                // SPEED FIX (2026-09-15): isi screen (Report Download) ke on-screen
+                // render mein DC-scope me ab `scopeDc` diya jaata hai - agar yahan
+                // Download button bina scope ke hi purani unscoped sync call karta
+                // rahta, to render fast hone ke baad bhi Download click karte hi
+                // dobara ek POORI (sabhi-DC) fetch trigger ho jaati (kyunki shared
+                // cache ki scope-tracking DC-scoped aur unscoped fetch ko alag maanti
+                // hai) - isliye yahan bhi wahi scope diya taaki dono consistent/fast
+                // rahein. Division/Circle scope me pehle jaisa hi (poora) fetch hota
+                // hai.
+                const downloadScopeDc = activeDC || null;
+                await Promise.all([syncRevenueLiveEntriesFromSheet(3, false, downloadScopeDc), syncRevenueTdEntriesFromSheet(3, false, downloadScopeDc)]);
                 const rows = getRevenueSelectedReportRows();
                 if (!rows.length) {
                     setRevenueReportDownloadState(false, "Report ke liye data nahi hai", false);
@@ -19169,7 +19333,14 @@
             // renderRevenueCashSyncingProgress - jo hata di gayi hai).
             const progress = renderSyncingProgress(tableBox, isRenderValid, "SYNCING DATA... PLEASE WAIT");
             try {
-                await Promise.all([syncRevenueLiveEntriesFromSheet(), getRevenueUploadedPaidMasterRows()]);
+                // SPEED FIX (2026-09-15, USER-REPORTED slowness): Cash Reconcile
+                // hamesha ek `activeDC` ke liye hi hai (NGB Cash List side -
+                // getRevenueUploadedPaidMasterRows - pehle se hi DC-scoped hai) -
+                // sirf yeh "Paid by Staff" live entries wali call bina scope ke
+                // poori Circle fetch karti thi. Daily Progress jaisa hi safe
+                // `scopeDc` pattern (empty activeDC par khud purana unscoped
+                // behavior par fallback ho jaata hai, koi regression nahi).
+                await Promise.all([syncRevenueLiveEntriesFromSheet(3, false, activeDC || null), getRevenueUploadedPaidMasterRows()]);
                 if (renderToken !== revenueCashReconcileRenderToken) { progress.stop(); return; }
                 revenueCashReconcileRows = buildRevenueCashReconcileRows();
                 populateRevenueCashHqOptions(revenueCashReconcileRows);
