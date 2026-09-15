@@ -9192,8 +9192,22 @@
 
         function formatOmvigCellDate_(value) {
             if (value instanceof Date) {
-                const y = value.getFullYear(), m = String(value.getMonth() + 1).padStart(2, "0"), d = String(value.getDate()).padStart(2, "0");
-                const hh = String(value.getHours()).padStart(2, "0"), mm = String(value.getMinutes()).padStart(2, "0");
+                // BUG FIX (2026-09-15, USER-REPORTED): kuch paid rows jinka asli
+                // Pay_date "date-only" tha (koi real time nahi, source system se
+                // midnight placeholder) - Excel apne andar date ko decimal number
+                // ke roop me store karta hai, aur is number me kabhi-kabhi ek
+                // bahut chhota (~10 second ka) floating-point imprecision hota
+                // hai jo Excel ki apni display me round hokar "12:00:00 AM"
+                // saaf dikhta hai, lekin jab yahan precisely (millisecond tak)
+                // padh kar IST me convert kiya jaata tha, to wo chhota sa farak
+                // MIDNIGHT ki boundary galat taraf paar kara deta tha - poori
+                // DATE hi ek din PEECHE (jaise 14-Sep ki jagah 13-Sep) ban jaati
+                // thi. Fix: date-components nikaalne se pehle NEAREST MINUTE par
+                // round kar dete hain - itna chhota (<30s) drift ab kabhi
+                // din/ghante ki boundary paar nahi karega.
+                const rounded = new Date(Math.round(value.getTime() / 60000) * 60000);
+                const y = rounded.getFullYear(), m = String(rounded.getMonth() + 1).padStart(2, "0"), d = String(rounded.getDate()).padStart(2, "0");
+                const hh = String(rounded.getHours()).padStart(2, "0"), mm = String(rounded.getMinutes()).padStart(2, "0");
                 return `${y}-${m}-${d} ${hh}:${mm}`;
             }
             return String(value ?? "").trim();
@@ -9481,13 +9495,22 @@
         // case ke Balanced Amount tak hi seemित (capped) rehta hai, jaisa
         // Freeze NP ke us bug-fix me tha (kabhi bhi consumer ki poori history
         // ka number nahi dikhna chahiye).
+        // BUG FIX (2026-09-15, USER-REPORTED): "freeze DATE ke baad (>)" ka
+        // matlab STRICTLY agle din se maana gaya tha - lekin freeze aur pehli
+        // Paid List upload aksar EK HI din ho sakte hain (subah freeze, sham
+        // tak usi din ki payments upload) - us case me payDateKey aur
+        // freezeDate dono barabar the, "> " kabhi true nahi hota tha, isliye
+        // Monthly report SAB DC me 0 paid dikha raha tha chahe payments
+        // genuinely valid hon. Fix: "`>`" ko "`>=`" kar diya - freeze wale din
+        // ki bhi payments ab count hoti hain (sirf freeze se PEHLE ki purani
+        // payments hi exclude hoti hain, jo hi asli intent tha).
         function computeOmvigReportRows_(pendingRows, paidByPanchanama, freezeDate) {
             return pendingRows.map((r) => {
                 const paidList = paidByPanchanama[r.panchanama_no] || [];
                 let paidAmountNow = 0, paidDateNow = "";
                 paidList.forEach((p) => {
                     const payDateKey = String(p.pay_date || "").slice(0, 10);
-                    if (freezeDate && payDateKey && payDateKey > freezeDate) {
+                    if (freezeDate && payDateKey && payDateKey >= freezeDate) {
                         paidAmountNow += p.amount;
                         if (!paidDateNow || payDateKey > paidDateNow) paidDateNow = payDateKey;
                     }
