@@ -92,6 +92,7 @@
         const omvigSubmitScriptUrl = "https://script.google.com/macros/s/AKfycbwiDzuW3_k50fqPcKp-FU5BiFeQc9lCywoBI5cDbXSU95GHsRvbKrQvDNYuw8-sKYOL/exec";
         let omvigPendingCache_ = {}; // key: DC name ya "ALL" -> { rows, freeze_date }
         let omvigPaidCache_ = {};    // key: DC name ya "ALL" -> rows[]
+        let omvigDailyReportCache_ = null; // { date, rows } - dedicated getDailyReport endpoint ka result (2026-09-15 speed fix)
         let omvigReportCache_ = null; // { scopeKey, rowsWithStatus, freeze_date }
         let omvigAdminStatus = null;  // { freeze_date, pending_count }
         let omvigFreezeStatusCache_ = null; // fast { freeze_date, pending_count } - see fetchOmvigFreezeStatus_
@@ -648,6 +649,44 @@
             return mobileAlreadySubmittedMap[`${dc}__${ivrs}`] || null;
         }
 
+        // SPEED FIX (2026-09-15, USER-REPORTED slowness): "Download Summary Report",
+        // "Updated List Download" aur "Wrong Mobile No List" - teeno DC-level screens
+        // (in DC select ke bina yeh error hi dete hain) bina "dc" param ke
+        // `getSummary` call karti thi, jabki backend (.gs, 2026-09-13 se) already
+        // `dc` param support karta hai (diya jaaye to sirf usi ek sheet scan hoti
+        // hai, warna sabhi ~24 sheets) - Daily Progress ke mobile tile me yeh
+        // param pehle se use ho raha tha, teeno "3-dot menu" screens me chhoot
+        // gaya tha. Fix: ek shared, per-DC 60-second TTL cache (+ in-flight
+        // dedupe) - teeno screens ab isi se data lete hain, taaki (a) har call me
+        // sirf ek DC ki chhoti sheet scan ho, aur (b) ek screen se dusri par
+        // jaane (Summary -> Wrong List -> Updated List) par 60 second ke andar
+        // dobara network fetch na ho.
+        const mobileUpdateDcSummaryCache_ = {}; // dcName -> { data, cachedAt }
+        const mobileUpdateDcSummaryFetchPromises_ = {};
+        const MOBILE_UPDATE_DC_SUMMARY_TTL_MS = 60000;
+        async function fetchMobileUpdateDcSummary_(dcName, forceRefresh = false) {
+            const dc = normalizeLookupValue(dcName || "");
+            if (!dc) return [];
+            const cached = mobileUpdateDcSummaryCache_[dc];
+            if (!forceRefresh && cached && (Date.now() - cached.cachedAt) < MOBILE_UPDATE_DC_SUMMARY_TTL_MS) {
+                return cached.data;
+            }
+            if (!forceRefresh && mobileUpdateDcSummaryFetchPromises_[dc]) {
+                return mobileUpdateDcSummaryFetchPromises_[dc];
+            }
+            mobileUpdateDcSummaryFetchPromises_[dc] = (async () => {
+                try {
+                    const cloudData = await loadRemoteJson(`${scriptURL}?action=getSummary&dc=${encodeURIComponent(dcName)}&t=${Date.now()}`);
+                    const data = Array.isArray(cloudData) ? cloudData : [];
+                    mobileUpdateDcSummaryCache_[dc] = { data, cachedAt: Date.now() };
+                    return data;
+                } finally {
+                    delete mobileUpdateDcSummaryFetchPromises_[dc];
+                }
+            })();
+            return mobileUpdateDcSummaryFetchPromises_[dc];
+        }
+
         function applyMobileAlreadySubmittedUi(entry) {
             const alreadyBox = document.getElementById("mobile-already-submitted-box");
             const entryBox = document.getElementById("mobile-entry-box");
@@ -855,7 +894,7 @@
             try {
                 if (!dcName) throw new Error("DC select nahi hai");
                 await ensureConsumerDataLoadedFor([dcName]);
-                const cloudData = await loadRemoteJson(`${scriptURL}?action=getSummary`);
+                const cloudData = await fetchMobileUpdateDcSummary_(dcName);
                 if (!isRenderValid()) { progress.stop(); return; }
                 const rows = getConsumerRows(dcName).map(mapRevenueConsumerRow).filter((row) => normalizeLookupDigits(row.ivrsNo));
                 const period = getMobileUpdateReportPeriod();
@@ -1053,7 +1092,7 @@
             try {
                 if (!dcName) throw new Error("DC select nahi hai");
                 await ensureConsumerDataLoadedFor([dcName]);
-                const cloudData = await loadRemoteJson(`${scriptURL}?action=getSummary`);
+                const cloudData = await fetchMobileUpdateDcSummary_(dcName);
                 if (!isRenderValid()) { progress.stop(); return; }
                 const rows = getConsumerRows(dcName).map(mapRevenueConsumerRow).filter((row) => normalizeLookupDigits(row.ivrsNo));
                 mobileUpdateWrongListAllRows = buildMobileUpdateWrongListRows(rows, dcName, cloudData);
@@ -1420,7 +1459,7 @@
             try {
                 if (!dcName) throw new Error("DC select nahi hai");
                 await ensureConsumerDataLoadedFor([dcName]);
-                const cloudData = await loadRemoteJson(`${scriptURL}?action=getSummary`);
+                const cloudData = await fetchMobileUpdateDcSummary_(dcName);
                 if (!isRenderValid()) { progress.stop(); return; }
                 const rows = getConsumerRows(dcName).map(mapRevenueConsumerRow).filter((row) => normalizeLookupDigits(row.ivrsNo));
                 const period = getMobileUpdateListPeriod();
@@ -2146,6 +2185,24 @@
                 const submittedKey = `${normalizeLookupValue(activeDC || "")}__${normalizeLookupDigits(currentData?.ivrs || "")}`;
                 if (submittedKey !== "__") {
                     mobileAlreadySubmittedMap[submittedKey] = { mobile: n, date: new Date().toLocaleDateString("en-GB") };
+                }
+                // SPEED FIX (2026-09-15) ka side-effect: "Download Summary Report"/
+                // "Wrong Mobile No List"/"Updated List" ab is DC ka data 60-second
+                // cache (mobileUpdateDcSummaryCache_) se lete hain - agar yeh submit
+                // isi DC ke liye pehle se cache me ho, to yahin turant patch kar do
+                // (upar wale mobileAlreadySubmittedMap patch jaisa hi pattern), taaki
+                // turant baad in screens ko khola jaaye to bhi purana (stale) data na
+                // dikhe, cache TTL khatam hone ka wait na karna pade.
+                const patchDcKey = normalizeLookupValue(activeDC || "");
+                const patchCached = patchDcKey ? mobileUpdateDcSummaryCache_[patchDcKey] : null;
+                if (patchCached && Array.isArray(patchCached.data)) {
+                    patchCached.data.push({
+                        dc: activeDC,
+                        division: activeDiv,
+                        ivrs: currentData?.ivrs || "",
+                        correct_mobile: n,
+                        date: new Date().toLocaleDateString("en-GB")
+                    });
                 }
                 resetForm(true);
                 const searchInput = document.getElementById("search-ivrs");
@@ -3483,24 +3540,91 @@
             return getAllDcNames();
         }
 
-        // Current scope (DC/Division/Circle) ki har DC ka snapshot alag-alag
-        // fetch karke, dc_name wapas jod kar ek hi merged array banata hai - DC
-        // level me sirf 1 fetch, Division/Circle me kai fetch (parallel, max 5).
-        // Jo DC ki tab hi nahi hai (kabhi live nahi hui ya us category me kabhi
-        // koi consumer nahi tha), uska seedha khaali [] aata hai - error nahi.
-        // Jo DC individually UNFROZEN hai, uske rows merge me shaamil nahi hote
+        // SPEED FIX (2026-09-15, USER-REPORTED slowness): pehle Division/Circle
+        // scope ki har target DC ke liye ALAG single-DC HTTP call lagti thi (max
+        // 24, 2-concurrent gate se throttle) - backend (.gs) ab ek naya `dc_names`
+        // (comma-list) batch mode support karta hai jo kai DC EK HI call me deta
+        // hai (FREEZE INDEX/FREEZE DC STATUS bhi sirf ek baar padhta hai, 24 baar
+        // ki jagah). Poore Circle ko ek hi mega-call me maangna response-size
+        // risk hai (bade NP3/NP6/SINCE_CONNECTION categories me Apps Script
+        // "echo" layer bade response par 404 de sakta hai, jaisa O&M/VIG me pehle
+        // mil chuka tha), isliye chhote batches (FREEZE_SNAPSHOT_BATCH_SIZE DC
+        // per call) me bhejte hain - round-trips fir bhi 24 se ghatkar ~4-5 tak
+        // aa jaate hain. Kisi batch ka naya endpoint fail ho jaaye (purana
+        // backend abhi deploy hai, ya kuch aur) to sirf usi batch ki DCs ke liye
+        // purana per-DC single-call fallback chal jaata hai - report kabhi bhi
+        // khaali/galat nahi dikhegi, sirf batch-fail hone par utni hi dheemi
+        // (purani jaisi) hogi.
+        const FREEZE_SNAPSHOT_BATCH_SIZE = 6;
+        async function fetchRevenueFreezeSnapshotBatch_(freezeId, category, dcNames, attempts = 2) {
+            for (let attempt = 1; attempt <= attempts; attempt++) {
+                try {
+                    const url = `${revenueFreezeTrackingScriptUrl}?action=getFreezeSnapshot&freeze_id=${encodeURIComponent(freezeId)}&category=${encodeURIComponent(category)}&dc_names=${encodeURIComponent(dcNames.join(","))}`;
+                    const parsed = await withAppsScriptConcurrencyGate_(revenueFreezeTrackingScriptUrl, () => loadRemoteJson(url, 90000));
+                    if (parsed && parsed.status === "success" && parsed.dc_data) return parsed.dc_data;
+                } catch (_) { /* neeche fallback hoga */ }
+                if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, 800));
+            }
+            return null;
+        }
+
+        // Current scope (DC/Division/Circle) ki har DC ka snapshot fetch karke,
+        // dc_name wapas jod kar ek hi merged array banata hai. Jo DC ki tab hi
+        // nahi hai (kabhi live nahi hui ya us category me kabhi koi consumer
+        // nahi tha), uska seedha khaali [] aata hai - error nahi. Jo DC
+        // individually UNFROZEN hai, uske rows merge me shaamil nahi hote
         // (Division/Circle report se wo DC hat jaata hai, baaki sab same rahta
         // hai) - dcStatusMap se pata chal jaata hai ki kaunsi DC unfrozen thi.
         async function fetchRevenueFreezeSnapshotRowsForScope(freezeId, category) {
             const targetDcs = getRevenueFreezeTargetDcs();
             const merged = [];
             const dcStatusMap = {};
-            await runWithConcurrencyLimit_(targetDcs, 5, async (dcName) => {
-                const normalizedDc = normalizeDcName(dcName);
-                const { rows, dc_status } = await fetchRevenueFreezeSnapshotRows(freezeId, category, dcName);
-                dcStatusMap[normalizedDc] = dc_status;
-                if (dc_status === "UNFROZEN") return;
-                rows.forEach((r) => merged.push({ ...r, dc_name: normalizedDc }));
+
+            // DC-level (sirf 1 target) - purana single-call path hi behtar hai,
+            // batching ka koi fayda nahi.
+            if (targetDcs.length <= 1) {
+                await runWithConcurrencyLimit_(targetDcs, 5, async (dcName) => {
+                    const normalizedDc = normalizeDcName(dcName);
+                    const { rows, dc_status } = await fetchRevenueFreezeSnapshotRows(freezeId, category, dcName);
+                    dcStatusMap[normalizedDc] = dc_status;
+                    if (dc_status === "UNFROZEN") return;
+                    rows.forEach((r) => merged.push({ ...r, dc_name: normalizedDc }));
+                });
+                return { rows: merged, dcStatusMap };
+            }
+
+            const batches = [];
+            for (let i = 0; i < targetDcs.length; i += FREEZE_SNAPSHOT_BATCH_SIZE) {
+                batches.push(targetDcs.slice(i, i + FREEZE_SNAPSHOT_BATCH_SIZE));
+            }
+            await runWithConcurrencyLimit_(batches, 3, async (batchDcs) => {
+                const dcData = await fetchRevenueFreezeSnapshotBatch_(freezeId, category, batchDcs);
+                if (dcData) {
+                    batchDcs.forEach((dcName) => {
+                        const normalizedDc = normalizeDcName(dcName);
+                        const entry = dcData[normalizedDc] || {};
+                        const rows = Array.isArray(entry.rows) ? entry.rows : [];
+                        const dcStatus = String(entry.dc_status || "").trim() || "ACTIVE";
+                        dcStatusMap[normalizedDc] = dcStatus;
+                        // Batch response se mila data DC-level single-call cache me
+                        // bhi bhar dete hain - taaki agar user isi DC ka DC-level
+                        // report bhi kholta hai (ya dobara isi scope ko re-render
+                        // karta hai), to dobara network call na lage.
+                        revenueFreezeSnapshotCache[freezeId + "|" + category + "|" + normalizedDc] = { rows, dc_status: dcStatus };
+                        if (dcStatus === "UNFROZEN") return;
+                        rows.forEach((r) => merged.push({ ...r, dc_name: normalizedDc }));
+                    });
+                } else {
+                    // Batch endpoint fail - sirf isi batch ki DCs ke liye purana
+                    // per-DC single-call fallback.
+                    await runWithConcurrencyLimit_(batchDcs, 5, async (dcName) => {
+                        const normalizedDc = normalizeDcName(dcName);
+                        const { rows, dc_status } = await fetchRevenueFreezeSnapshotRows(freezeId, category, dcName);
+                        dcStatusMap[normalizedDc] = dc_status;
+                        if (dc_status === "UNFROZEN") return;
+                        rows.forEach((r) => merged.push({ ...r, dc_name: normalizedDc }));
+                    });
+                }
             });
             return { rows: merged, dcStatusMap };
         }
@@ -9083,7 +9207,7 @@
                 setActionButtonState(uploadBtn, "done", "Upload Paid List");
                 showToast(parsed.message || "Paid list upload ho gayi", true);
                 if (statusBox) statusBox.innerHTML = `<div style="text-align:center; font-size:0.78rem; font-weight:900; color:#166534;">✅ ${parsed.matched} matched, ${parsed.unmatched} unmatched, ${parsed.skipped_duplicate} duplicate skip.<br><span style="font-weight:700; color:#334155;">DC tabs updated: ${(parsed.dc_tabs_updated || []).join(", ") || "-"}</span></div>`;
-                omvigPendingCache_ = {}; omvigPaidCache_ = {}; omvigReportCache_ = null; omvigFreezeStatusCache_ = null;
+                omvigPendingCache_ = {}; omvigPaidCache_ = {}; omvigReportCache_ = null; omvigFreezeStatusCache_ = null; omvigDailyReportCache_ = null;
                 if (fileInput) fileInput.value = "";
                 const nameBox = document.getElementById("omvig-paid-file-name");
                 if (nameBox) nameBox.innerText = "";
@@ -9647,26 +9771,34 @@
             }
         }
 
-        // USER REQUEST (2026-09-14): DAILY (fast) mode - Revenue ke "aaj ka data"
-        // jaisa hi concept, lekin O&M/VIG me Paid List HAMESHA 1 din lag se upload
-        // hoti hai (aaj upload hui list kal ke settlements ki hoti hai) - isliye
-        // "aaj ki date" hardcode karne ke bajaye, Paid data me jo bhi SABSE RECENT
-        // date maujood hai wahi "Daily" maana jaata hai. Fast isliye hai kyunki:
-        // (1) `fetchOmvigPaid_()` (unscoped) sirf ek hi chhoti call hai (paid data
-        // total pending se bahut chhota hota hai), (2) is din ke settlements jin
-        // DC me hue hain SIRF unhi DC ka pending-context (consumer naam wagera ke
-        // liye) fetch hota hai - saari 24 DC nahi, isliye 1-2 minute ki jagah
-        // aksar sirf kuch second lagte hain.
-        async function fetchOmvigLatestDayPaidRows_(forceRefresh = false) {
-            if (forceRefresh) omvigPaidCache_ = {};
-            const allPaid = await fetchOmvigPaid_();
-            let latestDate = "";
-            allPaid.forEach((r) => {
-                const d = String(r.pay_date || "").slice(0, 10);
-                if (d && d > latestDate) latestDate = d;
-            });
-            if (!latestDate) return { date: "", rows: [] };
-            return { date: latestDate, rows: allPaid.filter((r) => String(r.pay_date || "").slice(0, 10) === latestDate) };
+        // SPEED FIX (2026-09-15, USER-REPORTED slowness): pehle yahan
+        // `fetchOmvigLatestDayPaidRows_()` (chhoti, fast) ke baad har active DC
+        // ke liye ALAG `fetchOmvigPendingForDcs_()` call hoti thi taaki consumer
+        // naam/DC enrichment ho sake - lekin server par `getPendingSummary`
+        // `dc` diye jaane par bhi POORI ~9500-row baseline sheet padhta tha
+        // (filter sirf JS me values-read ke BAAD lagta hai), isliye Circle-level
+        // Daily me 20-24 active DC hone par baseline 20-24 baar poori read hoti
+        // thi (2-concurrent gate ke through queue), 1-2+ minute lag jaate the.
+        // FIX: ab ek dedicated `getDailyReport` backend endpoint hai jo paid-
+        // sheets + pending-baseline dono SIRF EK-EK BAAR padhta hai aur
+        // enrichment (consumer naam, DC) server par hi kar deta hai - client ko
+        // sirf ek hi chhoti call lagti hai, active-DC-count se ab call-count ka
+        // koi lena-dena nahi, isliye Circle/Division Daily bhi ab seconds me
+        // load hona chahiye.
+        async function fetchOmvigDailyReport_(forceRefresh = false) {
+            if (forceRefresh) omvigDailyReportCache_ = null;
+            if (omvigDailyReportCache_) return omvigDailyReportCache_;
+            const url = `${omvigSubmitScriptUrl}?action=getDailyReport&t=${Date.now()}`;
+            const data = await withOmvigRetry_(() => withAppsScriptConcurrencyGate_(omvigSubmitScriptUrl, () => loadRemoteJson(url, 45000)));
+            const rows = Array.isArray(data?.rows) ? data.rows.map((r) => ({
+                dc_name: String(r.dc_name || "").trim(),
+                consumer_name: String(r.consumer_name || "").trim(),
+                panchanama_no: String(r.panchanama_no || "").trim(),
+                amount: Number(r.amount) || 0,
+                pay_mode: String(r.pay_mode || "").trim()
+            })) : [];
+            omvigDailyReportCache_ = { date: data?.date || "", rows };
+            return omvigDailyReportCache_;
         }
 
         function scopeOmvigDailyRowsToView_(rows) {
@@ -9682,31 +9814,12 @@
         }
 
         async function loadOmvigDailyReportData_(forceRefresh = false) {
-            const { date, rows } = await fetchOmvigLatestDayPaidRows_(forceRefresh);
+            // enrichment (consumer naam, DC fallback) ab backend (`getDailyReport`)
+            // hi kar ke deta hai - yahan sirf view-level (DC/Division/Circle)
+            // scoping baaki hai, jo purani tarah in-memory/free hai.
+            const { date, rows } = await fetchOmvigDailyReport_(forceRefresh);
             const scoped = scopeOmvigDailyRowsToView_(rows);
-            // dc_name purane (abhi tak redeploy na hue) backend par khaali aa sakta
-            // hai - un rows ke liye DC-scoping/consumer-lookup skip ho jaayega
-            // (row phir bhi list me dikhega, bas DC/consumer naam khaali honge)
-            // jab tak .gs redeploy na ho.
-            const dcNames = [...new Set(scoped.map((r) => r.dc_name).filter(Boolean))];
-            let pendingByPanchanama = {};
-            if (dcNames.length) {
-                try {
-                    const pending = await fetchOmvigPendingForDcs_(dcNames);
-                    pending.rows.forEach((p) => { pendingByPanchanama[p.panchanama_no] = p; });
-                } catch (e) { /* consumer-detail lookup fail ho to bhi raw paid list dikha dete hain */ }
-            }
-            const enriched = scoped.map((r) => {
-                const p = pendingByPanchanama[r.panchanama_no] || {};
-                return {
-                    dc_name: r.dc_name || p.dc_name || "",
-                    consumer_name: p.consumer_name || "",
-                    panchanama_no: r.panchanama_no,
-                    amount: r.amount,
-                    pay_mode: r.pay_mode
-                };
-            });
-            return { date, rows: enriched };
+            return { date, rows: scoped };
         }
 
         function renderOmvigDailyReportHtml_(data) {
@@ -18076,17 +18189,27 @@
         // na hua ho), to null return karta hai - caller (renderRevenueLiveProgress)
         // tab purani (poori) sync method par fallback kar leta hai, taaki report
         // kabhi bhi khaali/galat na dikhe.
+        // SPEED FIX (2026-09-15): `dcName` ab OPTIONAL hai. Backend (.gs) ka
+        // getEntries/getTDEntries pehle se hi bina `dc_name` ke bhi `date` filter
+        // support karta hai (sirf DC-scope ke liye nahi likha gaya tha, general
+        // hai) - `dc_name` khaali chhodne par backend sabhi 24 DC ka data padhta
+        // hai lekin RESPONSE me sirf maangi hui date ki rows bhejta hai (poori
+        // history nahi) - Division/Circle Live Progress ab isi tarah "aaj ki"
+        // chhoti list turant paa sakte hain, bina 24-DC/poori-history wali slow
+        // shared sync (jo Cash Reconcile/Pending DO List/Report Download ke liye
+        // zaroori hai, usko bilkul nahi chheda) par fallback kiye.
         async function fetchRevenueLiveProgressFastRows_(dcName, dateStr, attempts = 2) {
-            if (!revenueCollectionSubmitScriptUrl || !dcName) return null;
+            if (!revenueCollectionSubmitScriptUrl) return null;
+            const dcParam = dcName ? `&dc_name=${encodeURIComponent(dcName)}` : "";
             for (let attempt = 1; attempt <= attempts; attempt++) {
                 try {
                     const [paidParsed, tdParsed] = await Promise.all([
                         withAppsScriptConcurrencyGate_(revenueCollectionSubmitScriptUrl, async () => {
-                            const paidResponse = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getEntries&dc_name=${encodeURIComponent(dcName)}&date=${encodeURIComponent(dateStr)}&t=${Date.now()}`);
+                            const paidResponse = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getEntries${dcParam}&date=${encodeURIComponent(dateStr)}&t=${Date.now()}`);
                             return await paidResponse.json();
                         }),
                         withAppsScriptConcurrencyGate_(revenueCollectionSubmitScriptUrl, async () => {
-                            const tdResponse = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getTDEntries&dc_name=${encodeURIComponent(dcName)}&date=${encodeURIComponent(dateStr)}&t=${Date.now()}`);
+                            const tdResponse = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getTDEntries${dcParam}&date=${encodeURIComponent(dateStr)}&t=${Date.now()}`);
                             return await tdResponse.json();
                         })
                     ]);
@@ -18440,17 +18563,32 @@
             if (activeDC) activeViewLevel = "DC";
             else if (activeDiv) activeViewLevel = "DIVISION";
             else activeViewLevel = "CIRCLE";
-            // PERF FIX (2026-08-20): DC-scope par pehle FAST, isolated path try karo
-            // (sirf is DC + sirf aaj ki date) - dekhein fetchRevenueLiveProgressFastRows_
-            // ke upar wala detailed comment. Agar yeh kaam kar jaaye to poori 24-DC/
-            // poori-history wali slow sync ki zaroorat hi nahi padti. Fail ho jaaye
-            // (ya DIVISION/CIRCLE scope ho, jinke liye yeh fast path applicable nahi)
-            // to purani (poori) sync method par turant fallback - taaki behavior kabhi
-            // pehle se KHARAB na ho, sirf DC-scope me FAST ho.
+            // PERF FIX (2026-08-20, extended 2026-09-15): DC-scope par pehle FAST,
+            // isolated path try karo (sirf is DC + sirf aaj ki date) - dekhein
+            // fetchRevenueLiveProgressFastRows_ ke upar wala detailed comment.
+            // SPEED FIX (2026-09-15): ab Division/Circle scope me bhi yahi fast
+            // path try karte hain - bas dc_name khaali chhodte hain (backend sabhi
+            // DC ka "aaj ka" data deta hai, poori history nahi), phir Division ke
+            // liye us chhoti (already-today-only) list ko client-side apne DC-set
+            // tak filter kar dete hain (yeh filter free hai, kyunki list pehle se
+            // hi chhoti hai). Kisi bhi scope me fast path fail ho jaaye to purani
+            // (poori) sync method par turant fallback - taaki behavior kabhi pehle
+            // se KHARAB na ho, sirf FAST ho.
             let rows = null;
             if (activeViewLevel === "DC" && activeDC) {
                 rows = await fetchRevenueLiveProgressFastRows_(activeDC, getCurrentDateDDMMYYYY());
                 if (myToken !== revenueLiveProgressToken) { progress.stop(); return; }
+            } else if (activeViewLevel === "DIVISION" || activeViewLevel === "CIRCLE") {
+                const todayRows = await fetchRevenueLiveProgressFastRows_("", getCurrentDateDDMMYYYY());
+                if (myToken !== revenueLiveProgressToken) { progress.stop(); return; }
+                if (todayRows) {
+                    if (activeViewLevel === "DIVISION" && activeDiv) {
+                        const dcSet = new Set(getDivisionDcNames(activeDiv).map((n) => normalizeDcName(n)));
+                        rows = todayRows.filter((r) => dcSet.has(normalizeDcName(r.dcName)));
+                    } else {
+                        rows = todayRows;
+                    }
+                }
             }
             if (!rows) {
                 await Promise.all([syncRevenueLiveEntriesFromSheet(), syncRevenueTdEntriesFromSheet()]);
