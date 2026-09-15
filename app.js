@@ -9143,7 +9143,7 @@
                 // Ab fast, self-healing `fetchOmvigFreezeStatus_()` use karte hain
                 // (yeh khud hi auto-freeze bhi kar deta hai agar zaroorat ho).
                 const status = await fetchOmvigFreezeStatus_(true);
-                omvigAdminStatus = { freeze_date: status.freeze_date, pending_count: status.pending_count };
+                omvigAdminStatus = { freeze_date: status.freeze_date, pending_count: status.pending_count, last_upload_at: status.last_upload_at, last_upload_summary: status.last_upload_summary };
             } catch (_) {
                 omvigAdminStatus = null;
                 if (statusBox) statusBox.innerHTML = `<div style="text-align:center; font-size:0.75rem; font-weight:800; color:#b91c1c;">Status load nahi ho payi - internet check kijiye</div>`;
@@ -9175,12 +9175,22 @@
             return "";
         }
 
+        // USER REQUEST (2026-09-15): admin ko yahin se pata chalna chahiye
+        // "last Paid List upload kab hua tha" - agar kabhi koi upload hua hi
+        // nahi hai to ye line simply nahi dikhti (naya/khaali OMVIG META).
+        function renderOmvigLastUploadLine_() {
+            const lastUploadAt = omvigAdminStatus?.last_upload_at || "";
+            if (!lastUploadAt) return "";
+            const summary = omvigAdminStatus?.last_upload_summary || "";
+            return `<div style="text-align:center; font-size:0.68rem; font-weight:700; color:#475569; margin-top:6px; border-top:1px dashed #cbd5e1; padding-top:6px;">🕒 Last Upload: ${escapeHtml(lastUploadAt)}${summary ? `<br><span style="font-weight:600; color:#64748b;">${escapeHtml(summary)}</span>` : ""}</div>`;
+        }
+
         function renderOmvigAdminStatus() {
             const statusBox = document.getElementById("omvig-admin-status");
             if (!statusBox) return;
             const frozen = !!omvigAdminStatus?.freeze_date;
             statusBox.innerHTML = frozen
-                ? `<div style="text-align:center; font-size:0.78rem; font-weight:900; color:#166534;">✅ Baseline Frozen - Date: ${escapeHtml(omvigAdminStatus.freeze_date)}<br><span style="font-weight:800; color:#334155;">${omvigAdminStatus.pending_count} pending cases</span></div>`
+                ? `<div style="text-align:center; font-size:0.78rem; font-weight:900; color:#166534;">✅ Baseline Frozen - Date: ${escapeHtml(omvigAdminStatus.freeze_date)}<br><span style="font-weight:800; color:#334155;">${omvigAdminStatus.pending_count} pending cases</span></div>${renderOmvigLastUploadLine_()}`
                 : `<div style="text-align:center; font-size:0.78rem; font-weight:900; color:#9a3412;">⚠️ Baseline abhi set nahi ho payi - internet check karke panel dobara kholiye.</div>`;
         }
 
@@ -9281,6 +9291,15 @@
                 if (fileInput) fileInput.value = "";
                 const nameBox = document.getElementById("omvig-paid-file-name");
                 if (nameBox) nameBox.innerText = "";
+                // USER REQUEST (2026-09-15): admin ko panel dobara khole bina
+                // hi yahin turant "last upload" line dikh jaani chahiye.
+                try {
+                    const freshStatus = await fetchOmvigFreezeStatus_(true);
+                    omvigAdminStatus = { freeze_date: freshStatus.freeze_date, pending_count: freshStatus.pending_count, last_upload_at: freshStatus.last_upload_at, last_upload_summary: freshStatus.last_upload_summary };
+                    renderOmvigAdminStatus();
+                } catch (_) {
+                    // status refresh fail ho to bhi upload khud successful ho chuka hai - chup rehte hain, agli baar panel khulne par sahi dikh jayega.
+                }
             } catch (error) {
                 setActionButtonState(uploadBtn, "failed", "Upload Paid List");
                 showToast(error?.message || "Paid list upload nahi ho payi", false);
@@ -9380,7 +9399,12 @@
                 freezeDate = await autoFreezeOmvigBaseline_();
                 if (freezeDate) { omvigPendingCache_ = {}; omvigReportCache_ = null; }
             }
-            omvigFreezeStatusCache_ = { freeze_date: freezeDate, pending_count: pendingCount };
+            // USER REQUEST (2026-09-15): "last upload kab hua" admin panel par
+            // dikhana hai - backend isi fast endpoint se de deta hai, extra
+            // call nahi lagti.
+            const lastUploadAt = data?.last_upload_at || "";
+            const lastUploadSummary = data?.last_upload_summary || "";
+            omvigFreezeStatusCache_ = { freeze_date: freezeDate, pending_count: pendingCount, last_upload_at: lastUploadAt, last_upload_summary: lastUploadSummary };
             return omvigFreezeStatusCache_;
         }
 
