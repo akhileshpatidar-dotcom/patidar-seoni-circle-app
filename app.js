@@ -180,6 +180,15 @@
         ];
 
         let activeDiv = "", activeDC = "", activeGrad = "bg-teal-grad", summaryMode = "DAILY", summaryModule = "", activeViewLevel = "", currentData = null, pendingLevel = "", dcCacheRaw = {}, dcCacheRows = {}, uiListSummary = [], grandTC = 0, grandTU = 0, grandTW = 0, courtCaseRaw = "", courtCaseCacheByDc = {}, courtCaseLines = [], courtCaseRecords = [], lokDistributedRows = [], lokDistributedLoaded = false, currentCourtRecord = null, receiverGeoData = null;
+        // AUDIT ITEM #7 (2026-09-15): Freeze/O&M-VIG admin POST actions ab backend
+        // par bhi password verify karte hain (Script Property se, pehle sirf yeh
+        // frontend gate tha - koi bhi endpoint URL jaan kar seedha curl/Postman se
+        // admin action call kar sakta tha). Jo password yahan is-modal me sahi bhara
+        // gaya, wahi neeche yaad rakh kar har admin POST ke saath `admin_password`
+        // field me backend ko bhej dete hain - backend Script Property se compare
+        // karta hai (jo is frontend wali "AE123"/"admin123" se ALAG rakhni chahiye,
+        // taaki sirf public app.js padh lene se koi backend ko bypass na kar sake).
+        let freezeAdminPasswordEntered = "", omvigAdminPasswordEntered = "";
         // Progress Report (Daily Progress) ke Revenue tab me Category Wise ke saath-saath
         // Target vs Achievement aur Top 20/50 Defaulters bhi dropdown se select ho sakein -
         // teeno DC/Division/Circle scope automatically activeViewLevel se hi follow karte
@@ -1646,11 +1655,13 @@
                     return;
                 }
                 if (pendingLevel === "FREEZE_ADMIN") {
+                    freezeAdminPasswordEntered = document.getElementById("pwd-input").value;
                     initFreezeAdmin();
                     switchView("freeze-admin");
                     return;
                 }
                 if (pendingLevel === "OMVIG_ADMIN") {
+                    omvigAdminPasswordEntered = document.getElementById("pwd-input").value;
                     initOmvigAdmin();
                     switchView("omvig-admin");
                     return;
@@ -3212,7 +3223,7 @@
                             const response = await fetchWithTimeout(revenueFreezeTrackingScriptUrl, {
                                 method: "POST",
                                 headers: { "Content-Type": "text/plain;charset=UTF-8" },
-                                body: JSON.stringify({ action: "saveFreezeSnapshot", freeze_id: freezeId, freeze_label: freezeLabel, freeze_date: nowIso, category: cat.key, rows: cat.rows })
+                                body: JSON.stringify({ action: "saveFreezeSnapshot", admin_password: freezeAdminPasswordEntered, freeze_id: freezeId, freeze_label: freezeLabel, freeze_date: nowIso, category: cat.key, rows: cat.rows })
                             // PERFORMANCE FIX (2026-09-12) ke saath saath, ek genuine
                             // SAME-DAY RE-RUN (jab purana data hatana bhi padta hai) ab
                             // bhi thoda dheema ho sakta hai - Apps Script ka khud ka hard
@@ -3358,7 +3369,7 @@
                 const response = await fetchWithTimeout(revenueFreezeTrackingScriptUrl, {
                     method: "POST",
                     headers: { "Content-Type": "text/plain;charset=UTF-8" },
-                    body: JSON.stringify({ action: "setFreezeStatus", freeze_id: freezeId, status: newStatus })
+                    body: JSON.stringify({ action: "setFreezeStatus", admin_password: freezeAdminPasswordEntered, freeze_id: freezeId, status: newStatus })
                 }, 20000);
                 const text = await response.text();
                 let parsed = {};
@@ -3382,7 +3393,7 @@
                 const response = await fetchWithTimeout(revenueFreezeTrackingScriptUrl, {
                     method: "POST",
                     headers: { "Content-Type": "text/plain;charset=UTF-8" },
-                    body: JSON.stringify({ action: "setFreezeDcStatus", freeze_id: freezeId, dc_name: dcName, status: newStatus })
+                    body: JSON.stringify({ action: "setFreezeDcStatus", admin_password: freezeAdminPasswordEntered, freeze_id: freezeId, dc_name: dcName, status: newStatus })
                 }, 20000);
                 const text = await response.text();
                 let parsed = {};
@@ -9278,7 +9289,7 @@
                 const response = await fetchWithTimeout(omvigSubmitScriptUrl, {
                     method: "POST",
                     headers: { "Content-Type": "text/plain;charset=utf-8" },
-                    body: JSON.stringify({ action: "uploadPaidList", rows })
+                    body: JSON.stringify({ action: "uploadPaidList", admin_password: omvigAdminPasswordEntered, rows })
                 }, 90000);
                 const text = await response.text();
                 let parsed = {};
