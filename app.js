@@ -1626,7 +1626,34 @@
         }
 
         function verifyPassword() {
-            const pws = { STOCK: "AE123", EXCEL_TOOL_ADMIN: "AE123", PANCHNAMA_TOOL_ADMIN: "AE123", ARRANGE_EXCEL_TOOL_ADMIN: "AE123", IMAGE_TO_EXCEL_TOOL_ADMIN: "AE123", FREEZE_ADMIN: "AE123", OMVIG_ADMIN: "admin123" };
+            // AUDIT ITEM #7 FOLLOW-UP FIX (2026-09-15, USER-REPORTED): FREEZE_ADMIN aur
+            // OMVIG_ADMIN pehle yahan bhi hardcoded "AE123"/"admin123" se match karte
+            // the - lekin backend ab in dono ke liye ALAG (naya, secret) Script-Property
+            // password maangta hai. Isse ek deadlock ban gaya tha: purana password bharo
+            // to yeh generic gate match ho jaata (panel khul jaata) par backend ka asli
+            // action (Upload/Freeze/Status change) "Invalid Admin Password" de deta;
+            // naya (sahi) password bharo to YEH gate hi "Invalid Password!" de deta
+            // (kyunki yeh abhi bhi purani value se compare kar raha tha) - panel kabhi
+            // khulta hi nahi. FIX: in dono ke liye ab yahan koi frontend password-check
+            // NAHI hai - panel jo bhi non-empty value type karo usी se khul jaata hai,
+            // aur wahi value backend ko `admin_password` field me jaati hai. Asli
+            // security ab poori tarah BACKEND par hai (Script Property se match) - galat
+            // password se panel to khul jaayega (jaisa pehle bhi effectively hota tha,
+            // kyunki frontend password public source me hi tha), lekin Upload Paid List/
+            // Freeze Now/Status change jaisa koi bhi real data-changing action galat
+            // password se fail hoga ("Invalid Admin Password" toast).
+            if (pendingLevel === "FREEZE_ADMIN" || pendingLevel === "OMVIG_ADMIN") {
+                const enteredPwd = document.getElementById("pwd-input").value;
+                if (!enteredPwd) { showToast("Password daliye", false); return; }
+                if (pendingLevel === "FREEZE_ADMIN") freezeAdminPasswordEntered = enteredPwd;
+                if (pendingLevel === "OMVIG_ADMIN") omvigAdminPasswordEntered = enteredPwd;
+                activeViewLevel = pendingLevel;
+                closePwdModal();
+                if (pendingLevel === "FREEZE_ADMIN") { initFreezeAdmin(); switchView("freeze-admin"); }
+                else { initOmvigAdmin(); switchView("omvig-admin"); }
+                return;
+            }
+            const pws = { STOCK: "AE123", EXCEL_TOOL_ADMIN: "AE123", PANCHNAMA_TOOL_ADMIN: "AE123", ARRANGE_EXCEL_TOOL_ADMIN: "AE123", IMAGE_TO_EXCEL_TOOL_ADMIN: "AE123" };
             if (document.getElementById("pwd-input").value === pws[pendingLevel]) {
                 activeViewLevel = pendingLevel;
                 closePwdModal();
@@ -1652,18 +1679,6 @@
                 if (pendingLevel === "IMAGE_TO_EXCEL_TOOL_ADMIN") {
                     initImageToExcelToolAdminUpload();
                     switchView("image-to-excel-tool-admin");
-                    return;
-                }
-                if (pendingLevel === "FREEZE_ADMIN") {
-                    freezeAdminPasswordEntered = document.getElementById("pwd-input").value;
-                    initFreezeAdmin();
-                    switchView("freeze-admin");
-                    return;
-                }
-                if (pendingLevel === "OMVIG_ADMIN") {
-                    omvigAdminPasswordEntered = document.getElementById("pwd-input").value;
-                    initOmvigAdmin();
-                    switchView("omvig-admin");
                     return;
                 }
                 switchView("summary");
