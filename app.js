@@ -931,7 +931,7 @@
             statusBox.style.background = ok ? "#ecfdf5" : "#fff1f2";
             statusBox.style.borderColor = ok ? "#86efac" : "#fca5a5";
             statusBox.style.color = ok ? "#166534" : "#991b1b";
-            statusBox.innerHTML = escapeHtml(statusMessage);
+            statusBox.innerHTML = (isLoading ? `<span class="btn-inline-spinner" style="border-color: rgba(22,101,52,0.35); border-top-color: #166534; vertical-align: -1px;"></span>` : "") + escapeHtml(statusMessage);
         }
 
         function downloadMobileUpdateReport(type) {
@@ -1225,7 +1225,7 @@
             statusBox.style.background = ok ? "#ecfdf5" : "#fff1f2";
             statusBox.style.borderColor = ok ? "#86efac" : "#fca5a5";
             statusBox.style.color = ok ? "#166534" : "#991b1b";
-            statusBox.innerHTML = escapeHtml(statusMessage);
+            statusBox.innerHTML = (isLoading ? `<span class="btn-inline-spinner" style="border-color: rgba(22,101,52,0.35); border-top-color: #166534; vertical-align: -1px;"></span>` : "") + escapeHtml(statusMessage);
         }
 
         function downloadMobileUpdateWrongList(type) {
@@ -1495,7 +1495,7 @@
             statusBox.style.background = ok ? "#ecfdf5" : "#fff1f2";
             statusBox.style.borderColor = ok ? "#86efac" : "#fca5a5";
             statusBox.style.color = ok ? "#166534" : "#991b1b";
-            statusBox.innerHTML = escapeHtml(statusMessage);
+            statusBox.innerHTML = (isLoading ? `<span class="btn-inline-spinner" style="border-color: rgba(22,101,52,0.35); border-top-color: #166534; vertical-align: -1px;"></span>` : "") + escapeHtml(statusMessage);
         }
 
         function downloadMobileUpdateList(type) {
@@ -16994,7 +16994,7 @@
             statusBox.style.background = ok ? "#ecfdf5" : "#fff1f2";
             statusBox.style.borderColor = ok ? "#86efac" : "#fda4af";
             statusBox.style.color = ok ? "#166534" : "#991b1b";
-            statusBox.innerHTML = escapeHtml(statusMessage);
+            statusBox.innerHTML = (isLoading ? `<span class="btn-inline-spinner" style="border-color: rgba(22,101,52,0.35); border-top-color: #166534; vertical-align: -1px;"></span>` : "") + escapeHtml(statusMessage);
         }
 
         function downloadRevenuePendingList(type) {
@@ -18996,7 +18996,7 @@
             statusBox.style.background = ok ? "#ecfdf5" : "#fff1f2";
             statusBox.style.borderColor = ok ? "#86efac" : "#fda4af";
             statusBox.style.color = ok ? "#166534" : "#991b1b";
-            statusBox.innerHTML = escapeHtml(statusMessage);
+            statusBox.innerHTML = (isLoading ? `<span class="btn-inline-spinner" style="border-color: rgba(22,101,52,0.35); border-top-color: #166534; vertical-align: -1px;"></span>` : "") + escapeHtml(statusMessage);
         }
 
         let revenueReportMode = "DAILY";
@@ -19141,7 +19141,7 @@
             statusBox.style.background = ok ? "#ecfdf5" : "#fff1f2";
             statusBox.style.borderColor = ok ? "#86efac" : "#fda4af";
             statusBox.style.color = ok ? "#166534" : "#991b1b";
-            statusBox.innerHTML = escapeHtml(statusMessage);
+            statusBox.innerHTML = (isLoading ? `<span class="btn-inline-spinner" style="border-color: rgba(22,101,52,0.35); border-top-color: #166534; vertical-align: -1px;"></span>` : "") + escapeHtml(statusMessage);
         }
 
         async function downloadRevenueSelectedReport(type) {
@@ -19438,7 +19438,7 @@
             statusBox.style.background = ok ? "#ecfdf5" : "#fff1f2";
             statusBox.style.borderColor = ok ? "#86efac" : "#fda4af";
             statusBox.style.color = ok ? "#166534" : "#991b1b";
-            statusBox.innerHTML = escapeHtml(statusMessage);
+            statusBox.innerHTML = (isLoading ? `<span class="btn-inline-spinner" style="border-color: rgba(22,101,52,0.35); border-top-color: #166534; vertical-align: -1px;"></span>` : "") + escapeHtml(statusMessage);
         }
 
         function downloadRevenueCashReconcile(type) {
@@ -19854,7 +19854,7 @@
             statusBox.style.background = ok ? "#ecfdf5" : "#fff1f2";
             statusBox.style.borderColor = ok ? "#86efac" : "#fda4af";
             statusBox.style.color = ok ? "#166534" : "#991b1b";
-            statusBox.innerHTML = escapeHtml(statusMessage);
+            statusBox.innerHTML = (isLoading ? `<span class="btn-inline-spinner" style="border-color: rgba(22,101,52,0.35); border-top-color: #166534; vertical-align: -1px;"></span>` : "") + escapeHtml(statusMessage);
         }
 
         function downloadRevenueHqVillageReport(type) {
@@ -20226,7 +20226,7 @@
             statusBox.style.background = ok ? "#eff6ff" : "#fff1f2";
             statusBox.style.borderColor = ok ? "#93c5fd" : "#fda4af";
             statusBox.style.color = ok ? "#1d4ed8" : "#991b1b";
-            statusBox.innerHTML = escapeHtml(statusMessage);
+            statusBox.innerHTML = (isLoading ? `<span class="btn-inline-spinner" style="border-color: rgba(22,101,52,0.35); border-top-color: #166534; vertical-align: -1px;"></span>` : "") + escapeHtml(statusMessage);
         }
 
         function downloadRevenueTargetAchievement(type) {
@@ -20445,7 +20445,7 @@
             statusBox.style.background = ok ? "#ecfdf5" : "#fff1f2";
             statusBox.style.borderColor = ok ? "#86efac" : "#fda4af";
             statusBox.style.color = ok ? "#166534" : "#991b1b";
-            statusBox.innerHTML = escapeHtml(statusMessage);
+            statusBox.innerHTML = (isLoading ? `<span class="btn-inline-spinner" style="border-color: rgba(22,101,52,0.35); border-top-color: #166534; vertical-align: -1px;"></span>` : "") + escapeHtml(statusMessage);
         }
 
         function downloadRevenueTopDefaulters(type) {
@@ -20733,7 +20733,7 @@
             statusBox.style.background = ok ? "#ecfdf5" : "#fff1f2";
             statusBox.style.borderColor = ok ? "#86efac" : "#fda4af";
             statusBox.style.color = ok ? "#166534" : "#991b1b";
-            statusBox.innerHTML = escapeHtml(statusMessage);
+            statusBox.innerHTML = (isLoading ? `<span class="btn-inline-spinner" style="border-color: rgba(22,101,52,0.35); border-top-color: #166534; vertical-align: -1px;"></span>` : "") + escapeHtml(statusMessage);
         }
 
         function downloadRevenueHqVillageList(type) {
@@ -21935,7 +21935,7 @@
             statusBox.style.background = ok ? "#ecfdf5" : "#fff1f2";
             statusBox.style.borderColor = ok ? "#86efac" : "#fda4af";
             statusBox.style.color = ok ? "#166534" : "#991b1b";
-            statusBox.innerHTML = escapeHtml(statusMessage);
+            statusBox.innerHTML = (isLoading ? `<span class="btn-inline-spinner" style="border-color: rgba(22,101,52,0.35); border-top-color: #166534; vertical-align: -1px;"></span>` : "") + escapeHtml(statusMessage);
         }
 
         function downloadVrDownloadLog(type) {
