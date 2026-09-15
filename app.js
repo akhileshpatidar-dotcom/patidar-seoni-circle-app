@@ -248,6 +248,7 @@
         let meterCheckingPhoto2 = { base64: "", name: "" };
         let meterCheckingPhoto3 = { base64: "", name: "" };
         let meterCheckingReportRows = [], meterCheckingReportLoadedDcKey = "";
+        let meterCheckingReportStale = false; // ITEM-8 FIX (2026-09-15): true jab fresh fetch fail hokar purana cached data dikha rahe hain
         let meterCheckingReportMode = "DAILY";
         let lastRevenueProgressBoxData = null;
         let lastRevenueProgressStaffData = null;
@@ -387,6 +388,7 @@
         let activeStmComplaintOperator = null;
         let shmsProgressRows = [];
         let shmsProgressLoaded = false;
+        let shmsProgressStale = false; // ITEM-8 FIX (2026-09-15): true jab fresh fetch fail hokar purana cached data dikha rahe hain
         let shmsProgressMode = "DAILY";
         let progressReportSource = "SHMS";
         let shmsPendingTrackerRows = [];
@@ -8877,8 +8879,13 @@
                 summary.innerHTML = "";
                 return;
             }
+            // ITEM-8 FIX (2026-09-15): naya fetch fail hone par purana (cached)
+            // data dikhne par chhota staleness warning - sirf display text.
+            const staleNote = (rows.length && peakLoadReportLoadMessage)
+                ? `<br><span style="display:block; margin-top:6px; font-size:11px; color:#b45309;">⚠ Naya data load nahi ho saka, pehle se load data dikha rahe hain</span>`
+                : "";
             const debugMessage = rows.length
-                ? `${label} ke liye ${rows.length} peak load entries ready hain`
+                ? `${label} ke liye ${rows.length} peak load entries ready hain${staleNote}`
                 : (peakLoadReportLoadMessage
                     ? `${label} ke liye 0 peak load entries ready hain<br><span style="display:block; margin-top:6px; font-size:11px; color:#b91c1c;">${peakLoadReportLoadMessage}</span>`
                     : `${label} ke liye 0 peak load entries ready hain`);
@@ -9064,8 +9071,13 @@
                 summary.innerHTML = "";
                 return;
             }
+            // ITEM-8 FIX (2026-09-15): naya fetch fail hone par purana (cached)
+            // data dikhne par chhota staleness warning - sirf display text.
+            const staleNote = (rows.length && stmComplaintReportLoadMessage)
+                ? `<br><span style="display:block; margin-top:6px; font-size:11px; color:#b45309;">⚠ Naya data load nahi ho saka, pehle se load data dikha rahe hain</span>`
+                : "";
             const debugMessage = rows.length
-                ? `${label} ke liye ${rows.length} STM complaint entries ready hain`
+                ? `${label} ke liye ${rows.length} STM complaint entries ready hain${staleNote}`
                 : (stmComplaintReportLoadMessage
                     ? `${label} ke liye 0 STM complaint entries ready hain<br><span style="display:block; margin-top:6px; font-size:11px; color:#b91c1c;">${stmComplaintReportLoadMessage}</span>`
                     : `${label} ke liye 0 STM complaint entries ready hain`);
@@ -11306,6 +11318,7 @@
                 shmsProgressRows = mergeShmsProgressRows_(shmsProgressRows, getRecentShmsSubmittedRows_());
                 shmsPendingTrackerRows = shmsProgressRows.slice();
                 shmsProgressLoaded = true;
+                shmsProgressStale = false; // ITEM-8 FIX (2026-09-15): fresh fetch safal
                 return true;
             } catch (_) {
                 // RELIABILITY FIX (2026-09-15, USER-FLAGGED risk): pehle fetch fail
@@ -11317,11 +11330,13 @@
                     shmsProgressRows = previousShmsProgressRows;
                     shmsPendingTrackerRows = shmsProgressRows.slice();
                     shmsProgressLoaded = true;
+                    shmsProgressStale = true; // ITEM-8 FIX (2026-09-15): purana cached data dikha rahe hain
                     return true;
                 }
                 shmsProgressRows = [];
                 shmsPendingTrackerRows = [];
                 shmsProgressLoaded = false;
+                shmsProgressStale = false;
                 return false;
             }
         }
@@ -11953,7 +11968,12 @@
             if (!isShmsProgressRenderValid()) return;
             const label = getShmsProgressFilterLabel();
             summary.style.display = label ? "block" : "none";
-            summary.innerText = label ? `${label} ke liye ${filtered.length} entries ready hain` : "";
+            // ITEM-8 FIX (2026-09-15): naya fetch fail hone par purana (cached)
+            // data dikhne par chhota staleness note - sirf display text.
+            const staleSuffix = (filtered.length && shmsProgressStale)
+                ? " (⚠ naya data load nahi ho saka, pehle se load data dikha rahe hain)"
+                : "";
+            summary.innerText = label ? `${label} ke liye ${filtered.length} entries ready hain${staleSuffix}` : "";
         }
 
         async function saveShmsBlob(fileName, blob, mimeType) {
@@ -12120,8 +12140,15 @@
                 summary.innerHTML = "";
                 return;
             }
+            // ITEM-8 FIX (2026-09-15): agar naya fetch fail hua tha aur purana
+            // (cached) data dikha rahe hain, to user ko ek chhota staleness
+            // warning bhi dikhao - sirf display text, koi fetch/cache logic
+            // change nahi.
+            const staleNote = (rows.length && feederReportLoadMessage)
+                ? `<br><span style="display:block; margin-top:6px; font-size:11px; color:#b45309;">⚠ Naya data load nahi ho saka, pehle se load data dikha rahe hain</span>`
+                : "";
             const debugMessage = rows.length
-                ? `${label} ke liye ${rows.length} feeder entries ready hain`
+                ? `${label} ke liye ${rows.length} feeder entries ready hain${staleNote}`
                 : (feederReportLoadMessage
                     ? `${label} ke liye 0 feeder entries ready hain<br><span style="display:block; margin-top:6px; font-size:11px; color:#b91c1c;">${feederReportLoadMessage}</span>`
                     : `${label} ke liye 0 feeder entries ready hain`);
@@ -22657,8 +22684,13 @@
                 const rows = isLikelyCsvPayload(rawCsv) ? parseMeterCheckingReportCsv(rawCsv) : [];
                 meterCheckingReportRows = rows;
                 meterCheckingReportLoadedDcKey = dcKey;
+                meterCheckingReportStale = false; // ITEM-8 FIX (2026-09-15): fresh fetch safal
                 return rows;
             } catch (_) {
+                // ITEM-8 FIX (2026-09-15): pehle se koi data ho to use hi wapas
+                // rakhte hain (behavior unchanged) - bas ek stale flag set karte
+                // hain taaki screen par ek chhota warning dikhaya ja sake.
+                meterCheckingReportStale = meterCheckingReportRows.length > 0;
                 return meterCheckingReportRows;
             }
         }
@@ -22718,6 +22750,11 @@
             const rows = await loadMeterCheckingReportRows(activeDC);
             const filtered = getMeterCheckingReportFilteredRows(rows);
             const staffFilter = document.getElementById("meter-checking-report-staff")?.value || "";
+            // ITEM-8 FIX (2026-09-15): naya fetch fail hone par purana (cached)
+            // data dikhne par chhota staleness note - sirf display text.
+            const meterCheckingStaleNote = (filtered.length && meterCheckingReportStale)
+                ? `<div style="margin-top:8px; text-align:center; font-size:11px; font-weight:900; color:#b45309;">⚠ Naya data load nahi ho saka, pehle se load data dikha rahe hain</div>`
+                : "";
 
             if (meterCheckingReportMode === "MONTHLY") {
                 // Month-wise: date ke hisaab se group karke sirf count dikhate hain
@@ -22738,7 +22775,7 @@
                     });
                 }
                 html += `</div><div class="summary-footer"><div class="font-black text-slate-800 text-center">TOTAL CHECKED${staffFilter ? ` - ${escapeHtml(staffFilter)}` : ""}</div><div class="mt-2 text-center text-[13px] font-black">${filtered.length}</div></div>`;
-                tableBox.innerHTML = html;
+                tableBox.innerHTML = html + meterCheckingStaleNote;
             } else {
                 // Date-wise: screen par sirf Name of Staff + Checked Connection ki
                 // summary dikhate hain - poora consumer-level detail (Consumer/IVRS/
@@ -22759,7 +22796,7 @@
                     });
                 }
                 html += `</div><div class="summary-footer"><div class="font-black text-slate-800 text-center">TOTAL CHECKED${staffFilter ? ` - ${escapeHtml(staffFilter)}` : ""}</div><div class="mt-2 text-center text-[13px] font-black">${filtered.length}</div></div>`;
-                tableBox.innerHTML = html;
+                tableBox.innerHTML = html + meterCheckingStaleNote;
             }
         }
 
