@@ -7380,7 +7380,15 @@
             try {
                 if ("caches" in window) {
                     const keys = await caches.keys();
-                    await Promise.all(keys.map((key) => caches.delete(key)));
+                    // SAFETY FIX (2026-09-15, USER-REQUESTED): pehle yahan is
+                    // ORIGIN ki SAARI caches delete ho jaati thi - Cache API
+                    // origin-scoped hota hai, path-scoped nahi, isliye agar isi
+                    // domain (jaise GitHub Pages account) par koi doosra project
+                    // bhi host ho, uski cache bhi is Refresh button se saaf ho
+                    // sakti thi. Ab sirf isi app ki apni cache ("seoni-app-"
+                    // prefix wali, service-worker.js ke CACHE_VERSION se match)
+                    // delete hoti hai.
+                    await Promise.all(keys.filter((key) => key.startsWith("seoni-app-")).map((key) => caches.delete(key)));
                 }
                 if ("serviceWorker" in navigator) {
                     const reg = await navigator.serviceWorker.getRegistration();

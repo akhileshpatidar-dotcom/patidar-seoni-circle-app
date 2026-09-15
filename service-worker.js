@@ -39,7 +39,21 @@ const CDN_FILES = [
 self.addEventListener("install", (event) => {
     event.waitUntil(
         caches.open(CACHE_VERSION).then((cache) => {
-            const shellPromise = cache.addAll(SHELL_FILES).catch(() => {});
+            // RELIABILITY FIX (2026-09-15, USER-REQUESTED): pehle cache.addAll()
+            // istemal hota tha - ye "all-or-nothing" hai: SHELL_FILES me se EK bhi
+            // file fetch fail ho (404/missing), to poori list (index.html/
+            // styles.css/app.js sahit) cache hone se reh jaati thi - sirf
+            // .catch(()=>{}) install crash hone se bachata tha, offline support
+            // silently poora fail ho jaata tha. Ab har file ALAG-ALAG fetch+cache
+            // hoti hai, aur sirf successful (response.ok) response hi cache hoti
+            // hai - ek file fail ho to baaki sab phir bhi cache ho jaati hain.
+            const shellPromise = Promise.all(
+                SHELL_FILES.map((url) =>
+                    fetch(url)
+                        .then((res) => { if (res && res.ok) return cache.put(url, res); })
+                        .catch(() => {})
+                )
+            );
             const cdnPromise = Promise.all(
                 CDN_FILES.map((url) => fetch(url, { mode: "no-cors" }).then((res) => cache.put(url, res)).catch(() => {}))
             );
@@ -92,8 +106,17 @@ self.addEventListener("fetch", (event) => {
         event.respondWith(
             fetch(event.request)
                 .then((response) => {
-                    const clone = response.clone();
-                    caches.open(CACHE_VERSION).then((cache) => cache.put(event.request, clone));
+                    // RELIABILITY FIX (2026-09-15, USER-REQUESTED): pehle har
+                    // response (chahe 404/500 transient error ho) cache ho jaata
+                    // tha - ek baar ka server glitch cache me "sach" ban ke reh
+                    // jaata aur baad me (offline/slow-network fallback me) dobara
+                    // serve ho sakta tha. Ab sirf successful (response.ok) response
+                    // hi cache hoti hai - ek failed fetch purani valid cache ko
+                    // kabhi overwrite nahi karega.
+                    if (response && response.ok) {
+                        const clone = response.clone();
+                        caches.open(CACHE_VERSION).then((cache) => cache.put(event.request, clone));
+                    }
                     return response;
                 })
                 .catch(() => caches.match(event.request).then((cached) => cached || caches.match("./index.html")))
@@ -106,8 +129,16 @@ self.addEventListener("fetch", (event) => {
         caches.match(event.request).then((cached) => {
             if (cached) return cached;
             return fetch(event.request).then((response) => {
-                const clone = response.clone();
-                caches.open(CACHE_VERSION).then((cache) => cache.put(event.request, clone));
+                // RELIABILITY FIX (2026-09-15, USER-REQUESTED): sirf successful
+                // (same-origin response.ok) YA opaque (cross-origin no-cors CDN,
+                // jiska status introspect nahi ho sakta - response.ok isके liye
+                // hamesha false dikhega chahe fetch sahi hui ho) response cache
+                // hoti hai - ek confirmed error (jaise same-origin 404 on
+                // icon/manifest) kabhi cache nahi hoti.
+                if (response && (response.ok || response.type === "opaque")) {
+                    const clone = response.clone();
+                    caches.open(CACHE_VERSION).then((cache) => cache.put(event.request, clone));
+                }
                 return response;
             }).catch(() => cached);
         })
