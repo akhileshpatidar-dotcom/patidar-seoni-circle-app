@@ -7618,9 +7618,31 @@
             }
         }
 
+        // ITEM-9 FIX (2026-09-15, audit item "backend API versioning"): backend
+        // ab (jin scripts me redeploy ho chuka hai) har object-shaped response
+        // me "api_version" bhejta hai. Yahan hum sirf ek in-memory map me isi
+        // session ke andar har URL ka "pehli baar dekha gaya" version yaad
+        // rakhte hain - agar usi URL se BAAD me koi DIFFERENT version aaye
+        // (matlab beech session me backend redeploy ho gaya), to sirf ek
+        // console.warn karte hain. Koi data/return-value/behavior change nahi -
+        // purane backend (jinme abhi yeh field hi nahi hai) bilkul pehle jaisे
+        // hi chalte rahenge, kyoki parsed.api_version undefined hoga aur yeh
+        // block chup-chaap skip ho jayega.
+        const apiVersionSeenByUrl_ = {};
         async function loadRemoteJson(url, timeoutMs = 6000) {
             const text = await loadRemoteText(url, timeoutMs);
-            return JSON.parse(text || "null");
+            const parsed = JSON.parse(text || "null");
+            try {
+                if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && parsed.api_version != null) {
+                    const baseUrl = String(url).split("?")[0];
+                    const seen = apiVersionSeenByUrl_[baseUrl];
+                    if (seen != null && seen !== parsed.api_version) {
+                        console.warn(`[API-VERSION] ${baseUrl} ka backend version isi session me badal gaya (${seen} -> ${parsed.api_version}) - agar koi report/data ajeeb lage to app ko hard-refresh karein.`);
+                    }
+                    apiVersionSeenByUrl_[baseUrl] = parsed.api_version;
+                }
+            } catch (_) {}
+            return parsed;
         }
 
         // GLOBAL APPS SCRIPT CONCURRENCY GATE (2026-09-13): USER-REPORTED BUG - Freeze
