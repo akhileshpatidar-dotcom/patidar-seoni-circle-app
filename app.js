@@ -10199,8 +10199,81 @@
                 amount: Number(r.amount) || 0,
                 pay_mode: String(r.pay_mode || "").trim()
             })) : [];
-            omvigDailyReportCache_ = { date: data?.date || "", rows };
+            // USER REQUEST (2026-09-16, round 2): "TOTAL CONSUMER" aur "PENDING"
+            // Daily me bhi Monthly jaisa hi SAHI/TRUE dikhna chahiye (poore
+            // baseline ka), sirf "PAID" column hi latest-date ("yesterday") tak
+            // simat rahe. Backend (`getDailyReport`) ab ek chhota per-DC
+            // `dc_summary` (~24 row) bhejta hai jisme yeh already compute hoke
+            // aata hai (baseline poori padhi to jaati hai backend par, par
+            // client ko sirf summary milta hai - poora ~9500-row baseline nahi,
+            // isliye Daily FAST hi rehta hai). Purane backend (jab tak .gs
+            // redeploy na ho) me yeh field hoga hi nahi - `dcSummaryMap` khaali
+            // rahega, sabhi DC ka TOTAL/PENDING 0 dikhega (crash nahi hoga).
+            const dcSummaryList = Array.isArray(data?.dc_summary) ? data.dc_summary : [];
+            const dcSummaryMap = {};
+            dcSummaryList.forEach((s) => {
+                const key = normalizeDcName(s?.dc_name);
+                if (!key) return;
+                dcSummaryMap[key] = {
+                    totalCount: Number(s.totalCount) || 0,
+                    pendingCount: Number(s.pendingCount) || 0,
+                    pendingAmount: Number(s.pendingAmount) || 0,
+                    yesterdayPaidCount: Number(s.yesterdayPaidCount) || 0,
+                    yesterdayPaidAmount: Number(s.yesterdayPaidAmount) || 0
+                };
+            });
+            omvigDailyReportCache_ = { date: data?.date || "", rows, dcSummaryMap };
             return omvigDailyReportCache_;
+        }
+
+        // Daily ke per-DC TRUE summary group - `dcSummaryMap` (backend se) se
+        // TOTAL CONSUMER/PENDING leta hai, "PAID" sirf yesterday ka
+        // count/amount (Monthly ke buildOmvigSingleDcSummaryRow_/
+        // buildOmvigDivisionDcSummaryRows_ jaisa SHAPE hi return karta hai,
+        // taaki renderFreezeGroupSummaryTableHtml/appendOmvigTotalRow_ dono
+        // bina badlaav reuse ho sakein).
+        function omvigDailyDcSummaryGroup_(dcSummaryMap, dcName) {
+            const s = dcSummaryMap[normalizeDcName(dcName)];
+            return {
+                name: dcName || "-",
+                totalCount: s ? s.totalCount : 0,
+                paidCount: s ? s.yesterdayPaidCount : 0,
+                paidAmount: s ? s.yesterdayPaidAmount : 0,
+                pendingCount: s ? s.pendingCount : 0,
+                pendingAmount: s ? s.pendingAmount : 0
+            };
+        }
+
+        function omvigDailyDivisionDcSummaryRows_(dcSummaryMap, divisionName) {
+            return getDivisionDcNames(divisionName).map((dcName) => omvigDailyDcSummaryGroup_(dcSummaryMap, dcName));
+        }
+
+        // Circle-wide (bina Division filter) DC-wise + per-Division SUB_TOTAL +
+        // GRAND_TOTAL - buildOmvigCircleDcWiseSummaryRows_ jaisa hi shape, bas
+        // source dcSummaryMap hai (case-level rowsWithStatus nahi).
+        function omvigDailyCircleDcWiseSummaryRows_(dcSummaryMap) {
+            const emptyGroup = (key) => ({ name: key, totalCount: 0, paidCount: 0, paidAmount: 0, pendingCount: 0, pendingAmount: 0 });
+            const withPercents = (g) => ({
+                ...g,
+                paidPercent: g.totalCount ? ((g.paidCount / g.totalCount) * 100).toFixed(1) : "0.0",
+                pendingPercent: g.totalCount ? ((g.pendingCount / g.totalCount) * 100).toFixed(1) : "0.0"
+            });
+            const rows = [];
+            const grand = emptyGroup("GRAND TOTAL");
+            Object.keys(divisionConfigs).forEach((divisionName) => {
+                const dcRows = getDivisionDcNames(divisionName).map((dcName) => withPercents(omvigDailyDcSummaryGroup_(dcSummaryMap, dcName)));
+                rows.push(...dcRows);
+                const divTotal = emptyGroup(getDivisionTotalLabel(divisionName));
+                dcRows.forEach((r) => {
+                    divTotal.totalCount += r.totalCount; divTotal.paidCount += r.paidCount; divTotal.paidAmount += r.paidAmount;
+                    divTotal.pendingCount += r.pendingCount; divTotal.pendingAmount += r.pendingAmount;
+                });
+                rows.push({ ...withPercents(divTotal), type: "SUB_TOTAL" });
+                grand.totalCount += divTotal.totalCount; grand.paidCount += divTotal.paidCount; grand.paidAmount += divTotal.paidAmount;
+                grand.pendingCount += divTotal.pendingCount; grand.pendingAmount += divTotal.pendingAmount;
+            });
+            rows.push({ ...withPercents(grand), type: "GRAND_TOTAL" });
+            return rows;
         }
 
         function scopeOmvigDailyRowsToView_(rows) {
@@ -10218,17 +10291,16 @@
         // USER REQUEST (2026-09-16): Daily ko bhi Monthly jaisa hi summary+dropdown
         // UX chahiye - Circle/Division level par seedhi list nahi, DC-wise summary
         // table (Division dropdown se drill-down), DC level par single-DC summary +
-        // Paid/Unpaid dropdown (list sirf tabhi) - EXACT wahi shared render
-        // functions (renderOmvigDcLevelHtml_/renderOmvigDivisionLevelHtml_/
-        // renderOmvigCircleLevelHtml_, aur unke andar ke summary-builders jaise
-        // buildOmvigSingleDcSummaryRow_/buildOmvigDivisionDcSummaryRows_/
-        // buildFreezeDcWiseSummaryRows) Monthly ke saath reuse karne ke liye,
-        // Daily ke flat rows ko yahan unhi shared functions ke expected shape me
-        // map karte hain. Daily me "pending" ka koi concept nahi hai (yeh sirf us
-        // din ke PAID settlements hain), isliye har row hamesha isPaidNow:true
-        // rehti hai - summary table me PENDING column hamesha 0 dikhega, jo Daily
-        // ke liye sahi/accurate hai (galat nahi), user ne isi layout ko explicitly
-        // chuna hai.
+        // Paid/Unpaid dropdown (list sirf tabhi). USER REQUEST (2026-09-16, round
+        // 2): DC-WISE SUMMARY table ke TOTAL CONSUMER/PENDING ab `dcSummaryMap`
+        // (backend se, TRUE poore baseline ka) se aate hain - naye
+        // omvigDailyDcSummaryGroup_/omvigDailyDivisionDcSummaryRows_/
+        // omvigDailyCircleDcWiseSummaryRows_ (upar dekhein) use hote hain, Monthly
+        // wale shared builders (buildOmvigSingleDcSummaryRow_ etc., jo case-level
+        // rowsWithStatus se kaam karte hain) Daily ke SUMMARY table ke liye ab
+        // nahi. Yeh mapOmvigDailyRowsWithStatus_ ab bhi zaroori hai - DC-level ka
+        // Paid/Unpaid dropdown chunne par "list" (kis consumer ne kal kitna paya)
+        // isi flat shape se banti hai, wahan koi badlav nahi.
         function mapOmvigDailyRowsWithStatus_(rows, date) {
             return rows.map((r) => ({
                 dc_name: r.dc_name,
@@ -10249,9 +10321,71 @@
             // enrichment (consumer naam, DC fallback) ab backend (`getDailyReport`)
             // hi kar ke deta hai - yahan sirf view-level (DC/Division/Circle)
             // scoping baaki hai, jo purani tarah in-memory/free hai.
-            const { date, rows } = await fetchOmvigDailyReport_(forceRefresh);
+            const { date, rows, dcSummaryMap } = await fetchOmvigDailyReport_(forceRefresh);
             const scoped = scopeOmvigDailyRowsToView_(rows);
-            return { date, rowsWithStatus: mapOmvigDailyRowsWithStatus_(scoped, date) };
+            return { date, rowsWithStatus: mapOmvigDailyRowsWithStatus_(scoped, date), dcSummaryMap };
+        }
+
+        // Daily-specific render functions (Monthly ki renderOmvigDcLevelHtml_/
+        // renderOmvigDivisionLevelHtml_/renderOmvigCircleLevelHtml_ jaisi hi
+        // dropdown/structure, bas "no filter" summary ab TRUE dcSummaryMap se
+        // banti hai; Paid/Unpaid dropdown chunne wala hissa purane flat
+        // rowsWithStatus-based tareeke se hi hai, wahan koi badlav nahi).
+        function renderOmvigDailyDcLevelHtml_(rowsWithStatus, dcSummaryMap) {
+            const statusSelectHtml = omvigFilterSelectHtml_("omvig-dc-status-select", "-- Select Paid/Unpaid to View List --", OMVIG_STATUS_OPTIONS_, omvigFilterStatus);
+            let summaryHtml, listHtml = "";
+            if (omvigFilterStatus) {
+                const filteredRows = filterOmvigRowsByStatus_(rowsWithStatus, omvigFilterStatus);
+                summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [buildOmvigStatusSummaryRow_(filteredRows, activeDC, omvigFilterStatus)], `DC SUMMARY - ${omvigFilterStatus} (AMOUNT IN LAKH)`, "YESTERDAY PAID", "PENDING");
+                listHtml = renderOmvigDcListHtml_(filteredRows);
+            } else {
+                summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [omvigDailyDcSummaryGroup_(dcSummaryMap, activeDC)], "DC SUMMARY (AMOUNT IN LAKH)", "YESTERDAY PAID", "PENDING");
+            }
+            return summaryHtml + statusSelectHtml + listHtml;
+        }
+
+        function renderOmvigDailyDivisionLevelHtml_(rowsWithStatus, dcSummaryMap) {
+            const dcOptions = getDivisionDcNames(activeDiv).map((n) => ({ value: n, label: n }));
+            const dcSelectHtml = omvigFilterSelectHtml_("omvig-division-dc-select", "-- Select DC --", dcOptions, omvigFilterDc);
+            let summaryHtml, statusSelectHtml = "";
+            if (!omvigFilterDc) {
+                summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", appendOmvigTotalRow_(omvigDailyDivisionDcSummaryRows_(dcSummaryMap, activeDiv)), "DC WISE SUMMARY (AMOUNT IN LAKH)", "YESTERDAY PAID", "PENDING");
+            } else {
+                const dcRows = rowsWithStatus.filter((r) => normalizeDcName(r.dc_name) === normalizeDcName(omvigFilterDc));
+                statusSelectHtml = omvigFilterSelectHtml_("omvig-division-status-select", "-- Select Paid/Unpaid --", OMVIG_STATUS_OPTIONS_, omvigFilterStatus);
+                if (!omvigFilterStatus) {
+                    summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [omvigDailyDcSummaryGroup_(dcSummaryMap, omvigFilterDc)], "DC SUMMARY (AMOUNT IN LAKH)", "YESTERDAY PAID", "PENDING");
+                } else {
+                    const filteredRows = filterOmvigRowsByStatus_(dcRows, omvigFilterStatus);
+                    summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [buildOmvigStatusSummaryRow_(filteredRows, omvigFilterDc, omvigFilterStatus)], `DC SUMMARY - ${omvigFilterStatus} (AMOUNT IN LAKH)`, "YESTERDAY PAID", "PENDING");
+                }
+            }
+            return summaryHtml + dcSelectHtml + statusSelectHtml;
+        }
+
+        function renderOmvigDailyCircleLevelHtml_(rowsWithStatus, dcSummaryMap) {
+            const divOptions = Object.keys(divisionConfigs).map((n) => ({ value: n, label: n.replace(/^DIVISION\s+/i, "") }));
+            const divSelectHtml = omvigFilterSelectHtml_("omvig-circle-division-select", "-- Select Division --", divOptions, omvigFilterDivision);
+            let summaryHtml, dcSelectHtml = "", statusSelectHtml = "";
+            if (!omvigFilterDivision) {
+                summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", omvigDailyCircleDcWiseSummaryRows_(dcSummaryMap), "DC WISE SUMMARY (AMOUNT IN LAKH)", "YESTERDAY PAID", "PENDING");
+            } else {
+                const dcOptions = getDivisionDcNames(omvigFilterDivision).map((n) => ({ value: n, label: n }));
+                dcSelectHtml = omvigFilterSelectHtml_("omvig-circle-dc-select", "-- Select DC --", dcOptions, omvigFilterDc);
+                if (!omvigFilterDc) {
+                    summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", appendOmvigTotalRow_(omvigDailyDivisionDcSummaryRows_(dcSummaryMap, omvigFilterDivision)), "DC-WISE SUMMARY (AMOUNT IN LAKH)", "YESTERDAY PAID", "PENDING");
+                } else {
+                    const dcRows = rowsWithStatus.filter((r) => normalizeDcName(r.dc_name) === normalizeDcName(omvigFilterDc));
+                    statusSelectHtml = omvigFilterSelectHtml_("omvig-circle-status-select", "-- Select Paid/Unpaid --", OMVIG_STATUS_OPTIONS_, omvigFilterStatus);
+                    if (!omvigFilterStatus) {
+                        summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [omvigDailyDcSummaryGroup_(dcSummaryMap, omvigFilterDc)], "DC SUMMARY (AMOUNT IN LAKH)", "YESTERDAY PAID", "PENDING");
+                    } else {
+                        const filteredRows = filterOmvigRowsByStatus_(dcRows, omvigFilterStatus);
+                        summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [buildOmvigStatusSummaryRow_(filteredRows, omvigFilterDc, omvigFilterStatus)], `DC SUMMARY - ${omvigFilterStatus} (AMOUNT IN LAKH)`, "YESTERDAY PAID", "PENDING");
+                    }
+                }
+            }
+            return summaryHtml + divSelectHtml + dcSelectHtml + statusSelectHtml;
         }
 
         // Download button-set bhi Monthly jaisa hi (dekhein downloadOmvigDailyReport
@@ -10266,11 +10400,11 @@
             const dateLine = `<div style="text-align:center; font-size:0.66rem; font-weight:800; color:#475569; margin-bottom:4px;">Latest Paid Upload - Date: ${escapeHtml(data.date)}</div>`;
             let bodyHtml;
             if (activeViewLevel === "DC") {
-                bodyHtml = renderOmvigDcLevelHtml_(data.rowsWithStatus);
+                bodyHtml = renderOmvigDailyDcLevelHtml_(data.rowsWithStatus, data.dcSummaryMap);
             } else if (activeViewLevel === "DIVISION") {
-                bodyHtml = renderOmvigDivisionLevelHtml_(data.rowsWithStatus);
+                bodyHtml = renderOmvigDailyDivisionLevelHtml_(data.rowsWithStatus, data.dcSummaryMap);
             } else {
-                bodyHtml = renderOmvigCircleLevelHtml_(data.rowsWithStatus);
+                bodyHtml = renderOmvigDailyCircleLevelHtml_(data.rowsWithStatus, data.dcSummaryMap);
             }
             const downloadButtons = activeViewLevel === "DC"
                 ? `<div style="display:flex; gap:8px; margin-top:12px;">
@@ -10324,6 +10458,32 @@
                 rows = appendOmvigTotalRow_(buildOmvigDivisionDcSummaryRows_(scopedRows, activeDiv));
             } else {
                 rows = buildOmvigCircleDcWiseSummaryRows_(scopedRows);
+            }
+            return rows.map((r) => ({
+                ...r,
+                paidPercent: r.paidPercent !== undefined ? r.paidPercent : (r.totalCount ? ((r.paidCount / r.totalCount) * 100).toFixed(1) : "0.0"),
+                pendingPercent: r.pendingPercent !== undefined ? r.pendingPercent : (r.totalCount ? ((r.pendingCount / r.totalCount) * 100).toFixed(1) : "0.0")
+            }));
+        }
+
+        // USER REQUEST (2026-09-16, round 2): Daily ke download (Excel/PDF) ka
+        // DC-wise summary table bhi on-screen jaisa hi TRUE TOTAL CONSUMER/
+        // PENDING dikhaye (dcSummaryMap se) - status-filtered (Paid/Unpaid
+        // dropdown chuna hua) case purane flat rowsWithStatus-based (finalRows)
+        // tareeke se hi hai, wahan koi badlav nahi.
+        function getOmvigDailyDownloadSummaryRows_(finalRows, dcSummaryMap) {
+            const dcInScope = activeViewLevel === "DC" ? activeDC : omvigFilterDc;
+            let rows;
+            if (dcInScope) {
+                rows = omvigFilterStatus
+                    ? [buildOmvigStatusSummaryRow_(finalRows, dcInScope, omvigFilterStatus)]
+                    : [omvigDailyDcSummaryGroup_(dcSummaryMap, dcInScope)];
+            } else if (activeViewLevel === "CIRCLE" && omvigFilterDivision) {
+                rows = appendOmvigTotalRow_(omvigDailyDivisionDcSummaryRows_(dcSummaryMap, omvigFilterDivision));
+            } else if (activeViewLevel === "DIVISION") {
+                rows = appendOmvigTotalRow_(omvigDailyDivisionDcSummaryRows_(dcSummaryMap, activeDiv));
+            } else {
+                rows = omvigDailyCircleDcWiseSummaryRows_(dcSummaryMap);
             }
             return rows.map((r) => ({
                 ...r,
@@ -10569,7 +10729,7 @@
                         ["TOTAL SETTLEMENTS", "TOTAL AMOUNT"],
                         [totalCount, totalAmount], []];
                     if (activeViewLevel !== "DC") {
-                        const summaryRows = getOmvigDownloadSummaryRows_(scopedRows, rowsWithStatus);
+                        const summaryRows = getOmvigDailyDownloadSummaryRows_(rowsWithStatus, data.dcSummaryMap);
                         rows.push(["DC NAME", "TOTAL", "PAID COUNT", "PAID AMT", "PENDING COUNT", "PENDING AMT", "PAID %", "PENDING %"]);
                         summaryRows.forEach((r) => rows.push([r.name, r.totalCount, r.paidCount, r.paidAmount, r.pendingCount, r.pendingAmount, `${r.paidPercent}%`, `${r.pendingPercent}%`]));
                         rows.push([]);
@@ -10627,7 +10787,7 @@
                 });
 
                 if (activeViewLevel !== "DC") {
-                    const summaryRows = getOmvigDownloadSummaryRows_(scopedRows, rowsWithStatus);
+                    const summaryRows = getOmvigDailyDownloadSummaryRows_(rowsWithStatus, data.dcSummaryMap);
                     const rowTypeFlags = summaryRows.map((r) => (r.type === "GRAND_TOTAL" ? 2 : (r.type === "SUB_TOTAL" ? 1 : 0)));
                     doc.autoTable({
                         startY: doc.lastAutoTable.finalY + 6,
