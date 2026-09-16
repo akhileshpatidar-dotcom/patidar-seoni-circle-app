@@ -19751,34 +19751,444 @@
             return `Revenue Collection Date Report - ${dateValue}${hqSuffix}${typeSuffix}`;
         }
 
-        async function renderRevenueReportDownload() {
+        // ============================================================
+        // REVENUE REPORT DOWNLOAD - Division/Circle ISOLATED fast path
+        // (2026-09-16 speed fix). DC-level scope (activeDC set) ISSE BILKUL
+        // TOUCH NAHI hota - woh neeche renderRevenueReportDownload() ke
+        // pehle if(activeDC) branch me purane hi shared-cache scopeDc path
+        // se chalta hai, byte-for-byte unchanged. Yeh naya path SIRF
+        // Division/Circle (activeDC khaali) ke liye hai, aur Stock fix,
+        // O&M/VIG, Daily Progress "Paid by Staff" Live Revenue tile
+        // (fetchRevenueLiveProgressFastRows_), ya kisi aur Revenue screen
+        // (Cash Reconcile/Pending DO List/Progress Report) ko bilkul nahi
+        // chhedta - woh sab apne purane getRevenueLiveEntries()/
+        // getRevenueTdEntriesLocal() shared-cache par hi chalte rehte hain.
+        //
+        // User-approved corrections (9) is design me:
+        //  1) PAID (per-DC sheets) 6-DC batches me fetch hoti hai; TD
+        //     (ek hi SHARED sheet, sabhi DC ke liye) poore scope ke liye
+        //     sirf EK request - kabhi bhi per-PAID-batch nahi.
+        //  2) dc_names backend ke requireDcName_() se validate hote hain -
+        //     koi bhi failure silently drop nahi hoti, saaf error milta hai.
+        //  3) date/month filtering backend-side hoti hai, matchesMonthFilter_
+        //     normalizeDateDigits_ (normalizeRevenueReportDate/
+        //     getRevenueMonthKey jaisa hi parsing) par based hai - parity
+        //     alag se /tmp/parity_test.js me verify ki gayi.
+        //  4) Yeh apna ALAG isolated cache (revenueReportScopedCacheMap_)
+        //     rakhta hai - shared Live/TD cache ko kabhi READ ya WRITE
+        //     nahi karta.
+        //  5) Cache/request key = normalized DC list + DAILY/MONTHLY mode +
+        //     selected date/month (buildRevenueReportScopeKey_). Render-
+        //     token (revenueReportRenderToken) ke saath milkar ek purani/
+        //     stale response kabhi bhi naye selection ko overwrite nahi
+        //     kar sakti.
+        //  6) Capability sirf api_version se nahi - response ke
+        //     scope_mode/period_mode/period_value/requested_dc_count
+        //     marker fields se confirm hoti hai
+        //     (revenueReportHasCapabilityMarkers_). Marker missing = purana
+        //     backend = silent fallback purane unscoped path par
+        //     (renderRevenueReportDownloadLegacyScoped_) - koi error nahi.
+        //  7) Download button isi loadRevenueReportScopedRows_() cache ko
+        //     reuse karta hai - fresh cache par dobara fetch nahi.
+        //  8) Partial PAID-batch failure ya TD-failure par poori report
+        //     silently partial/khaali nahi dikhti - failed DC naam ke
+        //     saath clear error throw hoti hai (fetchRevenueReportPaidBatch_/
+        //     fetchRevenueReportTdSingle_), jo render/download dono jagah
+        //     user ko saaf dikhta hai.
+        //  9) PAID 6-DC batches me fetch hoti hai (per-DC sheets), par ab
+        //     PARALLEL (existing withAppsScriptConcurrencyGate_ ke 2-concurrent
+        //     limit ke andar) - sequential nahi (round-2 fix, neeche note).
+        //     TD ek hi shared sheet ke liye poore scope me sirf EK request.
+        //
+        // ROUND-2 CORRECTIONS (user review ke baad):
+        //  a) Sequential-batch bug fix: pehle PAID ke 6-DC batches ek-ek karke
+        //     (for-loop + await) chalte the - isse total backend read-cost me
+        //     koi kami nahi thi (same total cells), sirf alag-alag script
+        //     invocations ka overhead JUD raha tha (har request ka apna
+        //     latency/auth/JSON overhead), jo user ne sahi pakda. Ab batches
+        //     Promise.all() se ek saath chhodi jaati hain - app ka existing
+        //     withAppsScriptConcurrencyGate_ (2 concurrent/script-URL) unhe
+        //     khud hi 2-at-a-time serialize karta hai, jo poori app me already
+        //     istemal ho raha hai (kahin naya risk nahi). Isse real-world
+        //     latency sequential se kam hogi, kyunki gate allow karte hi agla
+        //     batch turant shuru ho jaata hai, purane ke poora khatam hone ka
+        //     wait nahi karta.
+        //  b) HONEST NOTE (backend Sheets-API read-cost par): scoping se
+        //     RESPONSE PAYLOAD (jo browser tak aata hai) chhota hota hai -
+        //     kyunki filtering backend par hi ho jaati hai, poori history
+        //     browser tak nahi aati. Division scope me READ-COST bhi kam hota
+        //     hai (sirf us division ki DC sheets padhi jaati hain, sabhi 24
+        //     ki nahi). Circle scope me saari 24 DC sheets ab bhi utni hi
+        //     padhi jaati hain jitni pehle unscoped call me padhti thi (same
+        //     total data) - isliye Circle ke liye "backend read-cost drastically
+        //     kam hua" jaisa claim GALAT tha, maine pehle overstate kiya - woh
+        //     claim yahan se hata diya gaya hai. Circle ka genuine fayda:
+        //     (i) chhota response payload/JSON-parse (sirf maangi hui date/
+        //     month ki rows), (ii) browser me poori history hold/filter nahi
+        //     karni padti, (iii) 6-DC parallel-batching se ek hi mega-request
+        //     (jisme 24 sheets ka pura data ek script-execution me process ho)
+        //     ke bajaye kaam chhote hisso me bant'ta hai, jo Apps Script ki
+        //     6-minute execution-limit ke against ek safety margin deta hai
+        //     bade/purane data-volume me.
+        //     ASLI backend-execution-time/latency measurement sirf ek REAL
+        //     Apps Script deployment (test/staging URL) par actual timed
+        //     HTTP calls se hi possible hai - yeh sandbox environment se
+        //     production Google Sheet tak connect nahi kar sakta. Isliye yeh
+        //     naya code STILL 6-DC batching istemal karta hai (memory/exec-
+        //     time-limit ke against safety ke liye) lekin ab PARALLEL hai
+        //     (fix a upar) - agar user chahen to deploy hone ke baad ek chhoti
+        //     real-timing A/B run (purana unscoped vs naya batched-parallel vs
+        //     ek single-mega-request) karke confirm kar sakte hain ki konsa
+        //     genuinely fastest hai; is stage par main sirf structurally sahi
+        //     aur verifiably-non-regressive design de sakta hoon, real ms
+        //     timing evidence nahi.
+        //  c) Marker validation ab sirf existence/type nahi, VALUES bhi verify
+        //     karta hai - scope_mode==="batch", period_mode expected ke barabar,
+        //     period_value expected periodValue ke barabar, requested_dc_count
+        //     is batch/scope ki length ke barabar, aur `requested_dc_names`
+        //     (naya backend field, upar .gs me joda gaya) is batch/scope ki
+        //     normalized+sorted DC list se EXACT match. Mismatch hone par
+        //     response ko "invalid" maan kar reject karte hain (retry hota
+        //     hai, silently accept nahi karte) - taaki kisi race/bug se galat
+        //     scope ka data kabhi report me na chala jaaye.
+        //  d) In-flight Promise dedupe: agar render chal hi raha ho (fetch
+        //     pending) aur usi beech Download button dabaya jaaye (ya HQ/Type
+        //     dropdown badal kar render dobara call ho), to same scope-key
+        //     ka doosra call ussi chal rahi Promise ko reuse karta hai - naya
+        //     parallel fetch shuru nahi hota (isliye total request count
+        //     kabhi 2x nahi hota).
+        //  e) Cache ab single object nahi, scope-key se keyed Map hai - agar
+        //     koi PURANI (slow) request der se complete ho jaaye jab tak user
+        //     dusre date/division par ja chuka ho, to woh apne hi (ab
+        //     irrelevant) key ke against store hoti hai - current selection
+        //     ki cache-entry kabhi overwrite/corrupt nahi hoti. Map bounded
+        //     hai (max 8 entries, sabse purani hata di jaati hai) taaki
+        //     memory unbounded na badhe.
+        const revenueReportScopedCacheMap_ = new Map(); // scopeKey -> { rows, loadedAt }
+        const REVENUE_REPORT_SCOPED_CACHE_TTL_MS = 60000;
+        const REVENUE_REPORT_SCOPED_CACHE_MAX_ENTRIES = 8;
+        const revenueReportInFlightFetches_ = new Map(); // scopeKey -> Promise
+
+        function buildRevenueReportScopeKey_(dcList, mode, periodValue) {
+            const normalizedDcs = (dcList || []).map((dc) => normalizeDcName(dc || "")).filter(Boolean).sort();
+            return `${normalizedDcs.join(",")}::${mode}::${String(periodValue || "")}`;
+        }
+
+        function revenueReportPeriodParam_(mode, periodValue) {
+            return mode === "MONTHLY" ? `&month=${encodeURIComponent(periodValue || "")}` : `&date=${encodeURIComponent(periodValue || "")}`;
+        }
+
+        function revenueReportChunkDcList_(list, size) {
+            const out = [];
+            for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
+            return out;
+        }
+
+        function revenueReportSetScopedCache_(scopeKey, rows) {
+            revenueReportScopedCacheMap_.set(scopeKey, { rows, loadedAt: Date.now() });
+            if (revenueReportScopedCacheMap_.size > REVENUE_REPORT_SCOPED_CACHE_MAX_ENTRIES) {
+                const oldestKey = revenueReportScopedCacheMap_.keys().next().value;
+                revenueReportScopedCacheMap_.delete(oldestKey);
+            }
+        }
+
+        // ROUND-2 (correction #c): sirf marker existence/type nahi, expected
+        // VALUES ke against exact validate karte hain - jo DC list yeh
+        // request cover kar rahi thi wahi backend ne echo ki ho, aur
+        // scope_mode/period_mode/period_value/requested_dc_count bhi is
+        // exact request se match karte hon. Ek bhi mismatch = response ko
+        // reject (retry-able failure maana jaata hai, capability-mismatch
+        // NAHI - kyunki agar markers hi maujood hain to backend naya hai,
+        // bas is response ka data galat/stale scope ka lag raha hai).
+        function revenueReportValidateMarkers_(parsed, expectedDcList, expectedPeriodMode, expectedPeriodValue) {
+            // ROUND-3 FIX: scope_mode check missing tha - comment me claim ki gayi
+            // thi lekin code me likha hi nahi gaya tha (user ne pakda). Is naye
+            // isolated path me hum kabhi bhi `dc_name` (single) nahi bhejte, hamesha
+            // `dc_names` (list) bhejte hain - isliye ek genuine naye backend ka
+            // scope_mode YAHAN hamesha "batch" hi hona chahiye (PAID batches aur
+            // Division/Circle TD request, dono). Kuch aur (jaise "all"/"single")
+            // maane ki backend ne humari scoped request ko sahi tarike se resolve
+            // nahi kiya - reject.
+            if (parsed.scope_mode !== "batch") return false;
+            const expectedNames = (expectedDcList || []).map((dc) => normalizeDcName(dc || "")).filter(Boolean).sort();
+            const gotNames = Array.isArray(parsed?.requested_dc_names)
+                ? parsed.requested_dc_names.map((dc) => normalizeDcName(dc || "")).filter(Boolean).sort()
+                : null;
+            if (!gotNames || gotNames.length !== expectedNames.length || gotNames.join("|") !== expectedNames.join("|")) return false;
+            if (parsed.period_mode !== expectedPeriodMode) return false;
+            if (String(parsed.period_value || "") !== String(expectedPeriodValue || "")) return false;
+            if (Number(parsed.requested_dc_count) !== expectedDcList.length) return false;
+            return true;
+        }
+
+        // Naye backend ke zaroori markers - agar yeh missing hain to purana
+        // (redeploy na hua) backend hai, caller silently purane unscoped
+        // path par fallback karega (api_version akela kaafi nahi maana
+        // jaata - correction #6).
+        function revenueReportHasCapabilityMarkers_(parsed) {
+            return !!parsed && typeof parsed.scope_mode === "string" && typeof parsed.period_mode === "string"
+                && typeof parsed.period_value === "string" && typeof parsed.requested_dc_count === "number";
+        }
+
+        // "capability mismatch" (purana backend) aur "genuine failure" (naya
+        // backend hi hai, par is ek request ka jawab fail/error ya
+        // galat-scope aaya) do ALAG cheezein hain (correction #6 aur #8). Ek
+        // "status: error" response me bhi naye markers nahi hote - isliye
+        // capability sirf tab decide karte hain jab response `status:
+        // "success"` ho - tabhi marker missing hone ka matlab "purana
+        // backend" hota hai. Markers maujood hon par exact-scope validation
+        // (revenueReportValidateMarkers_) fail ho jaaye, to bhi "error"
+        // (retry-able) maante hain, capability-mismatch nahi - kyunki backend
+        // to naya hi hai, bas is response ka data trust nahi kar sakte.
+        function revenueReportResponseCapability_(parsed, expectedDcList, expectedPeriodMode, expectedPeriodValue) {
+            if (!parsed || parsed.status !== "success") return "error";
+            if (!revenueReportHasCapabilityMarkers_(parsed)) return "old";
+            if (!revenueReportValidateMarkers_(parsed, expectedDcList, expectedPeriodMode, expectedPeriodValue)) return "error";
+            return "new";
+        }
+
+        // PAID - per-DC sheets, 6-DC batches, PARALLEL fetch (round-2 fix a) -
+        // existing withAppsScriptConcurrencyGate_ khud 2-at-a-time serialize
+        // karta hai. Ek batch (final retry ke baad bhi) fail ho to us batch
+        // ke DC naam collect karke throw karte hain (caller ko saaf, named
+        // error milta hai - kabhi bhi silent partial report nahi).
+        async function fetchRevenueReportPaidBatch_(dcList, mode, periodValue) {
+            if (!revenueCollectionSubmitScriptUrl) return { rows: [], capabilityMismatch: true };
+            const batches = revenueReportChunkDcList_(dcList, 6);
+            const periodParam = revenueReportPeriodParam_(mode, periodValue);
+            const expectedPeriodMode = mode === "MONTHLY" ? "month" : "date";
+            let capabilityMismatch = false;
+
+            async function runBatch(batch) {
+                const dcNamesParam = `&dc_names=${encodeURIComponent(batch.join(","))}`;
+                for (let attempt = 1; attempt <= 2; attempt++) {
+                    try {
+                        const parsed = await withAppsScriptConcurrencyGate_(revenueCollectionSubmitScriptUrl, async () => {
+                            const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getEntries${dcNamesParam}${periodParam}&t=${Date.now()}`);
+                            return await response.json();
+                        });
+                        const capability = revenueReportResponseCapability_(parsed, batch, expectedPeriodMode, periodValue);
+                        if (capability === "old") {
+                            capabilityMismatch = true;
+                            return { ok: true, rows: [] };
+                        }
+                        if (capability === "new") {
+                            const sourceRows = Array.isArray(parsed?.entries) ? parsed.entries : [];
+                            const rows = sourceRows.map(mapRevenueSheetEntry)
+                                .filter((row) => normalizeRevenueIvrs(row.ivrsNo))
+                                .map((row) => ({ ...row, reportType: "PAID" }));
+                            return { ok: true, rows };
+                        }
+                        // capability === "error" -> genuine/validation failure, neeche retry.
+                    } catch (_) {}
+                    if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 600 * attempt));
+                }
+                return { ok: false, dcs: batch };
+            }
+
+            const batchResults = await Promise.all(batches.map(runBatch));
+            if (capabilityMismatch) return { rows: [], capabilityMismatch: true };
+            const failedBatches = batchResults.filter((r) => !r.ok).flatMap((r) => r.dcs);
+            if (failedBatches.length) {
+                const error = new Error(`PAID data load nahi ho paya in DC ke liye: ${failedBatches.join(", ")}`);
+                error.failedDcs = failedBatches;
+                throw error;
+            }
+            const allRows = batchResults.flatMap((r) => r.rows || []);
+            return { rows: allRows, capabilityMismatch: false };
+        }
+
+        // TD - ek hi shared sheet sabhi DC ke liye, isliye poore scope ke
+        // DC list ke saath sirf EK request (kabhi bhi per-PAID-batch nahi -
+        // correction #1). Fail hone par (final retry ke baad) poora report
+        // "incomplete" maan kar clear error throw karte hain.
+        async function fetchRevenueReportTdSingle_(dcList, mode, periodValue) {
+            if (!revenueCollectionSubmitScriptUrl) return { rows: [], capabilityMismatch: true };
+            const periodParam = revenueReportPeriodParam_(mode, periodValue);
+            const expectedPeriodMode = mode === "MONTHLY" ? "month" : "date";
+            const dcNamesParam = `&dc_names=${encodeURIComponent(dcList.join(","))}`;
+            for (let attempt = 1; attempt <= 2; attempt++) {
+                try {
+                    const parsed = await withAppsScriptConcurrencyGate_(revenueCollectionSubmitScriptUrl, async () => {
+                        const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getTDEntries${dcNamesParam}${periodParam}&t=${Date.now()}`);
+                        return await response.json();
+                    });
+                    const capability = revenueReportResponseCapability_(parsed, dcList, expectedPeriodMode, periodValue);
+                    if (capability === "old") return { rows: [], capabilityMismatch: true };
+                    if (capability === "new") {
+                        const sourceRows = Array.isArray(parsed?.entries) ? parsed.entries : [];
+                        const rows = sourceRows.map(mapRevenueTdSheetEntry).filter((row) => normalizeRevenueIvrs(row.ivrsNo));
+                        return { rows, capabilityMismatch: false };
+                    }
+                    // capability === "error" -> genuine/validation failure, retry neeche.
+                } catch (_) {}
+                if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 600 * attempt));
+            }
+            const error = new Error("TD data load nahi ho paya (poora scope) - report incomplete hone se error dikhaya gaya");
+            error.tdFailed = true;
+            throw error;
+        }
+
+        // ROUND-3 CORRECTION: pehle jaisa design tha usme PAID ke 4 batches
+        // aur TD request SEEDHE Promise.all() me ek saath fire ho jaate the -
+        // agar backend PURANA ho (dc_names/month ignore kar deta hai, jaisa
+        // ek genuinely backward-compatible old backend karega), to yeh sabhi
+        // requests SHURU ho chuki hoti (Monthly Circle jaisi heavy scope me
+        // har PAID batch 24-DC ki poori history laut sakta tha, TD bhi
+        // unscoped poori sheet) - fir bhi CAPABILITY MISMATCH detect hone ke
+        // baad legacy fallback ek ALAG poora (unscoped) sync bhi chalata,
+        // matlab double heavy load, timeout risk, aur wahi slowness jo yeh
+        // fix rokna chahta tha (user ne sahi pakda).
+        //
+        // Fix: naya, lightweight, READ-ONLY-OF-NO-SHEET `getCapabilities`
+        // backend action (upar .gs me) - koi bhi PAID/TD request tabhi shuru
+        // hoti hai jab yeh EK chhota probe confirm kar de ki backend naya
+        // hai. Purana backend is action ko jaanta hi nahi (doGet() ke default
+        // "Script Live Hai" branch par girta hai, jo koi bhi data-sheet nahi
+        // chhoota) - is se turant, bina kisi PAID/TD request shuru kiye,
+        // capabilityMismatch:true mil jaata hai aur legacy fallback SAAF,
+        // bina kisi already-in-flight heavy request ke shuru hota hai.
+        // ROUND-4 RELIABILITY FIX (user review): `supported:true` result 5
+        // minute tak cache karna theek hai (backend deploy hone ke baad
+        // itni jaldi wapas "purana" nahi banega). Lekin `supported:false`
+        // (ya probe khud fail/timeout ho jaaye - jo network glitch se bhi ho
+        // sakta hai, zaroori nahi backend hi purana ho) ko 5 minute cache
+        // karna galat tha - ek CHHOTI temporary network hiccup bhi 5 minute
+        // tak app ko purane heavy legacy path par force kar deta. Ab
+        // `false`/error result sirf 20 second (15-30s range) cache hota hai
+        // - taaki repeated re-renders (jaise dropdown filter change) turant
+        // ek ke baad ek naye probe na dagen, lekin real recovery bhi jaldi
+        // detect ho jaaye.
+        let revenueReportCapabilityProbeCache_ = null; // { supported, checkedAt }
+        const REVENUE_REPORT_CAPABILITY_PROBE_TTL_TRUE_MS = 300000; // 5 min - naya backend confirm
+        const REVENUE_REPORT_CAPABILITY_PROBE_TTL_FALSE_MS = 20000; // 20 sec - purana/error/timeout
+        // In-flight dedupe: agar render aur Download (ya kisi filter-change se
+        // dobara render) ek hi samay par probe maang rahe hon, to sirf EK
+        // network call jaaye - baaki sabhi usi chal rahi Promise ko reuse
+        // karein (jaisa PAID/TD fetch ke liye pehle se hai).
+        let revenueReportCapabilityProbeInFlight_ = null;
+
+        async function revenueReportProbeCapability_() {
+            if (!revenueCollectionSubmitScriptUrl) return false;
+            if (revenueReportCapabilityProbeCache_) {
+                const ttl = revenueReportCapabilityProbeCache_.supported
+                    ? REVENUE_REPORT_CAPABILITY_PROBE_TTL_TRUE_MS
+                    : REVENUE_REPORT_CAPABILITY_PROBE_TTL_FALSE_MS;
+                if (Date.now() - revenueReportCapabilityProbeCache_.checkedAt < ttl) {
+                    return revenueReportCapabilityProbeCache_.supported;
+                }
+            }
+            if (revenueReportCapabilityProbeInFlight_) return revenueReportCapabilityProbeInFlight_;
+            revenueReportCapabilityProbeInFlight_ = (async () => {
+                let supported = false;
+                try {
+                    const parsed = await withAppsScriptConcurrencyGate_(revenueCollectionSubmitScriptUrl, async () => {
+                        const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getCapabilities&t=${Date.now()}`);
+                        return await response.json();
+                    });
+                    supported = !!parsed && parsed.status === "success" && parsed.supports_report_scoping === true;
+                } catch (_) {
+                    supported = false;
+                }
+                revenueReportCapabilityProbeCache_ = { supported, checkedAt: Date.now() };
+                return supported;
+            })();
+            try {
+                return await revenueReportCapabilityProbeInFlight_;
+            } finally {
+                revenueReportCapabilityProbeInFlight_ = null;
+            }
+        }
+
+        // PAID (batched-parallel) aur TD (single) dono ek saath (Promise.all)
+        // chalte hain - TD ki request count kabhi bhi PAID batch count se
+        // multiply nahi hoti (correction #1), aur PAID batches khud bhi
+        // aapas me parallel hain (correction round-2/a) - PAR sirf capability
+        // probe confirm hone ke BAAD (correction round-3).
+        async function fetchRevenueReportPeriodScopedRows_(dcList, mode, periodValue) {
+            const capable = await revenueReportProbeCapability_();
+            if (!capable) return { rows: null, capabilityMismatch: true };
+            const [paidResult, tdResult] = await Promise.all([
+                fetchRevenueReportPaidBatch_(dcList, mode, periodValue),
+                fetchRevenueReportTdSingle_(dcList, mode, periodValue)
+            ]);
+            if (paidResult.capabilityMismatch || tdResult.capabilityMismatch) {
+                return { rows: null, capabilityMismatch: true };
+            }
+            return { rows: [...paidResult.rows, ...tdResult.rows], capabilityMismatch: false };
+        }
+
+        // Cache se turant (bina fetch) fresh rows dete hain agar scope+mode+
+        // period match karta ho (0-row result bhi VALID cache-hit hai, ek
+        // khaali array truthy hai isliye normal check hi kaafi hai), warna
+        // null - render ke shuru me "loading" flicker se bachne ke liye peek
+        // karne ke kaam aata hai.
+        function peekRevenueReportScopedCache_(dcList, mode, periodValue) {
+            const scopeKey = buildRevenueReportScopeKey_(dcList, mode, periodValue);
+            const entry = revenueReportScopedCacheMap_.get(scopeKey);
+            if (entry && (Date.now() - entry.loadedAt) < REVENUE_REPORT_SCOPED_CACHE_TTL_MS) {
+                return entry.rows;
+            }
+            return null;
+        }
+
+        // Cache-aware wrapper - on-screen render aur Download button DONO
+        // isi function se hokar guzarte hain (correction #7) - fresh cache
+        // hote hue Download click par dobara PAID+TD fetch nahi hoti. Round-2
+        // correction #d: agar isi scope-key ke liye ek fetch already chal
+        // rahi hai (render abhi loading hi hai), to Download (ya koi bhi
+        // doosra caller) usi in-flight Promise ko reuse karta hai - naya
+        // parallel fetch kabhi shuru nahi hota, total request count doubled
+        // nahi hota.
+        async function loadRevenueReportScopedRows_(dcList, mode, periodValue) {
+            const scopeKey = buildRevenueReportScopeKey_(dcList, mode, periodValue);
+            const cached = peekRevenueReportScopedCache_(dcList, mode, periodValue);
+            if (cached) return { rows: cached, capabilityMismatch: false, scopeKey };
+            if (revenueReportInFlightFetches_.has(scopeKey)) {
+                return revenueReportInFlightFetches_.get(scopeKey);
+            }
+            const fetchPromise = (async () => {
+                const result = await fetchRevenueReportPeriodScopedRows_(dcList, mode, periodValue);
+                if (result.capabilityMismatch) return { rows: null, capabilityMismatch: true, scopeKey };
+                revenueReportSetScopedCache_(scopeKey, result.rows);
+                return { rows: result.rows, capabilityMismatch: false, scopeKey };
+            })();
+            revenueReportInFlightFetches_.set(scopeKey, fetchPromise);
+            try {
+                return await fetchPromise;
+            } finally {
+                revenueReportInFlightFetches_.delete(scopeKey);
+            }
+        }
+
+        // scopedRows backend se already period+scope-filtered aa chuki hain -
+        // yahan sirf HQ/Type dropdown ka local filter lagta hai (jaisa
+        // getRevenueSelectedReportRows shared-cache path ke liye karta hai).
+        function getRevenueScopedSelectedReportRows_(scopedRows) {
+            return filterRevenueRowsBySelectedType(filterRevenueRowsBySelectedHq(scopedRows || []));
+        }
+
+        function getRevenueReportScopeDcList_() {
+            return activeViewLevel === "DIVISION" ? getDivisionDcNames(activeDiv) : getAllDcNames();
+        }
+
+        // Purana (pre-speed-fix) Division/Circle unscoped shared-cache path -
+        // sirf tab call hota hai jab naya backend abhi redeploy nahi hua
+        // (capability markers missing) - taaki purana backend hone par bhi
+        // report kabhi khaali/galat na dikhe, bas naye jitni fast na sahi.
+        async function renderRevenueReportDownloadLegacyScoped_(renderToken) {
             const tableBox = document.getElementById("revenue-report-table");
             if (!tableBox) return;
-            const renderToken = ++revenueReportRenderToken;
-            setRevenueReportDownloadState(false, "", true);
             const baseRows = revenueReportMode === "MONTHLY"
                 ? getRevenueCombinedFilteredEntries("MONTHLY", document.getElementById("revenue-report-month")?.value || getTodayIsoDate().slice(0, 7))
                 : getRevenueCombinedFilteredEntries("DAILY", document.getElementById("revenue-report-date")?.value || getTodayIsoDate());
             populateRevenueReportHqOptions(baseRows);
             tableBox.innerHTML = renderRevenueReportHtml(getRevenueSelectedReportRows(), "Selected date/month me paid/TD entry nahi hai.");
 
-            // Is view me is scope (DC/Division/Circle) ke liye ek baar background
-            // sync ho chuka ho to DATE WISE/MONTH WISE toggle ya HQ/TYPE dropdown
-            // dobara koi network sync trigger nahi karenge - sirf upar wala local
-            // filter/re-render hi kaafi hai.
-            const scopeKey = activeDC || activeDiv || "CIRCLE";
+            const scopeKey = activeDiv || "CIRCLE";
             if (revenueReportLoadedScopeKey === scopeKey) return;
 
-            // SPEED FIX (2026-09-15, USER-REPORTED slowness): DC scope me (activeDC
-            // set) ab `scopeDc` diya jaata hai - Daily Progress jaisa hi proven
-            // pattern (poori history nahi chahiye yahan bhi, sirf DC-scope; date/
-            // month filter upar `getRevenueCombinedFilteredEntries` se local hi
-            // lagta hai, isliye scope-by-DC se koi filtering-logic nahi tootegi).
-            // Division/Circle scope me (activeDC khaali) `scopeDc` bhi khaali
-            // jaayega, matlab pehle jaisa hi poora (sabhi DC) fetch hoga - kyunki
-            // wahan sach me sabhi DC ka data chahiye, koi regression nahi.
-            const reportDownloadScopeDc = activeDC || null;
-            Promise.all([syncRevenueLiveEntriesFromSheet(3, false, reportDownloadScopeDc), syncRevenueTdEntriesFromSheet(3, false, reportDownloadScopeDc)]).then(() => {
+            Promise.all([syncRevenueLiveEntriesFromSheet(3, false, null), syncRevenueTdEntriesFromSheet(3, false, null)]).then(() => {
                 revenueReportLoadedScopeKey = scopeKey;
                 if (renderToken !== revenueReportRenderToken || !document.getElementById("revenue-report-download-view")?.classList.contains("active")) return;
                 const refreshedBaseRows = revenueReportMode === "MONTHLY"
@@ -19787,6 +20197,62 @@
                 populateRevenueReportHqOptions(refreshedBaseRows);
                 tableBox.innerHTML = renderRevenueReportHtml(getRevenueSelectedReportRows(), "Selected date/month me paid/TD entry nahi hai.");
             }).catch(() => {});
+        }
+
+        async function renderRevenueReportDownload() {
+            const tableBox = document.getElementById("revenue-report-table");
+            if (!tableBox) return;
+            const renderToken = ++revenueReportRenderToken;
+            setRevenueReportDownloadState(false, "", true);
+
+            // DC-level scope: BILKUL UNCHANGED - purana shared-cache scopeDc
+            // fast path (2026-09-15 fix) jaisa tha waisa hi rehta hai.
+            if (activeDC) {
+                const baseRows = revenueReportMode === "MONTHLY"
+                    ? getRevenueCombinedFilteredEntries("MONTHLY", document.getElementById("revenue-report-month")?.value || getTodayIsoDate().slice(0, 7))
+                    : getRevenueCombinedFilteredEntries("DAILY", document.getElementById("revenue-report-date")?.value || getTodayIsoDate());
+                populateRevenueReportHqOptions(baseRows);
+                tableBox.innerHTML = renderRevenueReportHtml(getRevenueSelectedReportRows(), "Selected date/month me paid/TD entry nahi hai.");
+
+                const scopeKey = activeDC;
+                if (revenueReportLoadedScopeKey === scopeKey) return;
+
+                Promise.all([syncRevenueLiveEntriesFromSheet(3, false, activeDC), syncRevenueTdEntriesFromSheet(3, false, activeDC)]).then(() => {
+                    revenueReportLoadedScopeKey = scopeKey;
+                    if (renderToken !== revenueReportRenderToken || !document.getElementById("revenue-report-download-view")?.classList.contains("active")) return;
+                    const refreshedBaseRows = revenueReportMode === "MONTHLY"
+                        ? getRevenueCombinedFilteredEntries("MONTHLY", document.getElementById("revenue-report-month")?.value || getTodayIsoDate().slice(0, 7))
+                        : getRevenueCombinedFilteredEntries("DAILY", document.getElementById("revenue-report-date")?.value || getTodayIsoDate());
+                    populateRevenueReportHqOptions(refreshedBaseRows);
+                    tableBox.innerHTML = renderRevenueReportHtml(getRevenueSelectedReportRows(), "Selected date/month me paid/TD entry nahi hai.");
+                }).catch(() => {});
+                return;
+            }
+
+            // Division/Circle scope: NAYA isolated fast path.
+            const dcList = getRevenueReportScopeDcList_();
+            const periodValue = revenueReportMode === "MONTHLY"
+                ? (document.getElementById("revenue-report-month")?.value || getTodayIsoDate().slice(0, 7))
+                : (document.getElementById("revenue-report-date")?.value || getTodayIsoDate());
+            const cachedRows = peekRevenueReportScopedCache_(dcList, revenueReportMode, periodValue);
+            if (cachedRows) {
+                populateRevenueReportHqOptions(cachedRows);
+                tableBox.innerHTML = renderRevenueReportHtml(getRevenueScopedSelectedReportRows_(cachedRows), "Selected date/month me paid/TD entry nahi hai.");
+            } else {
+                tableBox.innerHTML = renderRevenueReportHtml([], "Report load ho raha hai...");
+            }
+            try {
+                const result = await loadRevenueReportScopedRows_(dcList, revenueReportMode, periodValue);
+                if (renderToken !== revenueReportRenderToken) return;
+                if (result.capabilityMismatch) {
+                    return renderRevenueReportDownloadLegacyScoped_(renderToken);
+                }
+                populateRevenueReportHqOptions(result.rows);
+                tableBox.innerHTML = renderRevenueReportHtml(getRevenueScopedSelectedReportRows_(result.rows), "Selected date/month me paid/TD entry nahi hai.");
+            } catch (error) {
+                if (renderToken !== revenueReportRenderToken) return;
+                tableBox.innerHTML = renderRevenueReportHtml([], error?.message || "Report load nahi ho payi, dobara try kijiye.");
+            }
         }
 
         function setRevenueReportDownloadState(isLoading, message = "", ok = true) {
@@ -19813,18 +20279,29 @@
             if (revenueReportDownloadInProgress) return showToast("Download process chal raha hai, kripya wait kijiye", false);
             setRevenueReportDownloadState(true, "Downloading... kripya wait kijiye", true);
             try {
-                // SPEED FIX (2026-09-15): isi screen (Report Download) ke on-screen
-                // render mein DC-scope me ab `scopeDc` diya jaata hai - agar yahan
-                // Download button bina scope ke hi purani unscoped sync call karta
-                // rahta, to render fast hone ke baad bhi Download click karte hi
-                // dobara ek POORI (sabhi-DC) fetch trigger ho jaati (kyunki shared
-                // cache ki scope-tracking DC-scoped aur unscoped fetch ko alag maanti
-                // hai) - isliye yahan bhi wahi scope diya taaki dono consistent/fast
-                // rahein. Division/Circle scope me pehle jaisa hi (poora) fetch hota
-                // hai.
-                const downloadScopeDc = activeDC || null;
-                await Promise.all([syncRevenueLiveEntriesFromSheet(3, false, downloadScopeDc), syncRevenueTdEntriesFromSheet(3, false, downloadScopeDc)]);
-                const rows = getRevenueSelectedReportRows();
+                let rows;
+                if (activeDC) {
+                    // DC-level scope: BILKUL UNCHANGED - purana shared-cache scopeDc
+                    // fast path (2026-09-15 fix) jaisa tha waisa hi rehta hai.
+                    await Promise.all([syncRevenueLiveEntriesFromSheet(3, false, activeDC), syncRevenueTdEntriesFromSheet(3, false, activeDC)]);
+                    rows = getRevenueSelectedReportRows();
+                } else {
+                    // Division/Circle scope: NAYA isolated fast path - isi cache ko
+                    // reuse karta hai jo render ne already load kiya ho (correction #7),
+                    // warna khud fetch karta hai. Capability-mismatch (purana backend)
+                    // par purane unscoped shared-cache path par silently fallback.
+                    const dcList = getRevenueReportScopeDcList_();
+                    const periodValue = revenueReportMode === "MONTHLY"
+                        ? (document.getElementById("revenue-report-month")?.value || getTodayIsoDate().slice(0, 7))
+                        : (document.getElementById("revenue-report-date")?.value || getTodayIsoDate());
+                    const result = await loadRevenueReportScopedRows_(dcList, revenueReportMode, periodValue);
+                    if (result.capabilityMismatch) {
+                        await Promise.all([syncRevenueLiveEntriesFromSheet(3, false, null), syncRevenueTdEntriesFromSheet(3, false, null)]);
+                        rows = getRevenueSelectedReportRows();
+                    } else {
+                        rows = getRevenueScopedSelectedReportRows_(result.rows);
+                    }
+                }
                 if (!rows.length) {
                     setRevenueReportDownloadState(false, "Report ke liye data nahi hai", false);
                     return showToast("Abhi report ke liye data nahi hai", false);
