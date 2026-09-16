@@ -172,6 +172,19 @@
             { id: "M004", name: "Disc Insulator", unit: "Nos", opening: 75, inward: 20, issue: 63, min: 25 },
             { id: "M005", name: "LT Pin Insulator", unit: "Nos", opening: 140, inward: 40, issue: 149, min: 35 }
         ];
+        // STOCK EMPTY/ERROR/STALE FIX (2026-09-16, USER-REQUESTED): "stockMaterials"
+        // upar wale 5 hardcoded demo rows se shuru hota hai, lekin yeh sirf ek
+        // PLACEHOLDER hai jab tak loadStockMaterialsData() ka pehla attempt complete
+        // NAHI ho jaata - us pehle attempt ke turant shuru hote hi (neeche dekhein)
+        // inhe khaali kar diya jaata hai, taaki yeh demo data kabhi "current stock"
+        // jaisa real/production data samajh kar na dikhe.
+        //
+        // "loaded"/"empty"/"error" teeno states clearly alag hain - "empty" ek VALID
+        // successful (0 rows) response hai, "error" ka matlab load hi fail hua
+        // (network/parse failure). "uninitialized"/"loading" dono ko "koi valid data
+        // nahi mila abhi tak" maana jaata hai.
+        let stockMaterialsStatus = "uninitialized"; // "uninitialized" | "loading" | "loaded" | "empty" | "error"
+        let stockMaterialsStale = false; // true = last refresh fail hua, PURANA (loaded/empty) data dikha rahe hain
         let stockMovements = [
             { type: "RECEIVE", material: "AB Cable 3X95+1X50", qty: 180, date: "23/04/2026", note: "Main Store Challan 17" },
             { type: "ISSUE", material: "Disc Insulator", qty: 12, date: "23/04/2026", note: "11 KV line maintenance" },
@@ -7763,7 +7776,34 @@
             return normalizeDcName(found ? found[1] : fallback) || fallback;
         }
 
+        // STOCK EMPTY/ERROR/STALE FIX (2026-09-16, USER-REQUESTED, multi-round-
+        // corrected - see stockMaterialsStatus/stockMaterialsStale comment upar
+        // unke declaration par): teen baar user ke independent review ne
+        // correction maangi thi - (1) empty API+CSV ko "kuch nahi hua" ki jagah
+        // explicit valid-empty maana jaaye, (2) unsaved Receive/Issue kaam kisi
+        // bhi failure-path me kabhi reset na ho, (3) pehla-hi load fail hone par
+        // ise "refresh failure" na samjha jaaye (jo shuru me "loaded" default
+        // rakhne se hota tha) - "uninitialized"/"loading" ko alag rakh kar yeh
+        // teesra bug fix hua hai.
         async function loadStockMaterialsData() {
+            const hadPreviousData = stockMaterialsStatus === "loaded" || stockMaterialsStatus === "empty";
+            const previousStockMaterials = Array.isArray(stockMaterials) ? stockMaterials.slice() : [];
+            const previousStatus = stockMaterialsStatus;
+
+            if (!hadPreviousData) {
+                // "uninitialized" (bilkul pehla call) ya pehle se "error"/"loading"
+                // tha - is attempt ko turant "loading" dikhate hain aur
+                // stockMaterials khaali kar dete hain, taaki upar wala hardcoded
+                // demo array is point ke baad KABHI "current stock" jaisa render
+                // na ho, chahe network kitna bhi slow ho.
+                stockMaterialsStatus = "loading";
+                stockMaterials = [];
+                renderStockDashboard(); // agar user pehle se Stock screen par hai to turant "loading" banner dikhe
+            }
+            // hadPreviousData === true (pehle se "loaded"/"empty") ho to status ko
+            // yahan CHHEDTE NAHI - background-refresh ke dauraan purana data/view
+            // bina flicker ke dikhta rehta hai.
+
             try {
                 const rawData = await loadRemoteJson(`${stockSubmitScriptUrl}?action=getMasterStock`);
                 const parsedMaterials = Array.isArray(rawData)
@@ -7792,21 +7832,67 @@
                     pendingIssueItems = [];
                     selectedStockReceiveItem = null;
                     selectedStockIssueItem = null;
+                    stockMaterialsStatus = "loaded";
+                    stockMaterialsStale = false;
                     renderStockDashboard();
                     return;
                 }
 
+                // API valid, 0 rows -> CSV fallback try karo
                 const csvText = await loadRemoteText(stockMaterialsCsvUrl);
                 const parsedCsvMaterials = parseStockMaterialsCsv(csvText);
-                if (parsedCsvMaterials.length) {
-                    stockMaterials = parsedCsvMaterials;
-                    pendingReceiveItems = [];
-                    pendingIssueItems = [];
-                    selectedStockReceiveItem = null;
-                    selectedStockIssueItem = null;
-                    renderStockDashboard();
+                // FIX: dono sources se 0 rows aana ab explicitly ek VALID "empty"
+                // result hai - pehle yahan sirf "if (parsedCsvMaterials.length)"
+                // tha, dono khaali hone par function chup-chap kuch nahi karta
+                // tha aur purana/demo data "current" jaisa dikhta reh jaata tha.
+                stockMaterials = parsedCsvMaterials;
+                pendingReceiveItems = [];
+                pendingIssueItems = [];
+                selectedStockReceiveItem = null;
+                selectedStockIssueItem = null;
+                stockMaterialsStatus = parsedCsvMaterials.length ? "loaded" : "empty";
+                stockMaterialsStale = false;
+                renderStockDashboard();
+            } catch (_) {
+                // FIX: yeh "empty" NAHI hai, "error" hai.
+                if (hadPreviousData) {
+                    // Refresh fail hua, pehle se valid data (loaded ya empty) tha -
+                    // purana data/status wapas, sirf stale=true. pendingReceiveItems/
+                    // pendingIssueItems/selectedStockReceiveItem/selectedStockIssueItem
+                    // ko YAHAN BILKUL NAHI CHHEDTE - network blip se staff ka
+                    // in-progress Receive/Issue kaam nahi udna chahiye.
+                    stockMaterials = previousStockMaterials;
+                    stockMaterialsStatus = previousStatus;
+                    stockMaterialsStale = true;
+                } else {
+                    // Pehla load hi fail hua (ya "loading" state se hi fail) -
+                    // kabhi koi valid data mila hi nahi. Khaali list + "error"
+                    // status - "empty" dikhana galat hota (user "material master
+                    // khaali hai" samajhta, jabki load hi fail hua). Pending/
+                    // selected yahan bhi touch nahi karte (already khaali honge).
+                    stockMaterials = [];
+                    stockMaterialsStatus = "error";
+                    stockMaterialsStale = false;
                 }
-            } catch (_) {}
+                renderStockDashboard();
+            }
+        }
+
+        // Shared status-banner helper - Stock ke paanchon read-screens (Dashboard
+        // summary, Material List, Live Stock, Low Stock, Stock Report) isi ek
+        // function ko reuse karte hain, taaki stale/error data kabhi bina warning
+        // ke na dikhe (koi bhi screen se yeh check miss na ho).
+        function getStockStatusBannerHtml_() {
+            if (stockMaterialsStatus === "loading") {
+                return `<div class="stock-summary-empty">⏳ Stock data load ho raha hai...</div>`;
+            }
+            if (stockMaterialsStatus === "error") {
+                return `<div class="stock-summary-empty" style="color:#b91c1c;">⚠ Stock data load nahi ho paya. Kripya thodi der baad refresh karein.</div>`;
+            }
+            if (stockMaterialsStale) {
+                return `<div class="stock-summary-empty" style="color:#b45309;">⚠ Stock data refresh nahi ho paya - purana (pichhla load kiya hua) data dikha rahe hain.</div>`;
+            }
+            return "";
         }
 
         function parseStockMaterialsCsv(csvText) {
@@ -13382,6 +13468,7 @@
             const todayReceiveEntries = stockMovements.filter((item) => item.type === "RECEIVE" && item.date === todayDate).slice(0, 6);
             const todayIssueEntries = stockMovements.filter((item) => item.type === "ISSUE" && item.date === todayDate).slice(0, 6);
             document.getElementById("stock-dashboard-content").innerHTML = `
+                ${getStockStatusBannerHtml_()}
                 <div class="stock-mini-summary">
                     <div class="stock-summary-box">
                         <h4>Today Received</h4>
@@ -13440,14 +13527,15 @@
 
         function renderMaterialList() {
             document.getElementById("material-list-content").innerHTML = `
+                ${getStockStatusBannerHtml_()}
                 <div class="stock-table-head"><div>Material Name</div><div>Unit</div><div>Total Stock</div></div>
-                ${stockMaterials.map((item) => `
+                ${stockMaterials.length ? stockMaterials.map((item) => `
                     <div class="stock-table-row">
                         <div>${item.name}<div class="stock-row-sub">${item.id}</div></div>
                         <div>${item.unit}</div>
                         <div>${getStockBalance(item)}</div>
                     </div>
-                `).join("")}
+                `).join("") : (stockMaterialsStatus === "empty" ? `<div class="stock-summary-empty">Koi material master data available nahi hai.</div>` : "")}
             `;
         }
 
@@ -13588,7 +13676,7 @@
         }
 
         function renderLiveStock() {
-            document.getElementById("live-stock-content").innerHTML = stockMaterials.map((item) => {
+            const rowsHtml = stockMaterials.map((item) => {
                 const status = getStockStatus(item);
                 return `
                     <div class="stock-row">
@@ -13603,26 +13691,32 @@
                     </div>
                 `;
             }).join("");
+            document.getElementById("live-stock-content").innerHTML =
+                getStockStatusBannerHtml_() +
+                (rowsHtml || (stockMaterialsStatus === "empty" ? `<div class="stock-note">Abhi koi stock item available nahi hai.</div>` : ""));
         }
 
         function renderLowStock() {
             const lowItems = stockMaterials.filter((item) => getStockBalance(item) <= item.min + 15);
-            document.getElementById("low-stock-content").innerHTML = lowItems.length ? lowItems.map((item) => {
-                const status = getStockStatus(item);
-                return `
-                    <div class="stock-row">
-                        <div>
-                            <div class="stock-row-main">${item.name}</div>
-                            <div class="stock-row-sub">Balance ${getStockBalance(item)} ${item.unit} | Minimum ${item.min}</div>
+            document.getElementById("low-stock-content").innerHTML =
+                getStockStatusBannerHtml_() +
+                (lowItems.length ? lowItems.map((item) => {
+                    const status = getStockStatus(item);
+                    return `
+                        <div class="stock-row">
+                            <div>
+                                <div class="stock-row-main">${item.name}</div>
+                                <div class="stock-row-sub">Balance ${getStockBalance(item)} ${item.unit} | Minimum ${item.min}</div>
+                            </div>
+                            <div class="stock-chip ${status.className}">${status.label}</div>
                         </div>
-                        <div class="stock-chip ${status.className}">${status.label}</div>
-                    </div>
-                `;
-            }).join("") : `<div class="stock-note">Abhi koi low stock item nahi hai.</div>`;
+                    `;
+                }).join("") : (stockMaterialsStatus === "loading" || stockMaterialsStatus === "error" ? "" : `<div class="stock-note">Abhi koi low stock item nahi hai.</div>`));
         }
 
         function renderStockReport() {
             document.getElementById("stock-report-content").innerHTML = `
+                ${getStockStatusBannerHtml_()}
                 <div class="stock-section-stack">
                     <div class="stock-banner">
                         <div>
