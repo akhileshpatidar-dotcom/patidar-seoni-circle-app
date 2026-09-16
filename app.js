@@ -109,9 +109,11 @@
         // USER REQUEST (2026-09-14): Revenue jaisa hi Daily/Monthly toggle - Daily
         // FAST rahe isliye ek alag lightweight path hai (dekhein
         // loadOmvigDailyReportData_). Default MONTHLY (purana/existing poora
-        // PAID/PENDING/PART-PAID view, koi badlav nahi) - user khud "DAILY" chun
-        // sakta hai fast view ke liye.
-        let omvigReportMode = "MONTHLY"; // "DAILY" | "MONTHLY"
+        // PAID/PENDING/PART-PAID view, koi badlav nahi). Report khulte hi halka,
+        // single-call DAILY view dikhana zaroori hai; user zaroorat par MONTHLY
+        // full view chun sakta hai. Isse Division/Circle open hote hi anjaane me
+        // heavy multi-DC monthly sync shuru nahi hoti.
+        let omvigReportMode = "DAILY"; // "DAILY" | "MONTHLY"
         const vehicleReadingStorageKey = "seoni_vehicle_reading_state_v1";
         const vehicleReadingListStorageKey = "seoni_vehicle_reading_list_v1";
         const vehicleReadingCsvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQIv4JMsV1n8vy9cJ0o2UaS45-fh_c3n9u-rqwXjuCZWDNZNRaJlgUKnT4gtP3_kTtpCrQvrTcojWQo/pub?output=csv";
@@ -9534,6 +9536,7 @@
         async function fetchOmvigFreezeStatus_(forceRefresh = false) {
             if (!forceRefresh && omvigFreezeStatusCache_) return omvigFreezeStatusCache_;
             const data = await withOmvigRetry_(() => withAppsScriptConcurrencyGate_(omvigSubmitScriptUrl, () => loadRemoteJson(`${omvigSubmitScriptUrl}?action=getFreezeStatus&t=${Date.now()}`, 45000)));
+            if (data?.status === "error") throw new Error(data.message || "O&M/VIG freeze status load fail");
             let freezeDate = data?.freeze_date || "";
             const pendingCount = Number(data?.pending_count) || 0;
             // USER REQUEST (2026-09-14): koi bhi (admin panel ya seedha report)
@@ -9574,6 +9577,7 @@
             if (omvigPendingCache_[key]) return omvigPendingCache_[key];
             const url = `${omvigSubmitScriptUrl}?action=getPendingSummary&dc=${encodeURIComponent(dcName)}&t=${Date.now()}`;
             const data = await withOmvigRetry_(() => withAppsScriptConcurrencyGate_(omvigSubmitScriptUrl, () => loadRemoteJson(url, 45000)));
+            if (data?.status === "error") throw new Error(data.message || `O&M/VIG ${dcName} data load fail`);
             const rows = Array.isArray(data?.data) ? data.data : [];
             const result = { rows: rows.map(normalizeOmvigPendingRow_), freeze_date: data?.freeze_date || "" };
             omvigPendingCache_[key] = result;
@@ -9584,22 +9588,51 @@
             return Object.keys(divisionConfigs).flatMap((divisionName) => getDivisionDcNames(divisionName));
         }
 
-        // BUG FIX (2026-09-14, user reported: "pehle time leta tha par khul jaati
-        // thi, ab error aane laga" after re-upload): root cause - `Promise.all`
-        // fail-fast hai, poore 24-DC Circle fetch (jo already 2-2.5 minute leta
-        // hai, `withAppsScriptConcurrencyGate_` sirf 2 concurrent allow karta
-        // hai isliye) me agar EK bhi DC ka call dono retry attempts ke baad bhi
-        // fail ho (transient echo-404/network glitch, poori list itni der chalne
-        // par iska chance bhi badh jaata hai), to POORA fetch turant reject ho
-        // jaata tha - baaki 23 DC ka safal data bhi fenk diya jaata tha aur user
-        // ko seedha "data load nahi ho payi" error dikhta tha. FIX: ab har DC ka
-        // fetch alag try/catch me hai (ek DC fail ho to baaki chalte rehte hain,
-        // koi Promise.all reject nahi hota), aur sabhi batch poore hone ke baad
-        // jo bhi DC pehli baar fail hui thi unke liye EK final retry-round chalta
-        // hai (transient glitch aksar dusri baar chal jaata hai). Sirf tabhi error
-        // throw hota hai jab is final round ke baad bhi koi DC fail rahe.
+        // SPEED FIX (2026-09-16): Division/Circle ka purana flow har DC ke liye
+        // alag getPendingSummary call karta tha. Backend har call me poori ~9500-row
+        // baseline sheet read karke uske baad DC filter karta tha; Circle me iska
+        // matlab lagbhag 24 full-sheet scans tha. Naya additive `dc_names` batch
+        // mode 6 DC ek call me laata hai, isliye Circle me aam taur par sirf 4
+        // full-sheet scans hote hain. Batch fail ho to backward-compatible per-DC
+        // fallback chalta hai, taaki frontend/backend deployment mismatch se report
+        // na toote.
+        async function fetchOmvigPendingBatch_(dcNames) {
+            const normalizedDcs = Array.from(new Set((dcNames || []).map((name) => String(name || "").trim()).filter(Boolean)));
+            if (!normalizedDcs.length) return { rows: [], freeze_date: "" };
+
+            const allCached = normalizedDcs.every((dcName) => !!omvigPendingCache_[dcName]);
+            if (allCached) {
+                const cachedRows = [];
+                let cachedFreezeDate = "";
+                normalizedDcs.forEach((dcName) => {
+                    const cached = omvigPendingCache_[dcName];
+                    cachedRows.push(...cached.rows);
+                    if (!cachedFreezeDate && cached.freeze_date) cachedFreezeDate = cached.freeze_date;
+                });
+                return { rows: cachedRows, freeze_date: cachedFreezeDate };
+            }
+
+            const url = `${omvigSubmitScriptUrl}?action=getPendingSummary&dc_names=${encodeURIComponent(normalizedDcs.join(","))}&t=${Date.now()}`;
+            const data = await withOmvigRetry_(() => withAppsScriptConcurrencyGate_(omvigSubmitScriptUrl, () => loadRemoteJson(url, 60000)));
+            if (data?.status === "error") throw new Error(data.message || "O&M/VIG batch data load fail");
+            if (data?.scope_mode !== "batch") throw new Error("O&M/VIG batch endpoint backend par deploy nahi hai");
+            const freezeDate = data?.freeze_date || "";
+            const rows = (Array.isArray(data?.data) ? data.data : []).map(normalizeOmvigPendingRow_);
+
+            const dcMap = {};
+            normalizedDcs.forEach((dcName) => { dcMap[normalizeDcName(dcName)] = []; });
+            rows.forEach((row) => {
+                const key = normalizeDcName(row.dc_name);
+                if (dcMap[key]) dcMap[key].push(row);
+            });
+            normalizedDcs.forEach((dcName) => {
+                omvigPendingCache_[dcName] = { rows: dcMap[normalizeDcName(dcName)] || [], freeze_date: freezeDate };
+            });
+            return { rows, freeze_date: freezeDate };
+        }
+
         async function fetchOmvigPendingForDcs_(dcNames) {
-            const BATCH = 5; // Freeze module jaisa hi - max 5 DC parallel
+            const BATCH = 6;
             let freezeDateOut = "";
             const allRows = [];
             const failedDcs = [];
@@ -9614,7 +9647,13 @@
             };
             for (let i = 0; i < dcNames.length; i += BATCH) {
                 const batch = dcNames.slice(i, i + BATCH);
-                await Promise.all(batch.map(fetchOneDc));
+                try {
+                    const result = await fetchOmvigPendingBatch_(batch);
+                    allRows.push(...result.rows);
+                    if (!freezeDateOut && result.freeze_date) freezeDateOut = result.freeze_date;
+                } catch (_) {
+                    await Promise.all(batch.map(fetchOneDc));
+                }
             }
             if (failedDcs.length) {
                 const retryList = failedDcs.slice();
@@ -9643,6 +9682,7 @@
             if (omvigPaidCache_[key]) return omvigPaidCache_[key];
             const url = `${omvigSubmitScriptUrl}?action=getPaidSummary${dc ? `&dc=${encodeURIComponent(dc)}` : ""}&t=${Date.now()}`;
             const data = await withOmvigRetry_(() => withAppsScriptConcurrencyGate_(omvigSubmitScriptUrl, () => loadRemoteJson(url, dc ? 45000 : 90000)));
+            if (data?.status === "error") throw new Error(data.message || "O&M/VIG paid data load fail");
             const rows = Array.isArray(data?.data) ? data.data : [];
             const result = rows.map(normalizeOmvigPaidRow_);
             omvigPaidCache_[key] = result;
@@ -10039,6 +10079,7 @@
             if (omvigDailyReportCache_) return omvigDailyReportCache_;
             const url = `${omvigSubmitScriptUrl}?action=getDailyReport&t=${Date.now()}`;
             const data = await withOmvigRetry_(() => withAppsScriptConcurrencyGate_(omvigSubmitScriptUrl, () => loadRemoteJson(url, 45000)));
+            if (data?.status === "error") throw new Error(data.message || "O&M/VIG daily report load fail");
             const rows = Array.isArray(data?.rows) ? data.rows.map((r) => ({
                 dc_name: String(r.dc_name || "").trim(),
                 consumer_name: String(r.consumer_name || "").trim(),
