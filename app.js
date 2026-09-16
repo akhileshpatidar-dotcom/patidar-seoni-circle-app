@@ -4180,7 +4180,17 @@
         // par) me poora/complete amount hi dikhta hai, yeh badlav sirf is on-screen
         // summary table tak seemित hai. Ek hi shared table-renderer, taaki HQ-wise
         // aur DC-wise dono jagah exact same look/behaviour rahe.
-        function renderFreezeGroupSummaryTableHtml(nameColLabel, summaryRows, titleText) {
+        // USER REQUEST (2026-09-16): O&M/VIG Daily summary table ke PAID column
+        // header ko "YESTERDAY PAID" dikhana hai (Daily me sirf latest date ke
+        // settlements hote hain, poora baseline-vs-paid compare nahi - isliye
+        // PENDING hamesha 0 dikhta hai, jo bina label ke confusing tha). Isliye
+        // yahan 2 OPTIONAL param jode (paidColLabel/pendingColLabel) - default
+        // "PAID"/"PENDING" hi rehta hai, Freeze Tracking Report ke maujooda 3
+        // call (jo naye param bilkul nahi bhejte) me output bilkul waisa hi
+        // rahega, koi badlav nahi.
+        function renderFreezeGroupSummaryTableHtml(nameColLabel, summaryRows, titleText, paidColLabel, pendingColLabel) {
+            paidColLabel = paidColLabel || "PAID";
+            pendingColLabel = pendingColLabel || "PENDING";
             const headCellStyle = "padding:6px 4px; font-size:0.56rem; font-weight:900; text-transform:uppercase; background:#0891b2; color:#fff; text-align:center;";
             const bodyCellStyle = "padding:5px 4px; font-size:0.62rem; text-align:center; border-bottom:1px solid #e2e8f0;";
             const rowsHtml = summaryRows.map((r) => {
@@ -4209,8 +4219,8 @@
                             <tr>
                                 <th rowspan="2" style="${headCellStyle}">${escapeHtml(nameColLabel)}</th>
                                 <th rowspan="2" style="${headCellStyle}">TOTAL<br>CONSUMER</th>
-                                <th colspan="2" style="${headCellStyle}">PAID</th>
-                                <th colspan="2" style="${headCellStyle}">PENDING</th>
+                                <th colspan="2" style="${headCellStyle}">${escapeHtml(paidColLabel)}</th>
+                                <th colspan="2" style="${headCellStyle}">${escapeHtml(pendingColLabel)}</th>
                             </tr>
                             <tr>
                                 <th style="${headCellStyle}">COUNT</th>
@@ -9804,13 +9814,30 @@
             return rows;
         }
 
+        // USER REQUEST (2026-09-16): DC-wise SUMMARY TABLE (Circle/Division/DC
+        // level, sabhi jagah) me ab tak PART PAID case "PENDING" bucket me
+        // count hota tha (sirf poori tarah balanced_amount cover hone par hi
+        // "PAID" gina jaata tha) - isse GRAND TOTAL PAID COUNT admin panel ke
+        // "matched" figure se kam dikhta tha aur user ko confusing laga. Yeh
+        // ab `filterOmvigRowsByStatus_` ke "PAID" wale definition (isPaidNow YA
+        // koi bhi payment aaya ho) jaisa hi consistent hai - kisi bhi payment
+        // wale case ko "PAID" bucket me gina jaata hai, amount me sirf abhi tak
+        // JITNA paisa aaya hai wahi (poora balanced_amount nahi, jab tak poora
+        // cover na ho jaaye).
+        function omvigIsInPaidBucket_(r) {
+            return r.isPaidNow || Number(r.paidAmountNow || 0) > 0;
+        }
+        function omvigPaidBucketAmount_(r) {
+            return r.isPaidNow ? Number(r.pending_amount || 0) : Number(r.paidAmountNow || 0);
+        }
+
         // DC level ke liye ek hi row ka summary (Freeze NP ke DC-wise summary
         // jaisa hi shape/table, bas is scope me hamesha ek hi row hogi).
         function buildOmvigSingleDcSummaryRow_(rowsWithStatus, dcName) {
             const g = { name: dcName || "-", totalCount: 0, paidCount: 0, paidAmount: 0, pendingCount: 0, pendingAmount: 0 };
             rowsWithStatus.forEach((r) => {
                 g.totalCount += 1;
-                if (r.isPaidNow) { g.paidCount += 1; g.paidAmount += Number(r.pending_amount || 0); }
+                if (omvigIsInPaidBucket_(r)) { g.paidCount += 1; g.paidAmount += omvigPaidBucketAmount_(r); }
                 else { g.pendingCount += 1; g.pendingAmount += Number(r.remainingPending || 0); }
             });
             return g;
@@ -9842,10 +9869,59 @@
                 if (!map[key]) map[key] = emptyGroup(key);
                 const g = map[key];
                 g.totalCount += 1;
-                if (r.isPaidNow) { g.paidCount += 1; g.paidAmount += Number(r.pending_amount || 0); }
+                if (omvigIsInPaidBucket_(r)) { g.paidCount += 1; g.paidAmount += omvigPaidBucketAmount_(r); }
                 else { g.pendingCount += 1; g.pendingAmount += Number(r.remainingPending || 0); }
             });
             return getDivisionDcNames(divisionName).map((dcName) => map[normalizeDcName(dcName)] || emptyGroup(normalizeDcName(dcName)));
+        }
+
+        // USER REQUEST (2026-09-16): Circle level par jab KOI Division filter
+        // nahi laga hota, poori Circle ki DC-wise summary (har Division ka
+        // SUB_TOTAL + aakhir me GRAND_TOTAL) pehle SHARED `buildFreezeDcWiseSummaryRows`
+        // (Freeze Tracking Report ke saath common) se aati thi - us function ko
+        // O&M/VIG ke naye "PART PAID bhi PAID bucket me" rule ke liye nahi
+        // chheda (Freeze Report ka apna alag business meaning hai, scope
+        // discipline). Yeh O&M/VIG-only copy hai, bilkul wahi DC-wise+SUB_TOTAL+
+        // GRAND_TOTAL shape, bas naye omvigIsInPaidBucket_/omvigPaidBucketAmount_
+        // rule ke saath - is function ka call sirf CIRCLE, no-division-filter
+        // scope se hota hai (renderOmvigCircleLevelHtml_ + getOmvigDownloadSummaryRows_),
+        // isliye DIVISION-level branch ki zaroorat nahi.
+        function buildOmvigCircleDcWiseSummaryRows_(rowsWithStatus) {
+            const emptyGroup = (key) => ({ name: key, totalCount: 0, paidCount: 0, paidAmount: 0, pendingCount: 0, pendingAmount: 0 });
+            const withPercents = (g) => ({
+                ...g,
+                paidPercent: g.totalCount ? ((g.paidCount / g.totalCount) * 100).toFixed(1) : "0.0",
+                pendingPercent: g.totalCount ? ((g.pendingCount / g.totalCount) * 100).toFixed(1) : "0.0"
+            });
+            const map = {};
+            (rowsWithStatus || []).forEach((r) => {
+                const key = normalizeDcName(r.dc_name) || "-";
+                if (!map[key]) map[key] = emptyGroup(key);
+                const g = map[key];
+                g.totalCount += 1;
+                if (omvigIsInPaidBucket_(r)) { g.paidCount += 1; g.paidAmount += omvigPaidBucketAmount_(r); }
+                else { g.pendingCount += 1; g.pendingAmount += Number(r.remainingPending || 0); }
+            });
+
+            const rows = [];
+            const grand = emptyGroup("GRAND TOTAL");
+            Object.keys(divisionConfigs).forEach((divisionName) => {
+                const dcRows = getDivisionDcNames(divisionName).map((dcName) => {
+                    const key = normalizeDcName(dcName);
+                    return withPercents(map[key] || emptyGroup(key));
+                });
+                rows.push(...dcRows);
+                const divTotal = emptyGroup(getDivisionTotalLabel(divisionName));
+                dcRows.forEach((r) => {
+                    divTotal.totalCount += r.totalCount; divTotal.paidCount += r.paidCount; divTotal.paidAmount += r.paidAmount;
+                    divTotal.pendingCount += r.pendingCount; divTotal.pendingAmount += r.pendingAmount;
+                });
+                rows.push({ ...withPercents(divTotal), type: "SUB_TOTAL" });
+                grand.totalCount += divTotal.totalCount; grand.paidCount += divTotal.paidCount; grand.paidAmount += divTotal.paidAmount;
+                grand.pendingCount += divTotal.pendingCount; grand.pendingAmount += divTotal.pendingAmount;
+            });
+            rows.push({ ...withPercents(grand), type: "GRAND_TOTAL" });
+            return rows;
         }
 
         // USER REQUEST (2026-09-16, USER-REPORTED via screenshot): Circle (Division
@@ -9879,6 +9955,15 @@
 
         const OMVIG_STATUS_OPTIONS_ = [{ value: "PAID", label: "PAID (incl. Part Paid)" }, { value: "PENDING", label: "PENDING" }];
 
+        // USER REQUEST (2026-09-16): Daily mode ke summary table me "PAID"
+        // column "YESTERDAY PAID" dikhna chahiye (Monthly me "PAID" hi rehta
+        // hai) - taaki 0 PENDING wale Daily view ko log global "aaj pending
+        // zero hai" na samjh baithein, balki samjhein ki yeh sirf us din ke
+        // jama (settlement) hain.
+        function omvigPaidColLabel_() {
+            return omvigReportMode === "DAILY" ? "YESTERDAY PAID" : "PAID";
+        }
+
         // USER REQUEST (2026-09-14 + fix): DC level par ab poori list seedhe
         // nahi dikhti - sirf is DC ka ek-row SUMMARY. Paid/Unpaid dropdown
         // chunte hi SUMMARY bhi usi status tak simat jaati hai (poori app ke
@@ -9892,10 +9977,10 @@
             let summaryHtml, listHtml = "";
             if (omvigFilterStatus) {
                 const filteredRows = filterOmvigRowsByStatus_(rowsWithStatus, omvigFilterStatus);
-                summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [buildOmvigStatusSummaryRow_(filteredRows, activeDC, omvigFilterStatus)], `DC SUMMARY - ${omvigFilterStatus} (AMOUNT IN LAKH)`);
+                summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [buildOmvigStatusSummaryRow_(filteredRows, activeDC, omvigFilterStatus)], `DC SUMMARY - ${omvigFilterStatus} (AMOUNT IN LAKH)`, omvigPaidColLabel_(), "PENDING");
                 listHtml = renderOmvigDcListHtml_(filteredRows);
             } else {
-                summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [buildOmvigSingleDcSummaryRow_(rowsWithStatus, activeDC)], "DC SUMMARY (AMOUNT IN LAKH)");
+                summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [buildOmvigSingleDcSummaryRow_(rowsWithStatus, activeDC)], "DC SUMMARY (AMOUNT IN LAKH)", omvigPaidColLabel_(), "PENDING");
             }
             return summaryHtml + statusSelectHtml + listHtml;
         }
@@ -9913,15 +9998,15 @@
             const dcSelectHtml = omvigFilterSelectHtml_("omvig-division-dc-select", "-- Select DC --", dcOptions, omvigFilterDc);
             let summaryHtml, statusSelectHtml = "";
             if (!omvigFilterDc) {
-                summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", appendOmvigTotalRow_(buildOmvigDivisionDcSummaryRows_(rowsWithStatus, activeDiv)), "DC WISE SUMMARY (AMOUNT IN LAKH)");
+                summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", appendOmvigTotalRow_(buildOmvigDivisionDcSummaryRows_(rowsWithStatus, activeDiv)), "DC WISE SUMMARY (AMOUNT IN LAKH)", omvigPaidColLabel_(), "PENDING");
             } else {
                 const dcRows = rowsWithStatus.filter((r) => normalizeDcName(r.dc_name) === normalizeDcName(omvigFilterDc));
                 statusSelectHtml = omvigFilterSelectHtml_("omvig-division-status-select", "-- Select Paid/Unpaid --", OMVIG_STATUS_OPTIONS_, omvigFilterStatus);
                 if (!omvigFilterStatus) {
-                    summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [buildOmvigSingleDcSummaryRow_(dcRows, omvigFilterDc)], "DC SUMMARY (AMOUNT IN LAKH)");
+                    summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [buildOmvigSingleDcSummaryRow_(dcRows, omvigFilterDc)], "DC SUMMARY (AMOUNT IN LAKH)", omvigPaidColLabel_(), "PENDING");
                 } else {
                     const filteredRows = filterOmvigRowsByStatus_(dcRows, omvigFilterStatus);
-                    summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [buildOmvigStatusSummaryRow_(filteredRows, omvigFilterDc, omvigFilterStatus)], `DC SUMMARY - ${omvigFilterStatus} (AMOUNT IN LAKH)`);
+                    summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [buildOmvigStatusSummaryRow_(filteredRows, omvigFilterDc, omvigFilterStatus)], `DC SUMMARY - ${omvigFilterStatus} (AMOUNT IN LAKH)`, omvigPaidColLabel_(), "PENDING");
                 }
             }
             return summaryHtml + dcSelectHtml + statusSelectHtml;
@@ -9940,20 +10025,26 @@
             const divSelectHtml = omvigFilterSelectHtml_("omvig-circle-division-select", "-- Select Division --", divOptions, omvigFilterDivision);
             let summaryHtml, dcSelectHtml = "", statusSelectHtml = "";
             if (!omvigFilterDivision) {
-                summaryHtml = renderFreezeDcWiseSummaryHtml(rowsWithStatus);
+                // USER REQUEST (2026-09-16): pehle yahan SHARED renderFreezeDcWiseSummaryHtml
+                // (Freeze Tracking Report ke saath common) use hota tha - naye
+                // "PART PAID bhi PAID bucket me" rule + Daily "YESTERDAY PAID"
+                // label ke liye ab O&M/VIG-only buildOmvigCircleDcWiseSummaryRows_
+                // (bilkul wahi DC-wise+SUB_TOTAL+GRAND_TOTAL shape) use karte hain,
+                // Freeze Report ka shared function bilkul nahi chheda.
+                summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", buildOmvigCircleDcWiseSummaryRows_(rowsWithStatus), "DC WISE SUMMARY (AMOUNT IN LAKH)", omvigPaidColLabel_(), "PENDING");
             } else {
                 const dcOptions = getDivisionDcNames(omvigFilterDivision).map((n) => ({ value: n, label: n }));
                 dcSelectHtml = omvigFilterSelectHtml_("omvig-circle-dc-select", "-- Select DC --", dcOptions, omvigFilterDc);
                 if (!omvigFilterDc) {
-                    summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", appendOmvigTotalRow_(buildOmvigDivisionDcSummaryRows_(rowsWithStatus, omvigFilterDivision)), "DC-WISE SUMMARY (AMOUNT IN LAKH)");
+                    summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", appendOmvigTotalRow_(buildOmvigDivisionDcSummaryRows_(rowsWithStatus, omvigFilterDivision)), "DC-WISE SUMMARY (AMOUNT IN LAKH)", omvigPaidColLabel_(), "PENDING");
                 } else {
                     const dcRows = rowsWithStatus.filter((r) => normalizeDcName(r.dc_name) === normalizeDcName(omvigFilterDc));
                     statusSelectHtml = omvigFilterSelectHtml_("omvig-circle-status-select", "-- Select Paid/Unpaid --", OMVIG_STATUS_OPTIONS_, omvigFilterStatus);
                     if (!omvigFilterStatus) {
-                        summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [buildOmvigSingleDcSummaryRow_(dcRows, omvigFilterDc)], "DC SUMMARY (AMOUNT IN LAKH)");
+                        summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [buildOmvigSingleDcSummaryRow_(dcRows, omvigFilterDc)], "DC SUMMARY (AMOUNT IN LAKH)", omvigPaidColLabel_(), "PENDING");
                     } else {
                         const filteredRows = filterOmvigRowsByStatus_(dcRows, omvigFilterStatus);
-                        summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [buildOmvigStatusSummaryRow_(filteredRows, omvigFilterDc, omvigFilterStatus)], `DC SUMMARY - ${omvigFilterStatus} (AMOUNT IN LAKH)`);
+                        summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [buildOmvigStatusSummaryRow_(filteredRows, omvigFilterDc, omvigFilterStatus)], `DC SUMMARY - ${omvigFilterStatus} (AMOUNT IN LAKH)`, omvigPaidColLabel_(), "PENDING");
                     }
                 }
             }
@@ -10214,6 +10305,12 @@
             return rows;
         }
 
+        // USER REQUEST (2026-09-16): download (Excel/PDF) ka DC-wise summary
+        // table on-screen wale se HAMESHA match karna chahiye - isliye ab yahan
+        // bhi wahi O&M/VIG-only builders (aur TOTAL row) use karte hain jo
+        // screen par use hote hain, SHARED buildFreezeDcWiseSummaryRows nahi
+        // (jisme na to naya "PART PAID bhi PAID" rule hai, na Division-level
+        // par TOTAL row).
         function getOmvigDownloadSummaryRows_(scopedRows, finalRows) {
             const dcInScope = activeViewLevel === "DC" ? activeDC : omvigFilterDc;
             let rows;
@@ -10222,9 +10319,11 @@
                     ? [buildOmvigStatusSummaryRow_(finalRows, dcInScope, omvigFilterStatus)]
                     : [buildOmvigSingleDcSummaryRow_(scopedRows, dcInScope)];
             } else if (activeViewLevel === "CIRCLE" && omvigFilterDivision) {
-                rows = buildOmvigDivisionDcSummaryRows_(scopedRows, omvigFilterDivision);
+                rows = appendOmvigTotalRow_(buildOmvigDivisionDcSummaryRows_(scopedRows, omvigFilterDivision));
+            } else if (activeViewLevel === "DIVISION") {
+                rows = appendOmvigTotalRow_(buildOmvigDivisionDcSummaryRows_(scopedRows, activeDiv));
             } else {
-                rows = buildFreezeDcWiseSummaryRows(scopedRows);
+                rows = buildOmvigCircleDcWiseSummaryRows_(scopedRows);
             }
             return rows.map((r) => ({
                 ...r,
@@ -10240,7 +10339,11 @@
                 const scopedRows = getOmvigDownloadScopedRows_(data.rowsWithStatus);
                 const rowsWithStatus = omvigFilterStatus ? filterOmvigRowsByStatus_(scopedRows, omvigFilterStatus) : scopedRows;
                 const totalCount = rowsWithStatus.length;
-                const paidCount = rowsWithStatus.filter((r) => r.isPaidNow).length;
+                // USER REQUEST (2026-09-16): PART PAID bhi ab "PAID" bucket me
+                // ginte hain (on-screen DC-wise summary table jaisa hi) - taaki
+                // is top box ka PAID/PENDING count niche wali DC-wise summary
+                // table se hamesha match kare.
+                const paidCount = rowsWithStatus.filter((r) => omvigIsInPaidBucket_(r)).length;
                 const pendingCount = totalCount - paidCount;
                 const paidPercent = totalCount ? ((paidCount / totalCount) * 100).toFixed(1) : "0.0";
                 const pendingPercent = totalCount ? ((pendingCount / totalCount) * 100).toFixed(1) : "0.0";
