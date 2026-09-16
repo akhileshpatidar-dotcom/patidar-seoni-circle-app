@@ -9848,6 +9848,27 @@
             return getDivisionDcNames(divisionName).map((dcName) => map[normalizeDcName(dcName)] || emptyGroup(normalizeDcName(dcName)));
         }
 
+        // USER REQUEST (2026-09-16, USER-REPORTED via screenshot): Circle (Division
+        // filter laga hua) aur Division-level summary table me neeche ek TOTAL row
+        // missing thi - sirf per-DC rows dikhte the. Dono jagah buildOmvigDivisionDcSummaryRows_
+        // (O&M/VIG-only helper, Freeze Report ke saath SHARED nahi) use hoti hai -
+        // isliye total sirf yahin jodte hain, Freeze Report ki shared
+        // buildFreezeDcWiseSummaryRows/renderFreezeDcWiseSummaryHtml ko bilkul nahi
+        // chhedte (wahan already Circle-wide view me SUB_TOTAL+GRAND_TOTAL sahi
+        // dikh rahe hain, unse koi lena-dena nahi). Daily aur Monthly dono ek hi
+        // renderOmvigDivisionLevelHtml_/renderOmvigCircleLevelHtml_ reuse karte
+        // hain, isliye yeh fix dono me apne aap aa jaata hai.
+        function appendOmvigTotalRow_(rows) {
+            const total = { name: "TOTAL", totalCount: 0, paidCount: 0, paidAmount: 0, pendingCount: 0, pendingAmount: 0, type: "GRAND_TOTAL" };
+            rows.forEach((r) => {
+                total.totalCount += r.totalCount; total.paidCount += r.paidCount; total.paidAmount += r.paidAmount;
+                total.pendingCount += r.pendingCount; total.pendingAmount += r.pendingAmount;
+            });
+            total.paidPercent = total.totalCount ? ((total.paidCount / total.totalCount) * 100).toFixed(1) : "0.0";
+            total.pendingPercent = total.totalCount ? ((total.pendingCount / total.totalCount) * 100).toFixed(1) : "0.0";
+            return rows.concat([total]);
+        }
+
         function omvigFilterSelectHtml_(id, placeholder, options, selectedValue) {
             const optionsHtml = options.map((opt) => `<option value="${escapeHtml(opt.value)}" ${selectedValue === opt.value ? "selected" : ""}>${escapeHtml(opt.label)}</option>`).join("");
             return `<select id="${id}" onchange="onOmvigFilterChange()" style="width:100%; max-width:360px; height:40px; margin:10px auto 0; display:block; border:1.5px solid #94a3b8; border-radius:10px; padding:0 10px; font-size:0.72rem; font-weight:900; color:#0f172a; background:#ffffff;">
@@ -9892,7 +9913,7 @@
             const dcSelectHtml = omvigFilterSelectHtml_("omvig-division-dc-select", "-- Select DC --", dcOptions, omvigFilterDc);
             let summaryHtml, statusSelectHtml = "";
             if (!omvigFilterDc) {
-                summaryHtml = renderFreezeDcWiseSummaryHtml(rowsWithStatus);
+                summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", appendOmvigTotalRow_(buildOmvigDivisionDcSummaryRows_(rowsWithStatus, activeDiv)), "DC WISE SUMMARY (AMOUNT IN LAKH)");
             } else {
                 const dcRows = rowsWithStatus.filter((r) => normalizeDcName(r.dc_name) === normalizeDcName(omvigFilterDc));
                 statusSelectHtml = omvigFilterSelectHtml_("omvig-division-status-select", "-- Select Paid/Unpaid --", OMVIG_STATUS_OPTIONS_, omvigFilterStatus);
@@ -9924,7 +9945,7 @@
                 const dcOptions = getDivisionDcNames(omvigFilterDivision).map((n) => ({ value: n, label: n }));
                 dcSelectHtml = omvigFilterSelectHtml_("omvig-circle-dc-select", "-- Select DC --", dcOptions, omvigFilterDc);
                 if (!omvigFilterDc) {
-                    summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", buildOmvigDivisionDcSummaryRows_(rowsWithStatus, omvigFilterDivision), "DC-WISE SUMMARY (AMOUNT IN LAKH)");
+                    summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", appendOmvigTotalRow_(buildOmvigDivisionDcSummaryRows_(rowsWithStatus, omvigFilterDivision)), "DC-WISE SUMMARY (AMOUNT IN LAKH)");
                 } else {
                     const dcRows = rowsWithStatus.filter((r) => normalizeDcName(r.dc_name) === normalizeDcName(omvigFilterDc));
                     statusSelectHtml = omvigFilterSelectHtml_("omvig-circle-status-select", "-- Select Paid/Unpaid --", OMVIG_STATUS_OPTIONS_, omvigFilterStatus);
@@ -10103,31 +10124,74 @@
             return rows;
         }
 
+        // USER REQUEST (2026-09-16): Daily ko bhi Monthly jaisa hi summary+dropdown
+        // UX chahiye - Circle/Division level par seedhi list nahi, DC-wise summary
+        // table (Division dropdown se drill-down), DC level par single-DC summary +
+        // Paid/Unpaid dropdown (list sirf tabhi) - EXACT wahi shared render
+        // functions (renderOmvigDcLevelHtml_/renderOmvigDivisionLevelHtml_/
+        // renderOmvigCircleLevelHtml_, aur unke andar ke summary-builders jaise
+        // buildOmvigSingleDcSummaryRow_/buildOmvigDivisionDcSummaryRows_/
+        // buildFreezeDcWiseSummaryRows) Monthly ke saath reuse karne ke liye,
+        // Daily ke flat rows ko yahan unhi shared functions ke expected shape me
+        // map karte hain. Daily me "pending" ka koi concept nahi hai (yeh sirf us
+        // din ke PAID settlements hain), isliye har row hamesha isPaidNow:true
+        // rehti hai - summary table me PENDING column hamesha 0 dikhega, jo Daily
+        // ke liye sahi/accurate hai (galat nahi), user ne isi layout ko explicitly
+        // chuna hai.
+        function mapOmvigDailyRowsWithStatus_(rows, date) {
+            return rows.map((r) => ({
+                dc_name: r.dc_name,
+                consumer_name: r.consumer_name,
+                panchanama_no: r.panchanama_no,
+                case_name: "", // Daily ke getDailyReport data me case_name available nahi hai
+                pay_mode: r.pay_mode,
+                pending_amount: r.amount,
+                remainingPending: 0,
+                paidAmountNow: r.amount,
+                balanced_amount: r.amount,
+                isPaidNow: true,
+                paidDateNow: date
+            }));
+        }
+
         async function loadOmvigDailyReportData_(forceRefresh = false) {
             // enrichment (consumer naam, DC fallback) ab backend (`getDailyReport`)
             // hi kar ke deta hai - yahan sirf view-level (DC/Division/Circle)
             // scoping baaki hai, jo purani tarah in-memory/free hai.
             const { date, rows } = await fetchOmvigDailyReport_(forceRefresh);
             const scoped = scopeOmvigDailyRowsToView_(rows);
-            return { date, rows: scoped };
+            return { date, rowsWithStatus: mapOmvigDailyRowsWithStatus_(scoped, date) };
         }
 
+        // Download button-set bhi Monthly jaisa hi (dekhein downloadOmvigDailyReport
+        // neeche) - column-set sirf Daily ke actual data (DC/Consumer/Panchanama/
+        // Pay Mode/Amount) tak simat hai, kyunki Monthly wale Circle/Division/
+        // Checked-By/Inspection-Date/EZ-No/Tariff/Case/Balanced-Amount columns
+        // Daily data me hote hi nahi.
         function renderOmvigDailyReportHtml_(data) {
             if (!data.date) {
                 return `<div style="text-align:center; color:#64748b; font-size:0.72rem; padding:20px 0;">Abhi tak koi Paid List upload nahi hui hai.</div>`;
             }
-            const totalAmount = data.rows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
-            let html = `<div style="text-align:center; font-size:0.66rem; font-weight:800; color:#475569; margin-bottom:8px;">Latest Paid Upload - Date: ${escapeHtml(data.date)}</div>`;
-            html += `<div class="summary-wrapper"><div class="summary-table-header" style="grid-template-columns: 1.4fr 0.9fr 0.8fr;"><div>Consumer / DC</div><div>Panchanama No</div><div>Amount</div></div>`;
-            if (!data.rows.length) {
-                html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div class="text-rose-600">Is date ke liye is scope me koi settlement nahi mila.</div></div>`;
+            const dateLine = `<div style="text-align:center; font-size:0.66rem; font-weight:800; color:#475569; margin-bottom:4px;">Latest Paid Upload - Date: ${escapeHtml(data.date)}</div>`;
+            let bodyHtml;
+            if (activeViewLevel === "DC") {
+                bodyHtml = renderOmvigDcLevelHtml_(data.rowsWithStatus);
+            } else if (activeViewLevel === "DIVISION") {
+                bodyHtml = renderOmvigDivisionLevelHtml_(data.rowsWithStatus);
             } else {
-                data.rows.forEach((r) => {
-                    html += `<div class="summary-table-row" style="grid-template-columns: 1.4fr 0.9fr 0.8fr;"><div>${escapeHtml(r.consumer_name || "-")}<br><span style="font-size:0.58rem; color:#64748b;">${escapeHtml(r.dc_name)}${r.pay_mode ? " | " + escapeHtml(r.pay_mode) : ""}</span></div><div class="font-black">${escapeHtml(r.panchanama_no)}</div><div class="text-emerald-700 font-black">${formatProgressReportAmount(r.amount)}</div></div>`;
-                });
+                bodyHtml = renderOmvigCircleLevelHtml_(data.rowsWithStatus);
             }
-            html += `</div><div class="summary-footer"><div class="font-black text-slate-800 text-center">TOTAL SETTLEMENTS: ${data.rows.length} | AMOUNT: ${formatProgressReportAmount(totalAmount)}</div></div>`;
-            return html;
+            const downloadButtons = activeViewLevel === "DC"
+                ? `<div style="display:flex; gap:8px; margin-top:12px;">
+                     <button class="btn-unique" style="flex:1; background:#16a34a; color:#fff;" onclick="downloadOmvigDailyReport('XLS')">⬇️ Excel</button>
+                     <button class="btn-unique" style="flex:1; background:#dc2626; color:#fff;" onclick="downloadOmvigDailyReport('PDF')">⬇️ PDF</button>
+                   </div>`
+                : `<div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
+                     <button class="btn-unique" style="flex:1; min-width:100px; background:#16a34a; color:#fff;" onclick="downloadOmvigDailyReport('XLS')">⬇️ Excel</button>
+                     <button class="btn-unique" style="flex:1; min-width:100px; background:#0891b2; color:#fff;" onclick="downloadOmvigDailyReport('PDF_SUMMARY')">📊 Summary PDF</button>
+                     <button class="btn-unique" style="flex:1; min-width:100px; background:#dc2626; color:#fff;" onclick="downloadOmvigDailyReport('PDF_LIST')">📋 List PDF</button>
+                   </div>`;
+            return dateLine + bodyHtml + downloadButtons;
         }
 
         // USER REQUEST (2026-09-14): on-screen dropdown filter (Division/DC/
@@ -10361,6 +10425,134 @@
                 showToast("PDF report ka request bhej diya gaya. Agar preview me file na aaye to browser ya GitHub version me check kijiye.", true);
             } catch (error) {
                 showToast(error?.message || "O&M/VIG report download nahi ho paya", false);
+            }
+        }
+
+        // USER REQUEST (2026-09-16): Daily ke liye Monthly jaisa hi download
+        // pattern - Excel + Summary PDF + List PDF (Division/Circle), Excel + PDF
+        // (DC level), wahi dropdown-scoping (getOmvigDownloadScopedRows_/
+        // getOmvigDownloadSummaryRows_/filterOmvigRowsByStatus_ - sab reused,
+        // Monthly-agnostic hain). Column-set Daily ke actual data tak simat hai
+        // (DC/Consumer/Panchanama/Pay Mode/Amount) - Monthly wale Circle/Division/
+        // Checked-By/Inspection-Date/EZ-No/Tariff/Case/Balanced-Amount columns
+        // Daily data me hote hi nahi, isliye copy nahi kiye ja sakte.
+        async function downloadOmvigDailyReport(fmt) {
+            try {
+                const data = await loadOmvigDailyReportData_();
+                if (!data.date) return showToast("Abhi tak koi Paid List upload nahi hui hai", false);
+                const scopedRows = getOmvigDownloadScopedRows_(data.rowsWithStatus);
+                const rowsWithStatus = omvigFilterStatus ? filterOmvigRowsByStatus_(scopedRows, omvigFilterStatus) : scopedRows;
+                const totalCount = rowsWithStatus.length;
+                const totalAmount = rowsWithStatus.reduce((sum, r) => sum + (Number(r.paidAmountNow) || 0), 0);
+
+                let scope = activeViewLevel === "DC" ? `DC - ${activeDC}` : (activeViewLevel === "DIVISION" ? activeDiv : "SEONI CIRCLE");
+                const scopeExtras = [];
+                if (activeViewLevel === "CIRCLE" && omvigFilterDivision) scopeExtras.push(omvigFilterDivision.replace(/^DIVISION\s+/i, ""));
+                if ((activeViewLevel === "CIRCLE" || activeViewLevel === "DIVISION") && omvigFilterDc) scopeExtras.push(omvigFilterDc);
+                if (omvigFilterStatus) scopeExtras.push(omvigFilterStatus);
+                if (scopeExtras.length) scope += ` - ${scopeExtras.join(" - ")}`;
+                const reportTitle = `O&M-VIG Daily Report - ${scope}`;
+                const fileName = `${reportTitle}-${data.date}`.replace(/[\\/:*?"<>|]+/g, "_");
+
+                const listHeaders = ["DC", "CONSUMER NAME", "PANCHANAMA NO", "PAY MODE", "AMOUNT"];
+                const listBodyRows = rowsWithStatus.map((r) => [r.dc_name, r.consumer_name, r.panchanama_no, r.pay_mode, r.paidAmountNow]);
+
+                if (fmt === "XLS") {
+                    const csvSafe = (value) => {
+                        const text = String(value ?? "").replace(/\r\n|\r|\n/g, " ");
+                        return /[",]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+                    };
+                    const rows = [[reportTitle], [`Date: ${data.date}`], [],
+                        ["TOTAL SETTLEMENTS", "TOTAL AMOUNT"],
+                        [totalCount, totalAmount], []];
+                    if (activeViewLevel !== "DC") {
+                        const summaryRows = getOmvigDownloadSummaryRows_(scopedRows, rowsWithStatus);
+                        rows.push(["DC NAME", "TOTAL", "PAID COUNT", "PAID AMT", "PENDING COUNT", "PENDING AMT", "PAID %", "PENDING %"]);
+                        summaryRows.forEach((r) => rows.push([r.name, r.totalCount, r.paidCount, r.paidAmount, r.pendingCount, r.pendingAmount, `${r.paidPercent}%`, `${r.pendingPercent}%`]));
+                        rows.push([]);
+                    }
+                    rows.push(listHeaders, ...listBodyRows);
+                    const csv = rows.map((row) => row.map(csvSafe).join(",")).join("\n");
+                    await saveShmsBlob(`${fileName}.csv`, new Blob([csv], { type: "text/csv;charset=utf-8" }), "text/csv;charset=utf-8");
+                    return showToast("Excel report ka request bhej diya gaya. Agar preview me file na aaye to browser ya GitHub version me check kijiye.", true);
+                }
+
+                if (!window.jspdf?.jsPDF) return showToast("PDF library load nahi hui", false);
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF("l", "mm", "a4");
+                const LEFT_ALIGN_COLS_ = [1, 2];
+                const RIGHT_ALIGN_COLS_ = [4];
+                const omvigDailyColumnStyles_ = {};
+                LEFT_ALIGN_COLS_.forEach((i) => { omvigDailyColumnStyles_[i] = { halign: "left" }; });
+                RIGHT_ALIGN_COLS_.forEach((i) => { omvigDailyColumnStyles_[i] = { halign: "right" }; });
+                const drawFullListTable = (startY) => {
+                    doc.autoTable({
+                        startY,
+                        head: [listHeaders],
+                        body: listBodyRows.length ? listBodyRows : [listHeaders.map(() => "")],
+                        theme: "grid", headStyles: { fillColor: [17, 24, 39], halign: "center" },
+                        styles: { fontSize: 6.5, cellPadding: 1.4, halign: "center", valign: "middle", overflow: "linebreak" },
+                        columnStyles: omvigDailyColumnStyles_,
+                        didDrawCell: (cellData) => {
+                            if (cellData.section === "body" && meterCheckingCellHasDevanagari_(cellData.cell.raw)) {
+                                const align = LEFT_ALIGN_COLS_.includes(cellData.column.index) ? "left" : "center";
+                                drawMeterCheckingHindiCell_(doc, cellData, align);
+                            }
+                        }
+                    });
+                };
+
+                if (fmt === "PDF_LIST") {
+                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 8);
+                    doc.setFontSize(13); doc.setTextColor(0); doc.text(`${reportTitle} - Full List`, 148, 15, { align: "center" });
+                    doc.setFontSize(9); doc.setTextColor(80); doc.text(`Date: ${data.date}`, 148, 21, { align: "center" });
+                    drawFullListTable(26);
+                    const pdfBlob = doc.output("blob");
+                    await saveShmsBlob(`${fileName}.pdf`, pdfBlob, "application/pdf");
+                    return showToast("PDF report ka request bhej diya gaya. Agar preview me file na aaye to browser ya GitHub version me check kijiye.", true);
+                }
+
+                doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 8);
+                doc.setFontSize(15); doc.setTextColor(0); doc.text(reportTitle, 148, 16, { align: "center" });
+                doc.setFontSize(10); doc.text(`Date: ${data.date}`, 148, 23, { align: "center" });
+
+                doc.autoTable({
+                    startY: 29,
+                    head: [["TOTAL SETTLEMENTS", "TOTAL AMOUNT"]],
+                    body: [[totalCount, totalAmount]],
+                    theme: "grid", headStyles: { fillColor: [17, 24, 39], halign: "center" }, styles: { fontSize: 9, halign: "center" }
+                });
+
+                if (activeViewLevel !== "DC") {
+                    const summaryRows = getOmvigDownloadSummaryRows_(scopedRows, rowsWithStatus);
+                    const rowTypeFlags = summaryRows.map((r) => (r.type === "GRAND_TOTAL" ? 2 : (r.type === "SUB_TOTAL" ? 1 : 0)));
+                    doc.autoTable({
+                        startY: doc.lastAutoTable.finalY + 6,
+                        head: [["DC NAME", "TOTAL", "PAID COUNT", "PAID AMT", "PENDING COUNT", "PENDING AMT", "PAID %", "PENDING %"]],
+                        body: summaryRows.map((r) => [r.name, r.totalCount, r.paidCount, r.paidAmount, r.pendingCount, r.pendingAmount, `${r.paidPercent}%`, `${r.pendingPercent}%`]),
+                        theme: "grid", headStyles: { fillColor: [8, 145, 178], halign: "center" }, styles: { fontSize: 7, cellPadding: 1.5, halign: "center" },
+                        didParseCell: function (hookData) {
+                            if (hookData.section === "body") {
+                                const flag = rowTypeFlags[hookData.row.index];
+                                if (flag === 2) { hookData.cell.styles.fillColor = [219, 234, 254]; hookData.cell.styles.fontStyle = "bold"; hookData.cell.styles.textColor = [159, 18, 57]; }
+                                else if (flag === 1) { hookData.cell.styles.fontStyle = "bold"; hookData.cell.styles.textColor = [29, 78, 216]; }
+                            }
+                        }
+                    });
+                }
+
+                if (fmt !== "PDF_SUMMARY") {
+                    doc.addPage("a4", "l");
+                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 8);
+                    doc.setFontSize(13); doc.setTextColor(0); doc.text(`${reportTitle} - Full List`, 148, 15, { align: "center" });
+                    drawFullListTable(20);
+                }
+
+                const pdfBlob = doc.output("blob");
+                await saveShmsBlob(`${fileName}.pdf`, pdfBlob, "application/pdf");
+                showToast("PDF report ka request bhej diya gaya. Agar preview me file na aaye to browser ya GitHub version me check kijiye.", true);
+            } catch (error) {
+                showToast(error?.message || "O&M/VIG Daily report download nahi ho paya", false);
             }
         }
 
