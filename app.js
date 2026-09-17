@@ -2719,23 +2719,13 @@
         function getRevenueMasterRowsForDc(dcName) {
             const normalizedDc = normalizeDcName(dcName);
             const dcKey = getRevenueCollectionDcKey(dcName);
-            const revenueRows = (revenueCollectionRowsByDc[dcKey] || [])
-                .filter((row) => normalizeRevenueIvrs(row.ivrsNo))
-                .map((row) => ({ ...row, dcName: normalizedDc }));
+            const revenueRows = revenueCollectionRowsByDc[dcKey] || [];
             const consumerRows = getConsumerRows(dcName)
                 .map(mapRevenueConsumerRow)
                 .filter((row) => normalizeRevenueIvrs(row.ivrsNo))
                 .map((row) => ({ ...row, dcName: normalizedDc }));
-
-            // Revenue reconciliation reports ka authoritative Master wahi fresh
-            // Revenue CSV hai jo strict loader ne load kiya. Iske saath Mobile/
-            // consumer cache merge karne par report ka total navigation-history
-            // par nirbhar ho raha tha (CHHAPARA-2 me 49 extra consumers). Revenue
-            // rows available hon to unhi ko use karo; consumerRows sirf legacy/
-            // offline fallback hain jab Revenue Master bilkul available na ho.
-            const sourceRows = revenueRows.length ? revenueRows : consumerRows;
             const mergedByIvrs = new Map();
-            sourceRows.forEach((row) => {
+            [...consumerRows, ...revenueRows].forEach((row) => {
                 const ivrs = normalizeRevenueIvrs(row.ivrsNo);
                 if (!ivrs) return;
                 const existing = mergedByIvrs.get(ivrs) || {};
@@ -2777,39 +2767,12 @@
         // hai - sirf un call-site par jo Revenue Category reconciliation reports
         // (Category Wise, HQ/Village Wise, Target vs Achievement, Top Defaulters)
         // use karte hain.
-        const revenueCategoryMasterFreshAt_ = new Map();
-        const revenueCategoryMasterFreshInFlight_ = new Map();
-        const REVENUE_CATEGORY_MASTER_FRESH_TTL_MS = 60000;
-
         async function ensureRevenueCategoryMasterDataLoadedStrict_(dcNames) {
             const list = Array.from(new Set((dcNames || []).map((name) => normalizeDcName(name)).filter(Boolean)));
-            const now = Date.now();
-            const results = await Promise.all(list.map(async (dcName) => {
-                const lastFreshAt = Number(revenueCategoryMasterFreshAt_.get(dcName) || 0);
-                if (now - lastFreshAt < REVENUE_CATEGORY_MASTER_FRESH_TTL_MS && getRevenueMasterRowsForDc(dcName).length) {
-                    return { dcName, ok: true };
-                }
-                let pending = revenueCategoryMasterFreshInFlight_.get(dcName);
-                if (!pending) {
-                    pending = (async () => {
-                        const rows = await loadRevenueCollectionData(dcName, true, { requireRemote: true });
-                        if (Array.isArray(rows) && rows.length) revenueCategoryMasterFreshAt_.set(dcName, Date.now());
-                        return rows;
-                    })();
-                    revenueCategoryMasterFreshInFlight_.set(dcName, pending);
-                }
-                try {
-                    const rows = await pending;
-                    return { dcName, ok: Array.isArray(rows) && rows.length > 0 };
-                } finally {
-                    if (revenueCategoryMasterFreshInFlight_.get(dcName) === pending) {
-                        revenueCategoryMasterFreshInFlight_.delete(dcName);
-                    }
-                }
-            }));
-            const failedDcs = results.filter((result) => !result.ok).map((result) => result.dcName);
+            await ensureRevenueCategoryMasterDataLoaded(list);
+            const failedDcs = list.filter((dcName) => !getConsumerRows(dcName).length);
             if (failedDcs.length) {
-                const error = new Error(`Fresh Master consumer data load nahi ho paya in DC ke liye: ${failedDcs.join(", ")}. Purana cached data use karke report nahi banayi gayi.`);
+                const error = new Error(`Master consumer data load nahi ho paya in DC ke liye: ${failedDcs.join(", ")}`);
                 error.failedDcs = failedDcs;
                 throw error;
             }
@@ -2869,14 +2832,10 @@
             // nahi chhedta - legacy sirf tab chalta hai jab reconciliation
             // backend available na ho (purana/redeploy-na-hua backend - capability
             // mismatch fallback).
-            // Reconciliation response me sirf matched/paid IVRS entries aati hain.
-            // Scope marker true ho aur current IVRS response-map me na ho, to woh
-            // authoritative UNPAID hai; use legacy cache path par bhejne se purani
-            // multi-row payment entries count ko dobara badha deti thi.
-            if (paidInfo?.reconciled || paidInfoByIvrs?.__reconciledScope === true) {
+            if (paidInfo?.reconciled) {
                 const bucketCategory = revenueCategoryList.includes(category) ? category : "OTHER";
                 if (!group.categories[bucketCategory]) group.categories[bucketCategory] = { paid: 0, unpaid: 0, paidAmount: 0, unpaidAmount: 0 };
-                const amount = Number(paidInfo?.amount || 0);
+                const amount = Number(paidInfo.amount || 0);
                 if (amount > 0) {
                     group.categories[bucketCategory].paid += 1;
                     group.categories[bucketCategory].paidAmount += amount;
@@ -4036,7 +3995,7 @@
                     console.log("[FreezeReport] step2 calling fetchRevenueFreezeSnapshotRowsForScope", active.freeze_id, fetchCategory); // DIAGNOSTIC (2026-09-13, temp)
                     const { rows, dcStatusMap } = await fetchRevenueFreezeSnapshotRowsForScope(active.freeze_id, fetchCategory);
                     console.log("[FreezeReport] step3 snapshot done, rows.length =", rows.length, "dcStatusMap =", dcStatusMap); // DIAGNOSTIC (2026-09-13, temp)
-                    await warmRevenueCategoryUploadedPaidCache();
+                    await warmRevenueFreezePaidSummaryCache_();
                     console.log("[FreezeReport] step4 warmCache done"); // DIAGNOSTIC (2026-09-13, temp)
                     lastRevenueProgressFreezeResult = { active, rows, dcStatusMap };
                 } else {
@@ -4890,6 +4849,70 @@
             return fetchUploadedPaidEntriesWithRetry_(dcName, attempts);
         }
 
+        // Freeze report-only lightweight sync. The normal Revenue reports keep
+        // using their existing category endpoint unchanged. This endpoint omits
+        // PAYMENT ROWS JSON and tariff parsing because Freeze status needs only
+        // aggregate amount/date for each unique DC+IVRS.
+        const REVENUE_FREEZE_PAID_BATCH_SIZE = 6;
+        const revenueFreezePaidCacheWarmedAt_ = {};
+        const REVENUE_FREEZE_PAID_CACHE_TTL_MS = 60000;
+        async function fetchRevenueFreezePaidSummaryBatch_(dcNames, attempts = 2) {
+            const names = Array.from(new Set((dcNames || []).map(normalizeDcName).filter(Boolean)));
+            if (!names.length) return { status: "success", scope_mode: "batch", requested_dc_names: [], entries: [] };
+            for (let attempt = 1; attempt <= attempts; attempt++) {
+                const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+                const timer = setTimeout(() => { try { if (controller) controller.abort(); } catch (_) {} }, 90000);
+                try {
+                    const parsed = await withAppsScriptConcurrencyGate_(revenueCollectionSubmitScriptUrl, async () => {
+                        const url = `${revenueCollectionSubmitScriptUrl}?action=getFreezePaidSummary&dc_names=${encodeURIComponent(names.join(","))}&t=${Date.now()}`;
+                        const response = await fetch(url, controller ? { signal: controller.signal } : {});
+                        return await response.json();
+                    });
+                    const returnedNames = Array.isArray(parsed?.requested_dc_names)
+                        ? parsed.requested_dc_names.map(normalizeDcName).filter(Boolean).sort()
+                        : [];
+                    const expectedNames = names.slice().sort();
+                    const exactScope = returnedNames.length === expectedNames.length
+                        && returnedNames.every((name, index) => name === expectedNames[index]);
+                    if (parsed?.status === "success" && parsed.scope_mode === "batch"
+                        && exactScope && Array.isArray(parsed.entries)) return parsed;
+                } catch (_) {} finally {
+                    clearTimeout(timer);
+                }
+                if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, 800));
+            }
+            return null;
+        }
+
+        async function warmRevenueFreezePaidSummaryCache_() {
+            const targetDcs = Array.from(new Set(getRevenueFreezeTargetDcs().map(normalizeDcName).filter(Boolean)));
+            const now = Date.now();
+            const pendingDcs = targetDcs.filter((dcName) => now - (revenueFreezePaidCacheWarmedAt_[dcName] || 0) > REVENUE_FREEZE_PAID_CACHE_TTL_MS);
+            if (!pendingDcs.length) return;
+            const batches = [];
+            for (let i = 0; i < pendingDcs.length; i += REVENUE_FREEZE_PAID_BATCH_SIZE) {
+                batches.push(pendingDcs.slice(i, i + REVENUE_FREEZE_PAID_BATCH_SIZE));
+            }
+            let batchFailed = false;
+            await runWithConcurrencyLimit_(batches, 2, async (batchDcs) => {
+                const parsed = await fetchRevenueFreezePaidSummaryBatch_(batchDcs);
+                if (!parsed) { batchFailed = true; return; }
+                const rowsByDc = {};
+                parsed.entries.forEach((row) => {
+                    const dcName = normalizeDcName(getRevenueUploadedPaidRowDcName(row));
+                    if (!dcName) return;
+                    if (!rowsByDc[dcName]) rowsByDc[dcName] = [];
+                    rowsByDc[dcName].push(row);
+                });
+                batchDcs.forEach((dcName) => {
+                    saveRevenueUploadedPaidEntriesLocalBulk(rowsByDc[dcName] || [], dcName, true);
+                    revenueFreezePaidCacheWarmedAt_[dcName] = Date.now();
+                });
+            });
+            // Old/not-yet-deployed backend: retain the existing proven behavior.
+            if (batchFailed) await warmRevenueCategoryUploadedPaidCache();
+        }
+
         // Ek saath sabhi DC ka fetch chalane (Promise.all) ki jagah, ek chhoti si
         // concurrency-limited "pool" - ek time par sirf `limit` (5) DC ka request
         // Apps Script ko jaata hai, baki queue me wait karte hain. Isse Apps Script
@@ -4977,22 +5000,9 @@
             // List, Non-Payee 3M/6M/Since-Connection, Top Defaulters - inn sabhi
             // reports ka apna khud ka koi code yahan CHHUA nahi gaya) bilkul
             // unchanged rehte hue bhi sahi kaam karte rahein.
-            const reconciliation = revenueCategoryReconciliationCache_.get(
-                revenueCategoryReconciliationCacheKey_(mode, filterValue, getRevenueCategoryTargetDcs())
-            );
+            const reconciliation = revenueCategoryReconciliationCache_.get(`${mode}|${filterValue}`);
             if (reconciliation && reconciliation.supported) {
                 const paidInfoByDc = {};
-                getRevenueCategoryTargetDcs().forEach((dcName) => {
-                    const normalizedDc = normalizeDcName(dcName);
-                    if (!normalizedDc) return;
-                    const dcInfo = paidInfoByDc[normalizedDc] || {};
-                    Object.defineProperty(dcInfo, "__reconciledScope", {
-                        value: true,
-                        enumerable: false,
-                        configurable: false
-                    });
-                    paidInfoByDc[normalizedDc] = dcInfo;
-                });
                 reconciliation.byKey.forEach((info, key) => {
                     const sepIdx = key.indexOf("|");
                     if (sepIdx < 0) return;
@@ -15145,20 +15155,6 @@
             return normalizeLookupValue(dcName || "");
         }
 
-        // Revenue Master URL ka primary map kuch DC tak hi simit hai. Division
-        // configuration me jo existing per-DC csvUrl diya hai, use fallback ke
-        // roop me lene se Division report kisi valid DC (jaise ADEGAON) par
-        // bina wajah fail nahi hoti. Koi naya source/logic add nahi hota.
-        function getRevenueCollectionCsvUrl_(dcName = activeDC) {
-            const dcKey = getRevenueCollectionDcKey(dcName);
-            if (revenueCollectionCsvUrls[dcKey]) return revenueCollectionCsvUrls[dcKey];
-            for (const division of Object.values(divisionConfigs || {})) {
-                const match = (division.dcs || []).find((dc) => getRevenueCollectionDcKey(dc.name) === dcKey);
-                if (match && match.csvUrl) return match.csvUrl;
-            }
-            return "";
-        }
-
         // SEONI (T) DC ke liye request: underlying data column same rehta hai
         // (HQ NAME / VILLAGE), sirf iske Revenue reports me DISPLAY label alag
         // dikhna hai - "HQ Name" ki jagah "Name of Staff", "Village" ki jagah
@@ -15348,11 +15344,11 @@
             };
         }
 
-        async function loadRevenueCollectionData(dcName = activeDC, forceRefresh = false, options = null) {
+        async function loadRevenueCollectionData(dcName = activeDC, forceRefresh = false) {
             const dcKey = getRevenueCollectionDcKey(dcName);
             if (!forceRefresh && revenueCollectionLoadedByDc[dcKey]) return revenueCollectionRowsByDc[dcKey] || [];
 
-            const csvUrl = getRevenueCollectionCsvUrl_(dcName);
+            const csvUrl = revenueCollectionCsvUrls[dcKey];
             const cacheKey = `seoni-revenue-collection-csv-v5-${dcKey}`;
 
             if (!forceRefresh) {
@@ -15423,12 +15419,6 @@
                     } catch (_) {}
                 }
             }
-
-            // Revenue reconciliation reports ko exact/current Master chahiye. Unke
-            // strict caller me remote CSV ke fail hone par purana consumer/cache
-            // fallback silently accept nahi karte; normal callers ka purana
-            // fallback behaviour bilkul unchanged rehta hai.
-            if (options && options.requireRemote) return [];
 
             let mobileUpdateRows = getConsumerRows(dcName);
             if (!mobileUpdateRows.length) mobileUpdateRows = await ensureDcDataLoaded(dcName);
@@ -20317,20 +20307,7 @@
         // yeh code chhoo tak nahi raha.
         // =====================================================================
         const revenueCategoryReconciliationCache_ = new Map();
-        const revenueCategoryReconciliationInFlight_ = new Map();
         const REVENUE_CATEGORY_RECONCILIATION_TTL_MS = 60000;
-
-        function revenueCategoryReconciliationDcList_(dcNames) {
-            return Array.from(new Set((dcNames || [])
-                .map((dcName) => normalizeDcName(dcName))
-                .filter(Boolean)))
-                .sort((a, b) => a.localeCompare(b));
-        }
-
-        function revenueCategoryReconciliationCacheKey_(mode, periodValue, dcNames) {
-            const normalizedMode = mode === "MONTHLY" ? "MONTHLY" : "DAILY";
-            return `${revenueCategoryReconciliationDcList_(dcNames).join(",")}|${normalizedMode}|${String(periodValue || "").trim()}`;
-        }
 
         function revenueReconciliationPeriodParams_(mode, periodValue) {
             const periodMode = mode === "MONTHLY" ? "month" : "date";
@@ -20366,11 +20343,7 @@
                                 if (attempt < 2) { await new Promise((resolve) => setTimeout(resolve, 600 * attempt)); continue; }
                                 return { ok: false, dcs: failedInResponse };
                             }
-                            return {
-                                ok: true,
-                                entries: Array.isArray(parsed.entries) ? parsed.entries : [],
-                                ambiguousEntries: Array.isArray(parsed.legacy_ambiguous_entries) ? parsed.legacy_ambiguous_entries : []
-                            };
+                            return { ok: true, entries: Array.isArray(parsed.entries) ? parsed.entries : [] };
                         }
                         // capability === "error" -> genuine/validation failure, retry neeche.
                     } catch (_) {}
@@ -20385,19 +20358,6 @@
             if (failedDcs.length) {
                 const error = new Error(`Revenue reconciliation data load nahi ho paya in DC ke liye: ${failedDcs.join(", ")}`);
                 error.failedDcs = failedDcs;
-                throw error;
-            }
-
-            const ambiguousEntries = batchResults.flatMap((result) => result.ambiguousEntries || []);
-            if (ambiguousEntries.length) {
-                const examples = ambiguousEntries.slice(0, 5).map((entry) => {
-                    const dcName = normalizeDcName(entry.dc_name || "") || "UNKNOWN DC";
-                    const ivrs = normalizeRevenueIvrs(entry.ivrs_no) || "UNKNOWN IVRS";
-                    return `${dcName}/${ivrs}`;
-                }).join(", ");
-                const error = new Error(`Exact Daily Paid/Unpaid report nahi ban sakti: purane multiple-payment records ki exact payment date available nahi hai (${examples}${ambiguousEntries.length > 5 ? " aadi" : ""})`);
-                error.code = "REVENUE_RECONCILIATION_AMBIGUOUS";
-                error.ambiguousEntries = ambiguousEntries;
                 throw error;
             }
 
@@ -20439,36 +20399,19 @@
         // is app me warmRevenueCategoryUploadedPaidCache/revenueCategoryCache-
         // WarmedAt ka existing pattern hai.
         async function ensureRevenueCategoryReconciliationLoaded(mode, filterValue) {
-            const dcList = revenueCategoryReconciliationDcList_(getRevenueCategoryTargetDcs());
-            const cacheKey = revenueCategoryReconciliationCacheKey_(mode, filterValue, dcList);
+            const cacheKey = `${mode}|${filterValue}`;
             const cached = revenueCategoryReconciliationCache_.get(cacheKey);
             if (cached && Date.now() - cached.loadedAt < REVENUE_CATEGORY_RECONCILIATION_TTL_MS) return cached;
+            const dcList = Array.from(new Set(getRevenueCategoryTargetDcs().map((dcName) => normalizeDcName(dcName)).filter(Boolean)));
             if (!dcList.length) {
                 const empty = { supported: false, byKey: new Map(), loadedAt: Date.now() };
                 revenueCategoryReconciliationCache_.set(cacheKey, empty);
                 return empty;
             }
-            const existingPromise = revenueCategoryReconciliationInFlight_.get(cacheKey);
-            if (existingPromise) return existingPromise;
-            const loadPromise = (async () => {
-                const result = await fetchRevenueCategoryReconciliationBatch_(dcList, mode, filterValue);
-                const record = {
-                    supported: result.supported === true,
-                    byKey: result.byKey || new Map(),
-                    loadedAt: Date.now(),
-                    dcNames: dcList.slice()
-                };
-                revenueCategoryReconciliationCache_.set(cacheKey, record);
-                return record;
-            })();
-            revenueCategoryReconciliationInFlight_.set(cacheKey, loadPromise);
-            try {
-                return await loadPromise;
-            } finally {
-                if (revenueCategoryReconciliationInFlight_.get(cacheKey) === loadPromise) {
-                    revenueCategoryReconciliationInFlight_.delete(cacheKey);
-                }
-            }
+            const result = await fetchRevenueCategoryReconciliationBatch_(dcList, mode, filterValue);
+            const record = { supported: result.supported === true, byKey: result.byKey || new Map(), loadedAt: Date.now() };
+            revenueCategoryReconciliationCache_.set(cacheKey, record);
+            return record;
         }
 
         // USER-APPROVED correction #8: Unique Master Consumer = Paid Consumer +
