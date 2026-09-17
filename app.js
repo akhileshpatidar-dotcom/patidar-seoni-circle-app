@@ -2719,13 +2719,23 @@
         function getRevenueMasterRowsForDc(dcName) {
             const normalizedDc = normalizeDcName(dcName);
             const dcKey = getRevenueCollectionDcKey(dcName);
-            const revenueRows = revenueCollectionRowsByDc[dcKey] || [];
+            const revenueRows = (revenueCollectionRowsByDc[dcKey] || [])
+                .filter((row) => normalizeRevenueIvrs(row.ivrsNo))
+                .map((row) => ({ ...row, dcName: normalizedDc }));
             const consumerRows = getConsumerRows(dcName)
                 .map(mapRevenueConsumerRow)
                 .filter((row) => normalizeRevenueIvrs(row.ivrsNo))
                 .map((row) => ({ ...row, dcName: normalizedDc }));
+
+            // Revenue reconciliation reports ka authoritative Master wahi fresh
+            // Revenue CSV hai jo strict loader ne load kiya. Iske saath Mobile/
+            // consumer cache merge karne par report ka total navigation-history
+            // par nirbhar ho raha tha (CHHAPARA-2 me 49 extra consumers). Revenue
+            // rows available hon to unhi ko use karo; consumerRows sirf legacy/
+            // offline fallback hain jab Revenue Master bilkul available na ho.
+            const sourceRows = revenueRows.length ? revenueRows : consumerRows;
             const mergedByIvrs = new Map();
-            [...consumerRows, ...revenueRows].forEach((row) => {
+            sourceRows.forEach((row) => {
                 const ivrs = normalizeRevenueIvrs(row.ivrsNo);
                 if (!ivrs) return;
                 const existing = mergedByIvrs.get(ivrs) || {};
@@ -2755,6 +2765,56 @@
             }));
         }
 
+        // ISOLATED ADDITION (2026-09-17, USER-REPORTED): ensureRevenueCategoryMaster-
+        // DataLoaded() ke andar dono try/catch khaali hain - kisi DC ka Master
+        // consumer data load fail hone par bhi silently aage badh jaata hai, aur
+        // Category Wise/HQ-Village/Target-Achievement/Top-Defaulters report us DC
+        // ke bina hi (bina kisi error ke) ban jaati hai. Us shared function ko
+        // KHUD nahi chheda - Freeze Revenue module bhi usi function ko use karta
+        // hai aur wo module bilkul untouched rehna chahiye. Iski jagah yeh ek
+        // chhota wrapper hai jo poora attempt hone ke baad bhi jin DC ka Master
+        // consumer data khaali reh gaya, unhe saaf error ke roop me upar bhejta
+        // hai - sirf un call-site par jo Revenue Category reconciliation reports
+        // (Category Wise, HQ/Village Wise, Target vs Achievement, Top Defaulters)
+        // use karte hain.
+        const revenueCategoryMasterFreshAt_ = new Map();
+        const revenueCategoryMasterFreshInFlight_ = new Map();
+        const REVENUE_CATEGORY_MASTER_FRESH_TTL_MS = 60000;
+
+        async function ensureRevenueCategoryMasterDataLoadedStrict_(dcNames) {
+            const list = Array.from(new Set((dcNames || []).map((name) => normalizeDcName(name)).filter(Boolean)));
+            const now = Date.now();
+            const results = await Promise.all(list.map(async (dcName) => {
+                const lastFreshAt = Number(revenueCategoryMasterFreshAt_.get(dcName) || 0);
+                if (now - lastFreshAt < REVENUE_CATEGORY_MASTER_FRESH_TTL_MS && getRevenueMasterRowsForDc(dcName).length) {
+                    return { dcName, ok: true };
+                }
+                let pending = revenueCategoryMasterFreshInFlight_.get(dcName);
+                if (!pending) {
+                    pending = (async () => {
+                        const rows = await loadRevenueCollectionData(dcName, true, { requireRemote: true });
+                        if (Array.isArray(rows) && rows.length) revenueCategoryMasterFreshAt_.set(dcName, Date.now());
+                        return rows;
+                    })();
+                    revenueCategoryMasterFreshInFlight_.set(dcName, pending);
+                }
+                try {
+                    const rows = await pending;
+                    return { dcName, ok: Array.isArray(rows) && rows.length > 0 };
+                } finally {
+                    if (revenueCategoryMasterFreshInFlight_.get(dcName) === pending) {
+                        revenueCategoryMasterFreshInFlight_.delete(dcName);
+                    }
+                }
+            }));
+            const failedDcs = results.filter((result) => !result.ok).map((result) => result.dcName);
+            if (failedDcs.length) {
+                const error = new Error(`Fresh Master consumer data load nahi ho paya in DC ke liye: ${failedDcs.join(", ")}. Purana cached data use karke report nahi banayi gayi.`);
+                error.failedDcs = failedDcs;
+                throw error;
+            }
+        }
+
         function createRevenueCategoryGroup(name, extra = {}) {
             const group = { name, paidTotal: 0, unpaidTotal: 0, paidAmountTotal: 0, unpaidAmountTotal: 0, categories: {}, ...extra };
             revenueCategoryList.forEach((category) => {
@@ -2774,13 +2834,66 @@
         // ignore ho jaata hai (consumer poori tarah clear maana jaata hai).
         function addRevenueCategoryConsumer(group, row, paidInfoByIvrs, paidCountedIvrsSet = null) {
             const category = normalizeRevenueCategory(row.tariffCategory || row.category || "");
-            if (!revenueCategoryList.includes(category)) return;
             const ivrs = normalizeRevenueIvrs(row.ivrsNo);
             const paidInfo = paidInfoByIvrs?.[ivrs];
+            const dueAmount = parseRevenuePaidAmount(row.netBill || row.arrears || 0);
+            // ISOLATED ADDITION (2026-09-17, USER-APPROVED corrections): yeh counter
+            // "Unique Master Consumer" ki asli ginti rakhta hai - is function ko
+            // exactly ek baar har unique (DC+IVRS) Master consumer ke liye call kiya
+            // jaata hai (getRevenueMasterRowsForDc pehle se IVRS ke hisaab se dedupe
+            // karta hai), isliye yeh count hamesha sahi rehta hai chahe consumer
+            // aage PAID/UNPAID/OTHER kisi bhi bucket me jaaye ya (legacy path me)
+            // category match na hone par bilkul drop ho jaaye. Download flow me
+            // (downloadProgressRevenueCategorySummary) ise Paid+Unpaid totals ke
+            // against check karke "invariant mismatch" pakda jaata hai - taaki
+            // koi bhi galti silently report me na chhup jaaye.
+            group.__uniqueMasterCount = (group.__uniqueMasterCount || 0) + 1;
+            // ISOLATED ADDITION (2026-09-17, USER-APPROVED corrections): naya
+            // backend reconciliation endpoint (getRevenueCategoryReconciliation)
+            // se mila EXACT-DATE-capable, per-consumer (DC+IVRS) aggregate mile to
+            // usi ke corrected business rules follow karo:
+            //   (a) consumer PAID count hamesha max 1 - chahe us consumer ki
+            //       kitni bhi payment rows selected period me match hui hon;
+            //   (b) ek baar bhi valid payment milne par (partial ho ya poora)
+            //       consumer SIRF PAID bucket me jaata hai, UNPAID me kabhi nahi
+            //       (jo neeche legacy path me "remainingAfterPaid > 0" wala bug
+            //       tha, usse yeh naya branch bilkul prabhavit nahi);
+            //   (c) missing/unknown tariff category wale valid Master consumer
+            //       "OTHER" bucket me jaate hain - grand total (group.paidTotal/
+            //       unpaidTotal, jo invariant-check aur TOTAL column dono use
+            //       karte hain) se kabhi drop nahi hote. Existing LV1-LV5
+            //       per-category column layout (revenueCategoryList) bilkul
+            //       unchanged rehta hai - OTHER us list me kabhi nahi jodi gayi,
+            //       isliye PDF/Excel me koi naya column nahi aata.
+            // Yeh naya branch legacy code (neeche, bilkul unchanged) ko bilkul
+            // nahi chhedta - legacy sirf tab chalta hai jab reconciliation
+            // backend available na ho (purana/redeploy-na-hua backend - capability
+            // mismatch fallback).
+            // Reconciliation response me sirf matched/paid IVRS entries aati hain.
+            // Scope marker true ho aur current IVRS response-map me na ho, to woh
+            // authoritative UNPAID hai; use legacy cache path par bhejne se purani
+            // multi-row payment entries count ko dobara badha deti thi.
+            if (paidInfo?.reconciled || paidInfoByIvrs?.__reconciledScope === true) {
+                const bucketCategory = revenueCategoryList.includes(category) ? category : "OTHER";
+                if (!group.categories[bucketCategory]) group.categories[bucketCategory] = { paid: 0, unpaid: 0, paidAmount: 0, unpaidAmount: 0 };
+                const amount = Number(paidInfo?.amount || 0);
+                if (amount > 0) {
+                    group.categories[bucketCategory].paid += 1;
+                    group.categories[bucketCategory].paidAmount += amount;
+                    group.paidTotal += 1;
+                    group.paidAmountTotal += amount;
+                } else {
+                    group.categories[bucketCategory].unpaid += 1;
+                    group.categories[bucketCategory].unpaidAmount += dueAmount;
+                    group.unpaidTotal += 1;
+                    group.unpaidAmountTotal += dueAmount;
+                }
+                return;
+            }
+            if (!revenueCategoryList.includes(category)) return;
             const paidCountKey = `${normalizeRevenueUploadedPaidInfoSourceSignature(paidInfo)}|${ivrs}`;
             if (paidInfo && paidCountedIvrsSet?.has(paidCountKey)) return;
             const sourceCategoryPaidInfos = getRevenueCategoryPaidInfosBySourceCategory(paidInfo);
-            const dueAmount = parseRevenuePaidAmount(row.netBill || row.arrears || 0);
             if (sourceCategoryPaidInfos.length) {
                 let paidThisConsumer = 0;
                 sourceCategoryPaidInfos.forEach((item) => {
@@ -2892,19 +3005,34 @@
         // se bilkul independent, wahan pehle se hi koi restriction nahi thi) -
         // isliye is change se wahan koi asar nahi padta.
         function isRevenueUploadedPaidInCategoryPeriod(row, mode, filterValue) {
-            const uploadedRaw = getRevenueUploadedPaidRowUploadedDate(row);
-            if (!uploadedRaw) return false;
-            const uploadedMonthKey = getRevenueMonthKey(uploadedRaw);
-            if (!uploadedMonthKey) return false;
             if (mode === "MONTHLY") {
+                const uploadedRaw = getRevenueUploadedPaidRowUploadedDate(row);
+                if (!uploadedRaw) return false;
+                const uploadedMonthKey = getRevenueMonthKey(uploadedRaw);
+                if (!uploadedMonthKey) return false;
                 const targetMonthKey = normalizeRevenueMonthFilterKey(filterValue);
                 if (!targetMonthKey) return false;
                 return uploadedMonthKey === targetMonthKey;
             }
+            // ISOLATED FIX (2026-09-17, USER-CONFIRMED bug): pehle DAILY (non-
+            // MONTHLY) mode bhi sirf "uploaded MAHINA" match karta tha - EXACT
+            // selected DATE kabhi check hi nahi hoti thi, isliye ek din select
+            // karne par bhi poore mahine ke uploads paid dikh jaate the. Ab yeh
+            // row ki apni ACTUAL payment date (getRevenueUploadedPaidRowDate,
+            // jisme paymentDate/payment_date/paymentDateRaw jaise saare alias
+            // fields pehle se handle hain) ko selected EXACT date se compare
+            // karta hai. MONTHLY mode ka upar wala 2026-08-13 uploaded-month
+            // business rule bilkul unchanged hai - sirf yeh niche wali DAILY
+            // branch badli hai. (Naye backend reconciliation endpoint ke
+            // available hone par is function ka DAILY result ab authoritative
+            // paid/unpaid decision me use hi nahi hota - sirf legacy/purane-
+            // backend fallback aur diagnostic stats ke liye reh gaya hai, par
+            // ab wahan bhi sahi jawab deta hai.)
             const targetDate = normalizeRevenueReportDate(filterValue || getCurrentDateDDMMYYYY());
             if (!targetDate) return false;
-            const targetMonthKey = getRevenueMonthKey(targetDate);
-            return uploadedMonthKey === targetMonthKey;
+            const rowPaymentDateRaw = getRevenueUploadedPaidRowDate(row);
+            if (!rowPaymentDateRaw) return false;
+            return normalizeRevenueReportDate(rowPaymentDateRaw) === targetDate;
         }
 
         // DD-MM-YYYY ko YYYY-MM-DD me convert karta hai taaki string "<=" se
@@ -4832,6 +4960,62 @@
         }
 
         function buildRevenueCategoryUploadedPaidInfo(mode, filterValue) {
+            // ISOLATED ADDITION (2026-09-17, USER-APPROVED corrections): agar naye
+            // backend reconciliation endpoint (getRevenueCategoryReconciliation) se
+            // is exact mode+filterValue ke liye pehle se hi ensureRevenueCategory-
+            // ReconciliationLoaded() ke through data warm ho chuka hai (caller
+            // hamesha isse pehle await karta hai), to usi EXACT-DATE-capable,
+            // per-consumer aggregate ko authoritative maan kar seedhe return karo -
+            // neeche wala poora legacy computation (raw/local cache "more rows
+            // wins" heuristic + uploaded-month matching) bilkul chhua nahi jaata,
+            // aur sirf tab chalta hai jab reconciliation backend available na ho
+            // (purana/redeploy-na-hua backend - capability mismatch fallback).
+            //
+            // Backward-compatible shape: normalCount/normalAmount/categoryTotals
+            // jaise purane field bhi bhar dete hain, taaki isRevenueMasterConsumer-
+            // Paid()/getRevenueMasterConsumerPaidAmount() (Particular Consumer
+            // List, Non-Payee 3M/6M/Since-Connection, Top Defaulters - inn sabhi
+            // reports ka apna khud ka koi code yahan CHHUA nahi gaya) bilkul
+            // unchanged rehte hue bhi sahi kaam karte rahein.
+            const reconciliation = revenueCategoryReconciliationCache_.get(
+                revenueCategoryReconciliationCacheKey_(mode, filterValue, getRevenueCategoryTargetDcs())
+            );
+            if (reconciliation && reconciliation.supported) {
+                const paidInfoByDc = {};
+                getRevenueCategoryTargetDcs().forEach((dcName) => {
+                    const normalizedDc = normalizeDcName(dcName);
+                    if (!normalizedDc) return;
+                    const dcInfo = paidInfoByDc[normalizedDc] || {};
+                    Object.defineProperty(dcInfo, "__reconciledScope", {
+                        value: true,
+                        enumerable: false,
+                        configurable: false
+                    });
+                    paidInfoByDc[normalizedDc] = dcInfo;
+                });
+                reconciliation.byKey.forEach((info, key) => {
+                    const sepIdx = key.indexOf("|");
+                    if (sepIdx < 0) return;
+                    const dcName = key.slice(0, sepIdx);
+                    const ivrs = key.slice(sepIdx + 1);
+                    if (!dcName || !ivrs) return;
+                    if (!paidInfoByDc[dcName]) paidInfoByDc[dcName] = {};
+                    const amount = Number(info.amount || 0);
+                    paidInfoByDc[dcName][ivrs] = {
+                        reconciled: true,
+                        amount,
+                        category: info.category || "",
+                        legacyAmbiguous: !!info.legacyAmbiguous,
+                        normalCount: amount > 0 ? 1 : 0,
+                        normalAmount: amount > 0 ? amount : 0,
+                        agAmount: 0, agCount: 0,
+                        mixedAmount: 0, mixedCount: 0,
+                        unknownAmount: 0, unknownCount: 0,
+                        categoryTotals: (amount > 0 && info.category) ? { [info.category]: { amount, count: 1 } } : {}
+                    };
+                });
+                return paidInfoByDc;
+            }
             const paidInfoByDc = {};
             getRevenueCategoryPaymentSourceRows().forEach((paymentRow) => {
                 const dcName = getRevenueUploadedPaidRowDcName(paymentRow);
@@ -4866,7 +5050,15 @@
             return paidInfoByDc;
         }
 
-        function buildRevenueCategoryDiagnostic(mode, filterValue) {
+        // ISOLATED ADDITION (2026-09-17, USER-APPROVED): optional `rows` (already-
+        // built buildRevenueCategorySummaryRows() output) - jab diya jaata hai to
+        // OTHER-bucket (missing/unknown tariff category, valid Master consumer)
+        // ke Paid/Unpaid count+amount bhi diagnostic me judte hain, taaki Grand
+        // Total aur LV1-LV5 column-sum ke beech ka antar (agar ho) kis wajah se
+        // hai yeh pata chal sake. `rows` na diya jaaye to bilkul purana behaviour
+        // (koi other* field object me nahi aata) - is function ka ek hi caller
+        // hai, isliye backward-compat sirf documentation ke liye hai.
+        function buildRevenueCategoryDiagnostic(mode, filterValue, rows = null) {
             const targetDcs = new Set(getRevenueCategoryTargetDcs().map((dcName) => normalizeDcName(dcName)).filter(Boolean));
             const masterIvrsByDc = {};
             targetDcs.forEach((dcName) => {
@@ -4908,13 +5100,28 @@
                     }
             });
 
+            let otherPaidCount = 0, otherUnpaidCount = 0, otherPaidAmount = 0, otherUnpaidAmount = 0;
+            (rows || []).forEach((row) => {
+                if (row.type === "SUB_TOTAL" || row.type === "SUBDN_TOTAL") return;
+                const other = row.categories?.OTHER;
+                if (!other) return;
+                otherPaidCount += Number(other.paid || 0);
+                otherUnpaidCount += Number(other.unpaid || 0);
+                otherPaidAmount += Number(other.paidAmount || 0);
+                otherUnpaidAmount += Number(other.unpaidAmount || 0);
+            });
+
             return {
                 uploadedUnique: uploadedRows,
                 selectedMonth: selectedMonthRows,
                 matchedMaster: matchedMasterRows,
                 outOfMonth: outOfMonthRows,
                 masterNotMatched: masterNotMatchedRows,
-                missingDate
+                missingDate,
+                otherPaidCount,
+                otherUnpaidCount,
+                otherPaidAmount,
+                otherUnpaidAmount
             };
         }
 
@@ -4985,6 +5192,9 @@
                 totalGroup.unpaidTotal += Number(row.unpaidTotal || 0);
                 totalGroup.paidAmountTotal += Number(row.paidAmountTotal || 0);
                 totalGroup.unpaidAmountTotal += Number(row.unpaidAmountTotal || 0);
+                // ISOLATED ADDITION (2026-09-17): __uniqueMasterCount rollup - taaki
+                // SUB TOTAL/DIVISION TOTAL rows par bhi invariant check ho sake.
+                totalGroup.__uniqueMasterCount = (totalGroup.__uniqueMasterCount || 0) + Number(row.__uniqueMasterCount || 0);
             });
             return totalGroup;
         }
@@ -5002,6 +5212,7 @@
                 totals.unpaidTotal += Number(row.unpaidTotal || 0);
                 totals.paidAmountTotal += Number(row.paidAmountTotal || 0);
                 totals.unpaidAmountTotal += Number(row.unpaidAmountTotal || 0);
+                totals.__uniqueMasterCount = (totals.__uniqueMasterCount || 0) + Number(row.__uniqueMasterCount || 0);
             });
             return totals;
         }
@@ -5046,7 +5257,7 @@
             return `${((num / den) * 100).toFixed(1)}%`;
         }
 
-        function exportRevenueCategorySummary(fmt, rows, label, reportType, diagnostic = null) {
+        function exportRevenueCategorySummary(fmt, rows, label, reportType, diagnostic = null, staleWarning = null) {
             const levelT = activeViewLevel === "DC" ? `DC - ${activeDC}` : (activeViewLevel === "DIVISION" ? activeDiv : "SEONI CIRCLE");
             const firstCols = activeViewLevel === "CIRCLE" ? ["DIVISION", "DC NAME"] : [activeViewLevel === "DC" ? revenueHqLabelUpper() : "DC NAME"];
             // Naya layout: saari 5 category (LV1-LV5) + TOTAL ek hi table me cram karne
@@ -5116,6 +5327,12 @@
                     ["PERIOD", label],
                     ["SCOPE", getRevenueCategoryScopeLabel()],
                     ["GENERATED AT", generatedAt],
+                    // ISOLATED ADDITION (2026-09-17, USER-APPROVED condition): reconciliation
+                    // backend abhi purana/unavailable ho aur legacy fallback totals dikhaye
+                    // ja rahe hon, to yeh ek extra "WARNING" row jud jaati hai - jab
+                    // staleWarning na ho (normal case), yeh row bilkul nahi aati, baaki CSV
+                    // structure byte-for-byte pehle jaisa hi rehta hai.
+                    ...(staleWarning ? [["WARNING", staleWarning]] : []),
                     [],
                     ["TABLE 1: DOMESTIC / NON DOMESTIC / PUBLIC WATER WORKS AND STREET LIGHTS"],
                     headerA,
@@ -5148,7 +5365,15 @@
             doc.setFontSize(7);
             doc.setTextColor(100);
             doc.text(`Generated: ${generatedAt}`, 283, 10, { align: "right" });
-            const tableStartY = 32;
+            // ISOLATED ADDITION (2026-09-17, USER-APPROVED condition): staleWarning na
+            // ho (normal case) to yeh block bilkul kuch nahi karta - tableStartY aur
+            // poora neeche wala table layout pehle jaisa hi (32) rehta hai.
+            if (staleWarning) {
+                doc.setFontSize(8);
+                doc.setTextColor(190, 18, 60);
+                doc.text(staleWarning, 148, 30, { align: "center" });
+            }
+            const tableStartY = staleWarning ? 36 : 32;
             const groupedHeadFor = (categoriesWithLabels) => [
                 [
                     ...firstCols.map((col) => ({ content: col, rowSpan: 2, styles: { valign: "middle", halign: "center", lineColor: [15, 23, 42], lineWidth: 0.25 } })),
@@ -5262,15 +5487,31 @@
                 const parsed = parseSummarySelection(rawVal, summaryMode);
                 const reportType = summaryMode === "MONTHLY" ? "MONTHLY" : "DAILY";
                 const filterValue = getRevenueProgressFilterValue(parsed.daily, parsed.monthly);
-                await Promise.all([
-                    ensureRevenueCategoryMasterDataLoaded(getRevenueCategoryTargetDcs()),
+                const [, , , reconciliation] = await Promise.all([
+                    ensureRevenueCategoryMasterDataLoadedStrict_(getRevenueCategoryTargetDcs()),
                     ensureRevenueCategoryRawPaymentRowsLoaded(),
-                    warmRevenueCategoryUploadedPaidCache()
+                    warmRevenueCategoryUploadedPaidCache(),
+                    ensureRevenueCategoryReconciliationLoaded(reportType, filterValue)
                 ]);
                 const rows = buildRevenueCategorySummaryRows(reportType, filterValue);
-                const diagnostic = buildRevenueCategoryDiagnostic(reportType, filterValue);
-                exportRevenueCategorySummary(fmt, rows, parsed.label, reportType, diagnostic);
-                setTimeout(() => setProgressCategoryDownloadState(false, `${downloadTypeLabel} download ho chuki hai`), 500);
+                // USER-APPROVED correction #8: invariant mismatch mile to Excel/PDF
+                // silently nahi niklegi - saaf error (DC/HQ naam + difference) dikhega.
+                const invariantMismatches = checkRevenueCategorySummaryInvariant_(rows);
+                if (invariantMismatches.length) {
+                    const detail = invariantMismatches.slice(0, 5).map((m) => `${m.name} (${m.diff > 0 ? "+" : ""}${m.diff})`).join(", ");
+                    throw new Error(`Paid+Unpaid Unique Master Consumer se match nahi kar raha - ${detail}${invariantMismatches.length > 5 ? " aadi" : ""}`);
+                }
+                // ISOLATED ADDITION (2026-09-17, USER-APPROVED condition): backend abhi
+                // purana/reconciliation-unsupported hai to legacy fallback totals
+                // "normal/correct report" ki tarah SILENT nahi dikhte - report ke andar
+                // (additive line, existing layout/columns bilkul unchanged) aur download-
+                // complete toast dono me saaf "STALE/LEGACY" warning jaata hai.
+                const staleWarning = reconciliation && reconciliation.supported === false
+                    ? "STALE/LEGACY - totals may be inaccurate (backend update pending)"
+                    : null;
+                const diagnostic = buildRevenueCategoryDiagnostic(reportType, filterValue, rows);
+                exportRevenueCategorySummary(fmt, rows, parsed.label, reportType, diagnostic, staleWarning);
+                setTimeout(() => setProgressCategoryDownloadState(false, staleWarning ? `${downloadTypeLabel} download ho chuki hai - STALE/LEGACY, totals may be inaccurate` : `${downloadTypeLabel} download ho chuki hai`), 500);
             } catch (error) {
                 setProgressCategoryDownloadState(false, "Download nahi ho paya");
                 showToast(error?.message || "Category wise report download nahi ho payi", false);
@@ -6515,13 +6756,24 @@
                     // karne ki zaroorat nahi.
                     let hqVillageSummaryData = null;
                     try {
-                        await Promise.all([
-                            ensureRevenueCategoryMasterDataLoaded(getRevenueCategoryTargetDcs()),
+                        const [, , , reconciliation] = await Promise.all([
+                            ensureRevenueCategoryMasterDataLoadedStrict_(getRevenueCategoryTargetDcs()),
                             ensureRevenueCategoryRawPaymentRowsLoaded(),
-                            warmRevenueCategoryUploadedPaidCache()
+                            warmRevenueCategoryUploadedPaidCache(),
+                            ensureRevenueCategoryReconciliationLoaded(revenueMode, revenueFilterValue)
                         ]);
                         if (isStaleSummaryRefresh()) return;
-                        hqVillageSummaryData = buildRevenueHqVillageSummaryData(revenueMode, revenueFilterValue);
+                        // ISOLATED ADDITION (2026-09-17, USER-APPROVED condition): yeh chhoti
+                        // embedded quick-glance widget hai (poora dedicated report nahi) -
+                        // agar reconciliation backend abhi purana/unavailable hai to yahan
+                        // STALE/LEGACY totals dikhane ki jagah simply hide kar dete hain
+                        // (existing hi placeholder text dikhta hai - koi galat number kabhi
+                        // silently nahi dikhta). Dedicated HQ-Village/Target/Top-Defaulters
+                        // reports me isi scenario par saaf STALE/LEGACY warning ke saath
+                        // data dikhta hai (neeche dekhein) - yahan sirf yeh chhota widget hai.
+                        hqVillageSummaryData = (reconciliation && reconciliation.supported === false)
+                            ? null
+                            : buildRevenueHqVillageSummaryData(revenueMode, revenueFilterValue);
                     } catch (_) {
                         hqVillageSummaryData = null;
                     }
@@ -14893,6 +15145,20 @@
             return normalizeLookupValue(dcName || "");
         }
 
+        // Revenue Master URL ka primary map kuch DC tak hi simit hai. Division
+        // configuration me jo existing per-DC csvUrl diya hai, use fallback ke
+        // roop me lene se Division report kisi valid DC (jaise ADEGAON) par
+        // bina wajah fail nahi hoti. Koi naya source/logic add nahi hota.
+        function getRevenueCollectionCsvUrl_(dcName = activeDC) {
+            const dcKey = getRevenueCollectionDcKey(dcName);
+            if (revenueCollectionCsvUrls[dcKey]) return revenueCollectionCsvUrls[dcKey];
+            for (const division of Object.values(divisionConfigs || {})) {
+                const match = (division.dcs || []).find((dc) => getRevenueCollectionDcKey(dc.name) === dcKey);
+                if (match && match.csvUrl) return match.csvUrl;
+            }
+            return "";
+        }
+
         // SEONI (T) DC ke liye request: underlying data column same rehta hai
         // (HQ NAME / VILLAGE), sirf iske Revenue reports me DISPLAY label alag
         // dikhna hai - "HQ Name" ki jagah "Name of Staff", "Village" ki jagah
@@ -15082,11 +15348,11 @@
             };
         }
 
-        async function loadRevenueCollectionData(dcName = activeDC, forceRefresh = false) {
+        async function loadRevenueCollectionData(dcName = activeDC, forceRefresh = false, options = null) {
             const dcKey = getRevenueCollectionDcKey(dcName);
             if (!forceRefresh && revenueCollectionLoadedByDc[dcKey]) return revenueCollectionRowsByDc[dcKey] || [];
 
-            const csvUrl = revenueCollectionCsvUrls[dcKey];
+            const csvUrl = getRevenueCollectionCsvUrl_(dcName);
             const cacheKey = `seoni-revenue-collection-csv-v5-${dcKey}`;
 
             if (!forceRefresh) {
@@ -15157,6 +15423,12 @@
                     } catch (_) {}
                 }
             }
+
+            // Revenue reconciliation reports ko exact/current Master chahiye. Unke
+            // strict caller me remote CSV ke fail hone par purana consumer/cache
+            // fallback silently accept nahi karte; normal callers ka purana
+            // fallback behaviour bilkul unchanged rehta hai.
+            if (options && options.requireRemote) return [];
 
             let mobileUpdateRows = getConsumerRows(dcName);
             if (!mobileUpdateRows.length) mobileUpdateRows = await ensureDcDataLoaded(dcName);
@@ -20029,6 +20301,209 @@
             throw error;
         }
 
+        // =====================================================================
+        // ISOLATED ADDITION (2026-09-17, USER-APPROVED corrections): Revenue
+        // Category reports (Category Wise / HQ-Village Wise / Target vs
+        // Achievement / Paid Consumer Count / Particular Consumer List) ke
+        // Paid/Unpaid ko naye backend "getRevenueCategoryReconciliation" action
+        // (revenue-submit-script-dc-wise.gs, isolated addition) se EXACT-DATE-
+        // capable per-consumer (DC+IVRS) aggregate se reconcile karne ke liye.
+        // Isi existing fetchRevenueReportPaidBatch_/fetchRevenueReportTdSingle_
+        // pattern (6-DC batches, revenueReportChunkDcList_, withAppsScript-
+        // ConcurrencyGate_, 2 attempt/600ms*attempt retry, scope/period marker
+        // validation) ko REUSE karta hai - koi existing helper modify nahi hua.
+        // SCOPE: sirf naye function/state, revenue-category reports ke
+        // call-sites me hi consume hote hain - baaki kisi module/report ko
+        // yeh code chhoo tak nahi raha.
+        // =====================================================================
+        const revenueCategoryReconciliationCache_ = new Map();
+        const revenueCategoryReconciliationInFlight_ = new Map();
+        const REVENUE_CATEGORY_RECONCILIATION_TTL_MS = 60000;
+
+        function revenueCategoryReconciliationDcList_(dcNames) {
+            return Array.from(new Set((dcNames || [])
+                .map((dcName) => normalizeDcName(dcName))
+                .filter(Boolean)))
+                .sort((a, b) => a.localeCompare(b));
+        }
+
+        function revenueCategoryReconciliationCacheKey_(mode, periodValue, dcNames) {
+            const normalizedMode = mode === "MONTHLY" ? "MONTHLY" : "DAILY";
+            return `${revenueCategoryReconciliationDcList_(dcNames).join(",")}|${normalizedMode}|${String(periodValue || "").trim()}`;
+        }
+
+        function revenueReconciliationPeriodParams_(mode, periodValue) {
+            const periodMode = mode === "MONTHLY" ? "month" : "date";
+            return `&period_mode=${encodeURIComponent(periodMode)}&period_value=${encodeURIComponent(periodValue || "")}`;
+        }
+
+        // USER-APPROVED correction #4: backend response ke `failed_dcs` (kisi
+        // ek DC ki PAID MASTER sheet read karte waqt error) ko kabhi bhi
+        // "silent partial" maan kar accept nahi karte - retry karte hain, aur
+        // final retry ke baad bhi fail ho to un DC ke naam ke saath saaf error
+        // throw karte hain (jaisa fetchRevenueReportPaidBatch_ already karta
+        // hai apne batch-level failures ke liye).
+        async function fetchRevenueCategoryReconciliationBatch_(dcList, mode, periodValue) {
+            if (!revenueCollectionSubmitScriptUrl || !dcList.length) return { supported: false };
+            const batches = revenueReportChunkDcList_(dcList, 6);
+            const periodParams = revenueReconciliationPeriodParams_(mode, periodValue);
+            const expectedPeriodMode = mode === "MONTHLY" ? "month" : "date";
+            let capabilityMismatch = false;
+
+            async function runBatch(batch) {
+                const dcNamesParam = `&dc_names=${encodeURIComponent(batch.join(","))}`;
+                for (let attempt = 1; attempt <= 2; attempt++) {
+                    try {
+                        const parsed = await withAppsScriptConcurrencyGate_(revenueCollectionSubmitScriptUrl, async () => {
+                            const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getRevenueCategoryReconciliation${dcNamesParam}${periodParams}&t=${Date.now()}`);
+                            return await response.json();
+                        });
+                        const capability = revenueReportResponseCapability_(parsed, batch, expectedPeriodMode, periodValue);
+                        if (capability === "old") { capabilityMismatch = true; return { ok: true, entries: [] }; }
+                        if (capability === "new") {
+                            const failedInResponse = Array.isArray(parsed.failed_dcs) ? parsed.failed_dcs.filter(Boolean) : [];
+                            if (failedInResponse.length) {
+                                if (attempt < 2) { await new Promise((resolve) => setTimeout(resolve, 600 * attempt)); continue; }
+                                return { ok: false, dcs: failedInResponse };
+                            }
+                            return {
+                                ok: true,
+                                entries: Array.isArray(parsed.entries) ? parsed.entries : [],
+                                ambiguousEntries: Array.isArray(parsed.legacy_ambiguous_entries) ? parsed.legacy_ambiguous_entries : []
+                            };
+                        }
+                        // capability === "error" -> genuine/validation failure, retry neeche.
+                    } catch (_) {}
+                    if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 600 * attempt));
+                }
+                return { ok: false, dcs: batch };
+            }
+
+            const batchResults = await Promise.all(batches.map(runBatch));
+            if (capabilityMismatch) return { supported: false };
+            const failedDcs = batchResults.filter((r) => !r.ok).flatMap((r) => r.dcs);
+            if (failedDcs.length) {
+                const error = new Error(`Revenue reconciliation data load nahi ho paya in DC ke liye: ${failedDcs.join(", ")}`);
+                error.failedDcs = failedDcs;
+                throw error;
+            }
+
+            const ambiguousEntries = batchResults.flatMap((result) => result.ambiguousEntries || []);
+            if (ambiguousEntries.length) {
+                const examples = ambiguousEntries.slice(0, 5).map((entry) => {
+                    const dcName = normalizeDcName(entry.dc_name || "") || "UNKNOWN DC";
+                    const ivrs = normalizeRevenueIvrs(entry.ivrs_no) || "UNKNOWN IVRS";
+                    return `${dcName}/${ivrs}`;
+                }).join(", ");
+                const error = new Error(`Exact Daily Paid/Unpaid report nahi ban sakti: purane multiple-payment records ki exact payment date available nahi hai (${examples}${ambiguousEntries.length > 5 ? " aadi" : ""})`);
+                error.code = "REVENUE_RECONCILIATION_AMBIGUOUS";
+                error.ambiguousEntries = ambiguousEntries;
+                throw error;
+            }
+
+            // USER-APPROVED correction #5: backend already exactly-ek-entry-per-
+            // unique-(DC+IVRS) deta hai, par yahan bhi defensively merge karte
+            // hain - agar kabhi duplicate mile to amount sum ho, PAID COUNT
+            // hamesha max 1 hi rahega (byKey Map me ek IVRS ki ek hi entry).
+            const byKey = new Map();
+            batchResults.forEach((result) => {
+                (result.entries || []).forEach((entry) => {
+                    const dcName = normalizeDcName(entry.dc_name || "");
+                    const ivrs = normalizeRevenueIvrs(entry.ivrs_no);
+                    if (!dcName || !ivrs) return;
+                    const key = `${dcName}|${ivrs}`;
+                    const amount = Number(entry.matched_paid_amount || 0);
+                    const existing = byKey.get(key);
+                    if (existing) {
+                        existing.amount += amount;
+                        if (!existing.category && entry.tariff_category) existing.category = entry.tariff_category;
+                        existing.legacyAmbiguous = existing.legacyAmbiguous || !!entry.legacy_ambiguous;
+                    } else {
+                        byKey.set(key, {
+                            amount,
+                            category: entry.tariff_category || "",
+                            legacyAmbiguous: !!entry.legacy_ambiguous
+                        });
+                    }
+                });
+            });
+            return { supported: true, byKey };
+        }
+
+        // Caller (Category Wise / HQ-Village Wise / Target vs Achievement /
+        // Top Defaulters render+download functions) is function ko report ke
+        // exact mode+filterValue maloom hote hi await karta hai, USE PEHLE
+        // buildRevenueCategorySummaryRows/buildRevenueCategoryUploadedPaidInfo
+        // (dono SYNC hain) ko call kare - taaki woh is TTL-cached, already-
+        // resolve-ho-chuke Map se seedhe (bina await ke) padh sakein, jaisa
+        // is app me warmRevenueCategoryUploadedPaidCache/revenueCategoryCache-
+        // WarmedAt ka existing pattern hai.
+        async function ensureRevenueCategoryReconciliationLoaded(mode, filterValue) {
+            const dcList = revenueCategoryReconciliationDcList_(getRevenueCategoryTargetDcs());
+            const cacheKey = revenueCategoryReconciliationCacheKey_(mode, filterValue, dcList);
+            const cached = revenueCategoryReconciliationCache_.get(cacheKey);
+            if (cached && Date.now() - cached.loadedAt < REVENUE_CATEGORY_RECONCILIATION_TTL_MS) return cached;
+            if (!dcList.length) {
+                const empty = { supported: false, byKey: new Map(), loadedAt: Date.now() };
+                revenueCategoryReconciliationCache_.set(cacheKey, empty);
+                return empty;
+            }
+            const existingPromise = revenueCategoryReconciliationInFlight_.get(cacheKey);
+            if (existingPromise) return existingPromise;
+            const loadPromise = (async () => {
+                const result = await fetchRevenueCategoryReconciliationBatch_(dcList, mode, filterValue);
+                const record = {
+                    supported: result.supported === true,
+                    byKey: result.byKey || new Map(),
+                    loadedAt: Date.now(),
+                    dcNames: dcList.slice()
+                };
+                revenueCategoryReconciliationCache_.set(cacheKey, record);
+                return record;
+            })();
+            revenueCategoryReconciliationInFlight_.set(cacheKey, loadPromise);
+            try {
+                return await loadPromise;
+            } finally {
+                if (revenueCategoryReconciliationInFlight_.get(cacheKey) === loadPromise) {
+                    revenueCategoryReconciliationInFlight_.delete(cacheKey);
+                }
+            }
+        }
+
+        // USER-APPROVED correction #8: Unique Master Consumer = Paid Consumer +
+        // Unpaid Consumer - har row (DC ya HQ) par. Mismatch mile to Excel/PDF
+        // download silently nahi niklegi.
+        function checkRevenueCategorySummaryInvariant_(rows) {
+            const mismatches = [];
+            (rows || []).forEach((row) => {
+                if (row.type === "SUB_TOTAL" || row.type === "SUBDN_TOTAL") return;
+                const uniqueMaster = Number(row.__uniqueMasterCount || 0);
+                const paidPlusUnpaid = Number(row.paidTotal || 0) + Number(row.unpaidTotal || 0);
+                if (paidPlusUnpaid !== uniqueMaster) {
+                    mismatches.push({ name: row.name, uniqueMaster, paidPlusUnpaid, diff: paidPlusUnpaid - uniqueMaster });
+                }
+            });
+            return mismatches;
+        }
+
+        // ISOLATED ADDITION (2026-09-17, USER-APPROVED condition): dedicated
+        // Revenue Category report screens (HQ-Village Wise / Target vs Achievement /
+        // Top Defaulters) ke liye - agar reconciliation backend abhi purana/
+        // unavailable hai aur legacy fallback data dikhaya jaa raha hai, to yeh
+        // ek chhota, saaf, amber "STALE/LEGACY" warning statusBox me dikhata hai
+        // (non-blocking - report data neeche normal dikhta rehta hai). isStale
+        // false ho to statusBox ko chhedta nahi (existing "hide on start"
+        // behaviour jaisa hi rehta hai, caller display:none kar chuka hota hai).
+        function showRevenueCategoryStaleLegacyWarning_(statusBox, isStale) {
+            if (!statusBox || !isStale) return;
+            statusBox.style.display = "block";
+            statusBox.style.background = "#fffbeb";
+            statusBox.style.borderColor = "#fcd34d";
+            statusBox.style.color = "#92400e";
+            statusBox.innerText = "STALE/LEGACY - totals may be inaccurate (backend update pending)";
+        }
+
         // ROUND-3 CORRECTION: pehle jaisa design tha usme PAID ke 4 batches
         // aur TD request SEEDHE Promise.all() me ek saath fire ho jaate the -
         // agar backend PURANA ho (dc_names/month ignore kar deta hai, jaisa
@@ -20909,7 +21384,7 @@
                 if (!alreadyLoaded) {
                     const targetDcs = getRevenueCategoryTargetDcs();
                     await Promise.all([
-                        ensureRevenueCategoryMasterDataLoaded(targetDcs),
+                        ensureRevenueCategoryMasterDataLoadedStrict_(targetDcs),
                         ensureRevenueCategoryRawPaymentRowsLoaded(),
                         warmRevenueCategoryUploadedPaidCache()
                     ]);
@@ -20920,6 +21395,8 @@
                 const filterValue = mode === "MONTHLY"
                     ? (document.getElementById("revenue-hq-village-month")?.value || getTodayIsoDate().slice(0, 7))
                     : (document.getElementById("revenue-hq-village-date")?.value || getTodayIsoDate());
+                const reconciliation = await ensureRevenueCategoryReconciliationLoaded(mode, filterValue);
+                if (!isRenderValid()) { if (progress) progress.stop(); return; }
                 const summaryData = buildRevenueHqVillageSummaryData(mode, filterValue);
                 revenueHqVillageTree = summaryData.tree;
                 revenueHqVillageDrillPath = [];
@@ -20930,6 +21407,7 @@
                 tableBox.innerHTML = renderRevenueHqVillageTable();
                 initRevenueHqVillageListDropdowns();
                 if (listSection) listSection.style.display = "block";
+                showRevenueCategoryStaleLegacyWarning_(statusBox, reconciliation && reconciliation.supported === false);
             } catch (error) {
                 if (progress) progress.stop();
                 if (statusBox) {
@@ -20937,7 +21415,10 @@
                     statusBox.style.background = "#fff1f2";
                     statusBox.style.borderColor = "#fda4af";
                     statusBox.style.color = "#991b1b";
-                    statusBox.innerText = "Report load nahi ho payi";
+                    // ISOLATED FIX (2026-09-17, correction #4): failed_dcs wala naam-
+                    // wala error ab yahan bhi dikhta hai (pehle generic "Report load
+                    // nahi ho payi" hi hamesha dikhta tha).
+                    statusBox.innerText = error?.message || "Report load nahi ho payi";
                 }
             }
         }
@@ -21303,7 +21784,7 @@
                 if (!alreadyLoaded) {
                     const targetDcs = getRevenueCategoryTargetDcs();
                     await Promise.all([
-                        ensureRevenueCategoryMasterDataLoaded(targetDcs),
+                        ensureRevenueCategoryMasterDataLoadedStrict_(targetDcs),
                         ensureRevenueCategoryRawPaymentRowsLoaded(),
                         warmRevenueCategoryUploadedPaidCache()
                     ]);
@@ -21314,6 +21795,8 @@
                 const filterValue = mode === "MONTHLY"
                     ? (document.getElementById("revenue-target-month")?.value || getTodayIsoDate().slice(0, 7))
                     : (document.getElementById("revenue-target-date")?.value || getTodayIsoDate());
+                const reconciliation = await ensureRevenueCategoryReconciliationLoaded(mode, filterValue);
+                if (!isRenderValid()) { if (progress) progress.stop(); return; }
                 const govtFilter = document.getElementById("revenue-target-govt")?.value || "";
                 const tree = buildRevenueHqVillagePaidUnpaidTree(mode, filterValue, govtFilter);
                 revenueTargetTree = tree;
@@ -21328,6 +21811,7 @@
                 refreshRevenueTargetViewByOptions();
                 if (summaryBox) summaryBox.innerHTML = renderRevenueTargetSummaryCardsHtml(totals);
                 tableBox.innerHTML = renderRevenueTargetTable();
+                showRevenueCategoryStaleLegacyWarning_(statusBox, reconciliation && reconciliation.supported === false);
             } catch (error) {
                 if (progress) progress.stop();
                 if (statusBox) {
@@ -21335,7 +21819,7 @@
                     statusBox.style.background = "#fff1f2";
                     statusBox.style.borderColor = "#fda4af";
                     statusBox.style.color = "#991b1b";
-                    statusBox.innerText = "Report load nahi ho payi";
+                    statusBox.innerText = error?.message || "Report load nahi ho payi";
                 }
             }
         }
@@ -21534,7 +22018,7 @@
                 if (!alreadyLoaded) {
                     const targetDcs = getRevenueCategoryTargetDcs();
                     await Promise.all([
-                        ensureRevenueCategoryMasterDataLoaded(targetDcs),
+                        ensureRevenueCategoryMasterDataLoadedStrict_(targetDcs),
                         ensureRevenueCategoryRawPaymentRowsLoaded(),
                         warmRevenueCategoryUploadedPaidCache()
                     ]);
@@ -21542,6 +22026,8 @@
                     revenueDefaultersLoadedScopeKey = scopeKey;
                 }
                 const dateValue = document.getElementById("revenue-defaulters-date")?.value || getTodayIsoDate();
+                const reconciliation = await ensureRevenueCategoryReconciliationLoaded("DAILY", dateValue);
+                if (!isRenderValid()) { if (progress) progress.stop(); return; }
                 // USER REQUEST (2026-08-13): row.pendingAmount (buildRevenueHqVillage-
                 // ConsumerRows me pehle se Net Bill - Paid, sirf positive) use karte
                 // hain, "!row.paid" filter hata diya - taaki partial payment wale
@@ -21560,9 +22046,10 @@
                 const govtSelect = document.getElementById("revenue-defaulters-govt");
                 if (govtSelect) govtSelect.value = "";
                 renderRevenueDefaultersTable();
+                showRevenueCategoryStaleLegacyWarning_(statusBox, reconciliation && reconciliation.supported === false);
             } catch (error) {
                 if (progress) progress.stop();
-                if (statusBox) statusBox.innerText = "Report load nahi ho payi";
+                if (statusBox) statusBox.innerText = error?.message || "Report load nahi ho payi";
             }
         }
 
