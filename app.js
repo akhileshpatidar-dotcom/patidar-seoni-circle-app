@@ -19079,13 +19079,28 @@
         }
 
         async function verifyRevenuePaidBackendUpload(entries, dcName, maxAttempts = 30) {
-            const expectedCount = (entries || []).filter((entry) => getRevenueUploadedPaidRowIvrs(entry)).length;
+            const expectedIvrs = Array.from(new Set((entries || [])
+                .map((entry) => getRevenueUploadedPaidRowIvrs(entry))
+                .filter(Boolean)));
+            const expectedCount = expectedIvrs.length;
             if (!expectedCount) return false;
             for (let attempt = 1; attempt <= maxAttempts; attempt++) {
                 try {
                     const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getPaidMasterRowCount&dc_name=${encodeURIComponent(dcName || "")}&t=${Date.now()}`);
                     const parsed = await response.json();
                     if (parsed?.status === "success" && Number(parsed.count) === expectedCount) return true;
+                } catch (_) {}
+                try {
+                    // AG rows purane uploads ke saath merge hote hain, isliye backend
+                    // ka total row-count current file se zyada hona bilkul sahi hai.
+                    // Aise case me equality ki jagah verify karte hain ki current
+                    // upload ka HAR IVRS lightweight backend list me maujood hai.
+                    const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getUploadedPaidIvrsList&dc_name=${encodeURIComponent(dcName || "")}&t=${Date.now()}`);
+                    const parsed = await response.json();
+                    if (parsed?.status === "success" && Array.isArray(parsed.entries)) {
+                        const backendIvrs = new Set(parsed.entries.map((entry) => getRevenueUploadedPaidRowIvrs(entry)).filter(Boolean));
+                        if (expectedIvrs.every((ivrs) => backendIvrs.has(ivrs))) return true;
+                    }
                 } catch (_) {}
                 if (attempt < maxAttempts) {
                     const verificationPercent = 70 + Math.round((attempt / maxAttempts) * 29);
