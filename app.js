@@ -6844,8 +6844,12 @@
                 // 30-second timeout diya hai (backend load ab halka hai,
                 // isliye asal me itna lagega nahi, bas dheeme network ke liye
                 // gunjaish rakhi hai).
-                const mobileSummaryAction = summaryMode === "DAILY" ? "getDailySummary" : "getSummary";
-                const mobileSummaryDateParam = summaryMode === "DAILY" ? `&date=${encodeURIComponent(dStr.replace(/-/g, "/"))}` : "";
+                // SAFETY HOLD: the old raw MOBILE DAILY SUMMARY is intentionally
+                // not used.  It is incomplete for historical data and duplicates
+                // consumer rows.  The new compact indexes are being verified first;
+                // until then both Daily and Monthly keep the proven source route.
+                const mobileSummaryAction = "getSummary";
+                const mobileSummaryDateParam = "";
                 let cloudData;
                 try {
                     cloudData = await loadRemoteJson(`${scriptURL}?action=${mobileSummaryAction}${mobileSummaryDcParam}${mobileSummaryDateParam}`, 30000);
