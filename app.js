@@ -18348,7 +18348,12 @@
         // User-facing date/time display: always Indian numeric format.
         function formatIndianDateTimeDisplay_(dateValue, timeValue = "") {
             const rawDate = String(dateValue || "").trim();
-            const normalized = normalizeRevenueReportDate(rawDate);
+            // Uploaded Cash List dates historically came back from Sheets with
+            // day/month swapped (03/08 was returned as 08/03). Reuse the
+            // existing corrective converter before rendering the Indian format.
+            const normalized = /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(rawDate)
+                ? convertUploadedDateToDDMMYYYY(rawDate).replaceAll("/", "-")
+                : normalizeRevenueReportDate(rawDate);
             let dateText = normalized ? normalized : rawDate;
             if (dateText.includes("/")) dateText = dateText.replaceAll("/", "-");
             const timeText = formatRevenuePaidTime(timeValue || (rawDate.match(/\b\d{1,2}:\d{2}(?::\d{2})?\b/) || [""])[0]);
