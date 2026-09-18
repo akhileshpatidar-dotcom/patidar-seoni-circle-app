@@ -2528,6 +2528,15 @@
         }
 
         function addRevenueSummaryCount(group, row) {
+            // Circle/Division Daily Live-Revenue fast endpoint already returns
+            // one aggregate per DC. Do not turn it back into per-consumer rows.
+            if (row?.__liveRevenueDailySummary) {
+                group.paidCount += Number(row.paidCount || 0);
+                group.paidAmount += Number(row.paidAmount || 0);
+                group.tdCount += Number(row.tdCount || 0);
+                group.tdAmount += Number(row.tdAmount || 0);
+                return;
+            }
             if (row.reportType === "TD") {
                 group.tdCount += 1;
                 group.tdAmount += getRevenueTdAmount(row);
@@ -19376,18 +19385,27 @@
         // chhoti list turant paa sakte hain, bina 24-DC/poori-history wali slow
         // shared sync (jo Cash Reconcile/Pending DO List/Report Download ke liye
         // zaroori hai, usko bilkul nahi chheda) par fallback kiye.
-        async function fetchRevenueLiveProgressFastRows_(dcName, dateStr, attempts = 2) {
+        async function fetchRevenueLiveProgressFastRows_(dcName, dateStr, dcNames = [], attempts = 2) {
             if (!revenueCollectionSubmitScriptUrl) return null;
-            const dcParam = dcName ? `&dc_name=${encodeURIComponent(dcName)}` : "";
+            // DC view me ek DC, Division view me sirf us Division ke DCs, aur
+            // Circle view me koi scope parameter nahi. Backend ka existing
+            // dc_names support Division ke bekaar Circle-wide sheet-read ko
+            // rokta hai; Circle behavior jaan-boojhkar unchanged hai.
+            const normalizedDcNames = Array.from(new Set((dcNames || [])
+                .map((name) => normalizeDcName(name))
+                .filter(Boolean)));
+            const scopeParam = dcName
+                ? `&dc_name=${encodeURIComponent(dcName)}`
+                : (normalizedDcNames.length ? `&dc_names=${encodeURIComponent(normalizedDcNames.join(","))}` : "");
             for (let attempt = 1; attempt <= attempts; attempt++) {
                 try {
                     const [paidParsed, tdParsed] = await Promise.all([
                         withAppsScriptConcurrencyGate_(revenueCollectionSubmitScriptUrl, async () => {
-                            const paidResponse = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getEntries${dcParam}&date=${encodeURIComponent(dateStr)}&t=${Date.now()}`);
+                            const paidResponse = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getEntries${scopeParam}&date=${encodeURIComponent(dateStr)}&t=${Date.now()}`);
                             return await paidResponse.json();
                         }),
                         withAppsScriptConcurrencyGate_(revenueCollectionSubmitScriptUrl, async () => {
-                            const tdResponse = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getTDEntries${dcParam}&date=${encodeURIComponent(dateStr)}&t=${Date.now()}`);
+                            const tdResponse = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getTDEntries${scopeParam}&date=${encodeURIComponent(dateStr)}&t=${Date.now()}`);
                             return await tdResponse.json();
                         })
                     ]);
@@ -19400,6 +19418,50 @@
                             .map((row) => ({ ...row, reportType: "PAID" }));
                         const tdRows = tdSourceRows.map(mapRevenueTdSheetEntry).filter((row) => normalizeRevenueIvrs(row.ivrsNo));
                         return [...paidRows, ...tdRows];
+                    }
+                } catch (_) {}
+                if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, 600 * attempt));
+            }
+            return null;
+        }
+
+        // Circle/Division Daily Live-Revenue ke liye compact server aggregate.
+        // Naya backend available na ho, marker mismatch ho, ya network fail ho to
+        // null return hota hai aur neeche wala existing raw-row fast path chalti hai.
+        async function fetchRevenueLiveProgressDailySummary_(dcNames, dateStr, attempts = 2) {
+            if (!revenueCollectionSubmitScriptUrl) return null;
+            const requestedNames = Array.from(new Set((dcNames || [])
+                .map((name) => normalizeDcName(name))
+                .filter(Boolean)));
+            const expectedNames = requestedNames.length
+                ? requestedNames
+                : getAllDcNames().map((name) => normalizeDcName(name)).filter(Boolean);
+            const scopeParam = requestedNames.length
+                ? `&dc_names=${encodeURIComponent(requestedNames.join(","))}`
+                : "";
+            for (let attempt = 1; attempt <= attempts; attempt++) {
+                try {
+                    const parsed = await withAppsScriptConcurrencyGate_(revenueCollectionSubmitScriptUrl, async () => {
+                        const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getLiveRevenueDailySummary${scopeParam}&date=${encodeURIComponent(dateStr)}&t=${Date.now()}`);
+                        return await response.json();
+                    });
+                    const returnedNames = Array.isArray(parsed?.requested_dc_names)
+                        ? parsed.requested_dc_names.map((name) => normalizeDcName(name)).filter(Boolean)
+                        : [];
+                    const exactScope = returnedNames.length === expectedNames.length
+                        && expectedNames.every((name) => returnedNames.includes(name));
+                    const expectedMode = requestedNames.length ? "batch" : "all";
+                    if (parsed?.status === "success" && parsed.scope_mode === expectedMode
+                        && parsed.period_mode === "date" && parsed.period_value === dateStr
+                        && exactScope && Array.isArray(parsed.rows)) {
+                        return parsed.rows.map((row) => ({
+                            dcName: normalizeDcName(row.dc_name || row.dcName || ""),
+                            paidCount: Number(row.paid_count || row.paidCount || 0),
+                            paidAmount: Number(row.paid_amount || row.paidAmount || 0),
+                            tdCount: Number(row.td_count || row.tdCount || 0),
+                            tdAmount: Number(row.td_amount || row.tdAmount || 0),
+                            __liveRevenueDailySummary: true
+                        })).filter((row) => row.dcName);
                     }
                 } catch (_) {}
                 if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, 600 * attempt));
@@ -19709,10 +19771,19 @@
         // ab apna-apna shared 60-second TTL rakhte hain (dekhein unki definition).
         // Ye helper dono ke fresh-hone ka combined check deta hai, taaki Live
         // Progress aur baaki reports ek hi cache-state par bharosa kar saken.
-        function isRevenueLiveAndTdDataFresh() {
+        function isRevenueLiveAndTdDataFresh(scopeDc = null) {
             const now = Date.now();
+            // Circle-scope cache (null) har view ke liye kaafi hai. Lekin ek
+            // DC-only cache ko Division/Circle me kabhi reuse nahi kar sakte;
+            // warna 60-second TTL ke andar partial data dikh sakta tha.
+            const requestedScope = scopeDc ? normalizeDcName(scopeDc) : null;
+            const liveScope = revenueLiveEntriesCachedScopeDc ? normalizeDcName(revenueLiveEntriesCachedScopeDc) : null;
+            const tdScope = revenueTdEntriesCachedScopeDc ? normalizeDcName(revenueTdEntriesCachedScopeDc) : null;
+            const liveScopeMatches = liveScope === null || (requestedScope && liveScope === requestedScope);
+            const tdScopeMatches = tdScope === null || (requestedScope && tdScope === requestedScope);
             return !!revenueLiveEntriesSyncedAt && (now - revenueLiveEntriesSyncedAt < REVENUE_LIVE_ENTRIES_SYNC_TTL_MS)
-                && !!revenueTdEntriesSyncedAt && (now - revenueTdEntriesSyncedAt < REVENUE_TD_ENTRIES_SYNC_TTL_MS);
+                && !!revenueTdEntriesSyncedAt && (now - revenueTdEntriesSyncedAt < REVENUE_TD_ENTRIES_SYNC_TTL_MS)
+                && liveScopeMatches && tdScopeMatches;
         }
         async function renderRevenueLiveProgress() {
             const tableBox = document.getElementById("revenue-live-table");
@@ -19730,7 +19801,8 @@
             // jaisi kisi bhi report ne pehle hi sync kiya ho to bhi). Yahan check kar
             // lete hain ki dono fresh hain kya - agar haan to progress-bar UI bhi
             // dikhaye bina turant re-render kar dete hain.
-            const needsSync = !isRevenueLiveAndTdDataFresh();
+            const cacheScopeDc = activeViewLevel === "DC" && activeDC ? activeDC : null;
+            const needsSync = !isRevenueLiveAndTdDataFresh(cacheScopeDc);
             if (!needsSync) {
                 const rows = getRevenueCombinedFilteredEntries("DAILY", getCurrentDateDDMMYYYY());
                 const groupedRows = buildProgressRevenueSummaryRows(rows);
@@ -19744,12 +19816,10 @@
             // PERF FIX (2026-08-20, extended 2026-09-15): DC-scope par pehle FAST,
             // isolated path try karo (sirf is DC + sirf aaj ki date) - dekhein
             // fetchRevenueLiveProgressFastRows_ ke upar wala detailed comment.
-            // SPEED FIX (2026-09-15): ab Division/Circle scope me bhi yahi fast
-            // path try karte hain - bas dc_name khaali chhodte hain (backend sabhi
-            // DC ka "aaj ka" data deta hai, poori history nahi), phir Division ke
-            // liye us chhoti (already-today-only) list ko client-side apne DC-set
-            // tak filter kar dete hain (yeh filter free hai, kyunki list pehle se
-            // hi chhoti hai). Kisi bhi scope me fast path fail ho jaaye to purani
+            // SPEED FIX (2026-09-15, refined 2026-09-18): Division me `dc_names`
+            // bhejte hain, isliye backend sirf us Division ke DC padhta hai;
+            // Circle me aaj ki date ka chhota response aata hai. Kisi bhi scope
+            // me fast path fail ho jaaye to purani
             // (poori) sync method par turant fallback - taaki behavior kabhi pehle
             // se KHARAB na ho, sirf FAST ho.
             let rows = null;
@@ -19757,7 +19827,13 @@
                 rows = await fetchRevenueLiveProgressFastRows_(activeDC, getCurrentDateDDMMYYYY());
                 if (myToken !== revenueLiveProgressToken) { progress.stop(); return; }
             } else if (activeViewLevel === "DIVISION" || activeViewLevel === "CIRCLE") {
-                const todayRows = await fetchRevenueLiveProgressFastRows_("", getCurrentDateDDMMYYYY());
+                const divisionDcNames = activeViewLevel === "DIVISION" && activeDiv
+                    ? getDivisionDcNames(activeDiv)
+                    : [];
+                // Naya compact summary endpoint pehle try hota hai. Circle me bhi
+                // raw consumer rows browser tak nahi aate; sirf per-DC totals aate hain.
+                const dailySummaryRows = await fetchRevenueLiveProgressDailySummary_(divisionDcNames, getCurrentDateDDMMYYYY());
+                const todayRows = dailySummaryRows || await fetchRevenueLiveProgressFastRows_("", getCurrentDateDDMMYYYY(), divisionDcNames);
                 if (myToken !== revenueLiveProgressToken) { progress.stop(); return; }
                 if (todayRows) {
                     if (activeViewLevel === "DIVISION" && activeDiv) {
