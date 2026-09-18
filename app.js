@@ -9599,7 +9599,7 @@
             const lastUploadAt = omvigAdminStatus?.last_upload_at || "";
             if (!lastUploadAt) return "";
             const summary = omvigAdminStatus?.last_upload_summary || "";
-            return `<div style="text-align:center; font-size:0.68rem; font-weight:700; color:#475569; margin-top:6px; border-top:1px dashed #cbd5e1; padding-top:6px;">🕒 Last Upload: ${escapeHtml(lastUploadAt)}${summary ? `<br><span style="font-weight:600; color:#64748b;">${escapeHtml(summary)}</span>` : ""}</div>`;
+            return `<div style="text-align:center; font-size:0.68rem; font-weight:700; color:#475569; margin-top:6px; border-top:1px dashed #cbd5e1; padding-top:6px;">🕒 Last Upload: ${escapeHtml(formatIndianDateTimeDisplay_(lastUploadAt))}${summary ? `<br><span style="font-weight:600; color:#64748b;">${escapeHtml(summary)}</span>` : ""}</div>`;
         }
 
         function renderOmvigAdminStatus() {
@@ -18342,7 +18342,17 @@
             const yyyy = date.getFullYear();
             const hh = String(date.getHours()).padStart(2, "0");
             const min = String(date.getMinutes()).padStart(2, "0");
-            return `${dd}/${mm}/${yyyy} ${hh}:${min}`;
+            return `${dd}-${mm}-${yyyy} ${hh}:${min}`;
+        }
+
+        // User-facing date/time display: always Indian numeric format.
+        function formatIndianDateTimeDisplay_(dateValue, timeValue = "") {
+            const rawDate = String(dateValue || "").trim();
+            const normalized = normalizeRevenueReportDate(rawDate);
+            let dateText = normalized ? normalized : rawDate;
+            if (dateText.includes("/")) dateText = dateText.replaceAll("/", "-");
+            const timeText = formatRevenuePaidTime(timeValue || (rawDate.match(/\b\d{1,2}:\d{2}(?::\d{2})?\b/) || [""])[0]);
+            return dateText ? `${dateText}${timeText && timeText !== "-" ? ` ${timeText}` : ""}` : "-";
         }
 
         function renderRevenuePaidUploadSummary(meta) {
@@ -18444,7 +18454,7 @@
                 const normalRows = entries.filter((e) => normalizeLookupValue(e.source_type || "") === "NORMAL").length;
                 const agRows = entries.filter((e) => normalizeLookupValue(e.source_type || "") === "AG").length;
                 const latest = entries[entries.length - 1] || {};
-                const uploadedAtDisplay = [latest.uploaded_date, latest.uploaded_time].filter(Boolean).join(" ") || "-";
+                const uploadedAtDisplay = formatIndianDateTimeDisplay_(latest.uploaded_date, latest.uploaded_time);
                 return {
                     dcName: normalizedDc,
                     uniqueCount: entries.length,
