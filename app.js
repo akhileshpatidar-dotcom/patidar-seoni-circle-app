@@ -18348,11 +18348,9 @@
         // User-facing date/time display: always Indian numeric format.
         function formatIndianDateTimeDisplay_(dateValue, timeValue = "") {
             const rawDate = String(dateValue || "").trim();
-            // Uploaded Cash List dates historically came back from Sheets with
-            // day/month swapped (03/08 was returned as 08/03). Reuse the
-            // existing corrective converter before rendering the Indian format.
-            const normalized = /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(rawDate)
-                ? convertUploadedDateToDDMMYYYY(rawDate).replaceAll("/", "-")
+            const datePart = rawDate.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
+            const normalized = datePart
+                ? `${datePart[2].padStart(2, "0")}-${datePart[1].padStart(2, "0")}-${datePart[3]}`
                 : normalizeRevenueReportDate(rawDate);
             let dateText = normalized ? normalized : rawDate;
             if (dateText.includes("/")) dateText = dateText.replaceAll("/", "-");
@@ -18401,10 +18399,12 @@
 
         async function checkRevenueUploadFreshness() {
             const box = document.getElementById("revenue-upload-freshness-ticker");
+            const inline = document.getElementById("revenue-upload-freshness-inline");
             if (!box) return;
             const dcName = activeDC;
             if (!dcName || !revenueCollectionSubmitScriptUrl) {
                 box.style.display = "none";
+                if (inline) inline.style.display = "none";
                 return;
             }
             const today = new Date();
@@ -18436,11 +18436,13 @@
                 });
                 if (uploadedToday) {
                     box.style.display = "none";
+                    if (inline) inline.style.display = "none";
                     return;
                 }
                 const span = box.querySelector(".ticker-text");
                 if (span) {
                     span.innerText = `⚠️ आज दिनांक ${todayDDMMYYYY} को Cash List Upload ना होने के कारण Latest Paid Consumer का Data Show नहीं होगा   ⚠️   आज दिनांक ${todayDDMMYYYY} को Cash List Upload ना होने के कारण Latest Paid Consumer का Data Show नहीं होगा`;
+                    if (inline) inline.style.display = "block";
                 }
                 box.style.display = "block";
             } catch (_) {
