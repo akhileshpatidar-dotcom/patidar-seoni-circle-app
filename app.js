@@ -532,6 +532,20 @@
         // jump karne par turant dusra parallel fetch shuru ho jaata tha).
         const dcDataLoadFetchPromises = {};
 
+        function showFreshDataWarning_(message = "Fresh data load nahi hua; purana cached data dikhaya ja raha hai.") {
+            const host = document.getElementById("summary-content") || document.querySelector("main.view.active");
+            if (!host) return;
+            let notice = document.getElementById("fresh-data-warning-notice");
+            if (!notice) {
+                notice = document.createElement("div");
+                notice.id = "fresh-data-warning-notice";
+                notice.style.cssText = "margin:8px auto;padding:7px 10px;border:1px solid #fbbf24;border-radius:10px;background:#fffbeb;color:#92400e;font-size:.62rem;font-weight:850;text-align:center;line-height:1.3;";
+                host.prepend(notice);
+            }
+            notice.textContent = `⚠️ ${message}`;
+            notice.style.display = "block";
+        }
+
         async function ensureDcDataLoaded(dcName, forceRefresh = false) {
             const normalized = normalizeDcName(dcName);
             if (!normalized) return [];
@@ -566,6 +580,7 @@
                     }
                 }
             } catch (_) {
+                showFreshDataWarning_(`DC ${normalized} ka fresh data load nahi hua; purana cached data dikhaya ja raha hai.`);
                 try {
                     const cachedRaw = localStorage.getItem(`${dcCsvCacheStoragePrefix}${normalized}`) || "";
                     const parsedRows = isLikelyCsvPayload(cachedRaw) ? parseConsumerCsv(cachedRaw) : [];
@@ -6811,9 +6826,14 @@
                 // backend abhi purana (bina is fix ke) deploy hai, to yeh naya
                 // param chup-chaap ignore ho jayega aur pehle jaisa hi behave
                 // karega - koi breaking change nahi.
+                const mobileScopeDcs = activeViewLevel === "DC"
+                    ? [activeDC]
+                    : (activeViewLevel === "DIVISION" ? getDivisionDcNames(activeDiv) : []);
                 const mobileSummaryDcParam = activeViewLevel === "DC" && activeDC
                     ? `&dc=${encodeURIComponent(activeDC)}`
-                    : "";
+                    : (activeViewLevel === "DIVISION" && mobileScopeDcs.length
+                        ? `&dc_names=${encodeURIComponent(mobileScopeDcs.join(","))}`
+                        : "");
                 // BUG FIX (2026-09-13): Yeh call abhi bhi purane hi 6-second
                 // default timeout (loadRemoteJson) par chalti thi - sheet-scan
                 // ab kaafi fast ho chuka hai (khaali rows delete + backend fix
@@ -7058,14 +7078,14 @@
         }
 
         function getTodayFeederDisplayDate() {
-            return getCurrentDateDDMMYYYY().replace(/-/g, "/");
+            return getCurrentDateDDMMYYYY();
         }
 
         function formatFeederDisplayDateFromIso(isoValue) {
             const raw = String(isoValue || "").trim();
             if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return getTodayFeederDisplayDate();
             const [year, month, day] = raw.split("-");
-            return `${day}/${month}/${year}`;
+            return `${day}-${month}-${year}`;
         }
 
         function syncFeederDateInputs(isoValue) {
@@ -9635,7 +9655,7 @@
                 const rounded = new Date(Math.round(value.getTime() / 60000) * 60000);
                 const y = rounded.getFullYear(), m = String(rounded.getMonth() + 1).padStart(2, "0"), d = String(rounded.getDate()).padStart(2, "0");
                 const hh = String(rounded.getHours()).padStart(2, "0"), mm = String(rounded.getMinutes()).padStart(2, "0");
-                return `${y}-${m}-${d} ${hh}:${mm}`;
+                return `${d}-${m}-${y} ${hh}:${mm}`;
             }
             return String(value ?? "").trim();
         }
@@ -12207,14 +12227,14 @@
         function normalizeShmsSheetDate_(value) {
             const raw = String(value || "").trim();
             if (!raw) return "";
-            if (/^\d{2}\/\d{2}\/\d{4}$/.test(raw)) return raw;
+            if (/^\d{2}[-\/]\d{2}[-\/]\d{4}$/.test(raw)) return raw.replaceAll("/", "-");
             if (/^\d{2}-\d{2}-\d{4}$/.test(raw)) {
                 const parts = raw.split("-");
                 return `${parts[0]}/${parts[1]}/${parts[2]}`;
             }
             if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
                 const parts = raw.split("-");
-                return `${parts[2]}/${parts[1]}/${parts[0]}`;
+                return `${parts[2]}-${parts[1]}-${parts[0]}`;
             }
             return raw;
         }
@@ -18265,23 +18285,9 @@
             setRevenuePaidUploadStatus("", true, false);
             const localMeta = getRevenuePaidUploadMeta(activeDC || "");
             renderRevenuePaidUploadSummary(localMeta);
-            const summaryBox = document.getElementById("revenue-paid-upload-summary");
-            if (summaryBox) {
-                summaryBox.style.display = "block";
-                const checkingNote = document.createElement("div");
-                checkingNote.id = "revenue-paid-upload-summary-checking";
-                checkingNote.className = "ticker-wrap";
-                checkingNote.innerHTML = '<span class="ticker-text">⏳ LATEST STATUS CHECK HO RAHA HAI... KRIPYA WAIT KIJIYE... SYNC HONE TAK YAHAN SE MAT JAइए... ⏳ LATEST STATUS CHECK HO RAHA HAI... KRIPYA WAIT KIJIYE...</span>';
-                summaryBox.appendChild(checkingNote);
-            }
-            refreshRevenuePaidUploadBackendStatus(activeDC || "");
-            fetchRevenuePaidUploadSummaryFromServer(activeDC || "").then((serverMeta) => {
-                const checkingNote = document.getElementById("revenue-paid-upload-summary-checking");
-                if (checkingNote) checkingNote.remove();
-                if (!serverMeta) return;
-                renderRevenuePaidUploadSummary(serverMeta);
-                saveRevenuePaidUploadMeta(serverMeta);
-            });
+            // Upload summary is intentionally local-first: after a successful
+            // upload it appears immediately on this device and is never
+            // overwritten by a slower/stale backend verification response.
         }
 
         function unlockRevenuePaidUpload() {
