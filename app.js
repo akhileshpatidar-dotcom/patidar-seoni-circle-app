@@ -223,6 +223,11 @@
         // DC-wise summary; specific DC shows that DC's HQ-wise list). Same state
         // var reused for both levels since only one dropdown is ever active at a time.
         let progressPaidCountFilter = "";
+        // Paid Count Summary: payment status is intentionally separate from the
+        // Govt filter. PAID means the whole current net bill is covered; PENDING
+        // includes both no-payment and part-payment consumers.
+        let progressPaidCountGovtFilter = "";
+        let progressPaidCountPaymentFilter = "";
 
         // ===== Revenue Freeze Tracking state (2026-09-12) =====
         // "REVENUE_FREEZE" 9th Revenue dropdown report - Non-Payee 3M/6M/Since
@@ -252,8 +257,9 @@
         // (HQ/Village/Category/Net Bill Slab/Govt-NonGovt) aur Top Defaulters
         // (Govt-NonGovt) wali SAME filter dropdowns honi chahiye - jo category
         // active hai usi ke hisaab se sahi filter set dikhta hai.
-        let freezeNonPayeeFilterState = { dc: "", hq: "", village: "", category: "", slab: "", govt: "" };
+        let freezeNonPayeeFilterState = { dc: "", hq: "", village: "", category: "", slab: "", govt: "", payment: "" };
         let freezeDefaultersGovtFilter = "";
+        let freezeDefaultersPaymentFilter = "";
 
         // ===== Meeter Cheking state (2026-09-10) =====
         let meterCheckingRows = [], meterCheckingRowsLoadedDcKey = "";
@@ -3807,8 +3813,9 @@
         // jaisi hi filter dropdown use kare - "revenue ki same format" jaisa
         // pehle bhi kaha gaya tha.
         function resetFreezeFilterState() {
-            freezeNonPayeeFilterState = { dc: "", hq: "", village: "", category: "", slab: "", govt: "" };
+            freezeNonPayeeFilterState = { dc: "", hq: "", village: "", category: "", slab: "", govt: "", payment: "" };
             freezeDefaultersGovtFilter = "";
+            freezeDefaultersPaymentFilter = "";
         }
 
         function isFreezeCategoryDefaultersType() {
@@ -3828,6 +3835,20 @@
             freezeDefaultersGovtFilter = value || "";
             const body = document.getElementById("summary-content");
             if (body) body.innerHTML = renderFreezeModuleSummaryHtml();
+        }
+
+        function setFreezePaymentFilter(value) {
+            if (isFreezeCategoryDefaultersType()) freezeDefaultersPaymentFilter = value || "";
+            else freezeNonPayeeFilterState.payment = value || "";
+            const body = document.getElementById("summary-content");
+            if (body) body.innerHTML = renderFreezeModuleSummaryHtml();
+        }
+
+        function isFreezePaymentStatusMatch_(row, paymentFilter) {
+            if (!paymentFilter) return true;
+            // Full payment only is PAID. A part-paid consumer still has balance,
+            // therefore deliberately belongs to PENDING along with unpaid rows.
+            return paymentFilter === "PAID" ? !!row.isPaidNow : !row.isPaidNow;
         }
 
         function isFreezeNetBillInSlab(row, slabValue) {
@@ -3855,8 +3876,10 @@
         function getFreezeFilteredRowsWithStatus(rowsWithStatus) {
             if (isFreezeCategoryDefaultersType()) {
                 const g = freezeDefaultersGovtFilter;
-                if (!g) return rowsWithStatus;
-                return rowsWithStatus.filter((row) => (g === "GOVT" ? row.govt_flag === "GOVT" : row.govt_flag !== "GOVT"));
+                return rowsWithStatus.filter((row) => (
+                    (!g || (g === "GOVT" ? row.govt_flag === "GOVT" : row.govt_flag !== "GOVT"))
+                    && isFreezePaymentStatusMatch_(row, freezeDefaultersPaymentFilter)
+                ));
             }
             const f = freezeNonPayeeFilterState;
             return rowsWithStatus.filter((row) => (
@@ -3866,6 +3889,7 @@
                 && (!f.category || normalizeLookupValue(row.tariff_category) === normalizeLookupValue(f.category))
                 && isFreezeNetBillInSlab(row, f.slab)
                 && (!f.govt || (f.govt === "GOVT" ? row.govt_flag === "GOVT" : row.govt_flag !== "GOVT"))
+                && isFreezePaymentStatusMatch_(row, f.payment)
             ));
         }
 
@@ -4395,7 +4419,8 @@
         function buildFreezeActiveFiltersLabel_() {
             if (isFreezeCategoryDefaultersType()) {
                 const g = freezeDefaultersGovtFilter === "GOVT" ? "Govt" : (freezeDefaultersGovtFilter === "NONGOVT" ? "Non Govt" : "All (Govt + Non Govt)");
-                return `Filter: ${g}`;
+                const p = freezeDefaultersPaymentFilter === "PAID" ? "Paid (Full Only)" : (freezeDefaultersPaymentFilter === "PENDING" ? "Pending (Unpaid + Part Paid)" : "All Payment Status");
+                return `Filters: ${g} | Payment: ${p}`;
             }
             const f = freezeNonPayeeFilterState;
             const parts = [];
@@ -4405,6 +4430,7 @@
             parts.push(`Category: ${f.category || "All"}`);
             parts.push(`Slab: ${f.slab || "All"}`);
             parts.push(`Govt: ${f.govt === "GOVT" ? "Govt" : (f.govt === "NONGOVT" ? "Non Govt" : "All")}`);
+            parts.push(`Payment: ${f.payment === "PAID" ? "Paid (Full Only)" : (f.payment === "PENDING" ? "Pending (Unpaid + Part Paid)" : "All")}`);
             return `Filters: ${parts.join(" | ")}`;
         }
 
@@ -4601,6 +4627,11 @@
                         <option value="">All (Govt + Non Govt)</option>
                         <option value="GOVT" ${freezeDefaultersGovtFilter === "GOVT" ? "selected" : ""}>Govt</option>
                         <option value="NONGOVT" ${freezeDefaultersGovtFilter === "NONGOVT" ? "selected" : ""}>Non Govt</option>
+                    </select>
+                    <select onchange="setFreezePaymentFilter(this.value)" style="width:100%; height:44px; margin:8px auto 0; display:block; border:1.5px solid #fda4af; border-radius:12px; padding:0 12px; font-size:0.76rem; font-weight:900; color:#0f172a; background:#ffffff;">
+                        <option value="">All Payment Status</option>
+                        <option value="PAID" ${freezeDefaultersPaymentFilter === "PAID" ? "selected" : ""}>Paid (Full Payment Only)</option>
+                        <option value="PENDING" ${freezeDefaultersPaymentFilter === "PENDING" ? "selected" : ""}>Pending (Unpaid + Part Paid)</option>
                     </select>`;
             } else {
                 const f = freezeNonPayeeFilterState;
@@ -4629,6 +4660,11 @@
                         <option value="">All (Govt + Non Govt)</option>
                         <option value="GOVT" ${f.govt === "GOVT" ? "selected" : ""}>Govt</option>
                         <option value="NONGOVT" ${f.govt === "NONGOVT" ? "selected" : ""}>Non Govt</option>
+                    </select>
+                    <select onchange="setFreezePaymentFilter(this.value)" style="${freezeSelectStyle}">
+                        <option value="">All Payment Status</option>
+                        <option value="PAID" ${f.payment === "PAID" ? "selected" : ""}>Paid (Full Payment Only)</option>
+                        <option value="PENDING" ${f.payment === "PENDING" ? "selected" : ""}>Pending (Unpaid + Part Paid)</option>
                     </select>`;
             }
             let html = `
@@ -5880,6 +5916,16 @@
             const colLabel = selectedNode ? (isDc ? revenueVillageLabelUpper() : "HQ NAME") : topLabel;
             return `
                 <div style="font-size:0.75rem; font-weight:950; color:#1d4ed8; text-align:center;">Paid Count Summary</div>
+                <select onchange="setProgressPaidCountGovtFilter(this.value)" style="width:100%; height:44px; margin:9px auto 0; display:block; border:1.5px solid #93c5fd; border-radius:12px; padding:0 12px; font-size:0.76rem; font-weight:900; color:#0f172a; background:#ffffff;">
+                    <option value="">All (Govt + Non Govt)</option>
+                    <option value="GOVT" ${progressPaidCountGovtFilter === "GOVT" ? "selected" : ""}>Govt</option>
+                    <option value="NONGOVT" ${progressPaidCountGovtFilter === "NONGOVT" ? "selected" : ""}>Non Govt</option>
+                </select>
+                <select onchange="setProgressPaidCountPaymentFilter(this.value)" style="width:100%; height:44px; margin:8px auto 0; display:block; border:1.5px solid #93c5fd; border-radius:12px; padding:0 12px; font-size:0.76rem; font-weight:900; color:#0f172a; background:#ffffff;">
+                    <option value="">All Payment Status</option>
+                    <option value="PAID" ${progressPaidCountPaymentFilter === "PAID" ? "selected" : ""}>Paid (Full Payment Only)</option>
+                    <option value="PENDING" ${progressPaidCountPaymentFilter === "PENDING" ? "selected" : ""}>Pending (Unpaid + Part Paid)</option>
+                </select>
                 <select onchange="setProgressPaidCountFilter(this.value)" style="width:100%; height:44px; margin:9px auto 0; display:block; border:1.5px solid #93c5fd; border-radius:12px; padding:0 12px; font-size:0.76rem; font-weight:900; color:#0f172a; background:#ffffff;">
                     ${optionsHtml}
                 </select>
@@ -5895,7 +5941,12 @@
         //   combined data; Division/Circle level = DC-wise + har DC ke andar HQ-wise (village
         //   tak nahi) - jaisa user ne confirm kiya.
         function downloadProgressRevenuePaidCountSummary(fmt) {
-            const summaryData = lastRevenueProgressBoxData?.hqVillageSummaryData;
+            const summaryData = buildProgressPaidCountSummaryData(
+                lastRevenueProgressBoxData?.mode || "DAILY",
+                lastRevenueProgressBoxData?.filterValue || "",
+                progressPaidCountGovtFilter,
+                progressPaidCountPaymentFilter
+            );
             if (!summaryData) return showToast("Report ke liye data nahi hai", false);
             const downloadTypeLabel = fmt === "PDF" ? "PDF" : "Excel";
             setProgressCategoryDownloadState(true, `${downloadTypeLabel} downloading... kripya wait kijiye`);
@@ -5943,7 +5994,9 @@
                 reportTitle = `${reportTitle} - ${scope}`;
                 const rawVal = document.getElementById("report-date")?.value || "";
                 const parsed = parseSummarySelection(rawVal, summaryMode);
-                const periodLine = `Period: ${parsed.label || getTodayIsoDate()}`;
+                const paymentLabel = progressPaidCountPaymentFilter === "PAID" ? "Paid (Full Payment Only)" : (progressPaidCountPaymentFilter === "PENDING" ? "Pending (Unpaid + Part Paid)" : "All Payment Status");
+                const govtLabel = progressPaidCountGovtFilter === "GOVT" ? "Govt" : (progressPaidCountGovtFilter === "NONGOVT" ? "Non Govt" : "All (Govt + Non Govt)");
+                const periodLine = `Period: ${parsed.label || getTodayIsoDate()} | Govt: ${govtLabel} | Payment: ${paymentLabel}`;
                 const fileName = `${reportTitle}-${parsed.label || getTodayIsoDate()}`.replace(/[\\/:*?"<>|]+/g, "_");
                 if (fmt === "PDF") {
                     if (!window.jspdf?.jsPDF) { setProgressCategoryDownloadState(false, "PDF library load nahi hui"); return; }
@@ -6278,6 +6331,8 @@
             progressTargetGovtFilter = "";
             progressStaffTypeFilter = "";
             progressPaidCountFilter = "";
+            progressPaidCountGovtFilter = "";
+            progressPaidCountPaymentFilter = "";
             const body = document.getElementById("progress-revenue-body");
             if (body) body.innerHTML = renderProgressRevenueBodyInner();
         }
@@ -6286,6 +6341,20 @@
         // sab progressXxxFilter setters jaisa hi, sirf re-render karta hai.
         function setProgressPaidCountFilter(value) {
             progressPaidCountFilter = value || "";
+            const body = document.getElementById("progress-revenue-body");
+            if (body) body.innerHTML = renderProgressRevenueBodyInner();
+        }
+
+        function setProgressPaidCountGovtFilter(value) {
+            progressPaidCountGovtFilter = value || "";
+            progressPaidCountFilter = "";
+            const body = document.getElementById("progress-revenue-body");
+            if (body) body.innerHTML = renderProgressRevenueBodyInner();
+        }
+
+        function setProgressPaidCountPaymentFilter(value) {
+            progressPaidCountPaymentFilter = value || "";
+            progressPaidCountFilter = "";
             const body = document.getElementById("progress-revenue-body");
             if (body) body.innerHTML = renderProgressRevenueBodyInner();
         }
@@ -6432,7 +6501,12 @@
             } else if (progressRevenueReportType === "NONPAYEE_SINCE_CONNECTION") {
                 bodyHtml = renderRevenueProgressNonPayeeSummaryHtml(data.mode || "DAILY", data.filterValue || "", "SINCE_CONNECTION");
             } else if (progressRevenueReportType === "PAIDCOUNT") {
-                bodyHtml = renderRevenueProgressPaidCountSummaryHtml(data.hqVillageSummaryData);
+                bodyHtml = renderRevenueProgressPaidCountSummaryHtml(buildProgressPaidCountSummaryData(
+                    data.mode || "DAILY",
+                    data.filterValue || "",
+                    progressPaidCountGovtFilter,
+                    progressPaidCountPaymentFilter
+                ));
             } else {
                 bodyHtml = data.hqVillageSummaryData ? renderRevenueProgressHqVillageSummaryHtml(data.hqVillageSummaryData) : `<div style="font-size:0.75rem; font-weight:950; color:#1d4ed8; text-align:center;">Category Wise Paid/Unpaid Summary</div>`;
             }
@@ -21484,6 +21558,64 @@
             const categoryGrand = getRevenueCategoryGrandTotals(categoryRows);
 
             return { tree, totals, categoryGrand };
+        }
+
+        // Paid Count Summary needs a stricter classification than the normal
+        // paid/unpaid report: only a consumer whose current bill is fully covered
+        // is PAID. Any remaining balance (including part payment) is PENDING.
+        // This builder is local-only: it uses the already-loaded master/cash-list
+        // cache, makes no extra backend request, and returns the same tree shape
+        // consumed by the existing screen and PDF/Excel download code.
+        function buildProgressPaidCountSummaryData(mode, filterValue, govtFilter = "", paymentFilter = "") {
+            const paidInfoByDc = buildRevenueCategoryUploadedPaidInfo(mode, filterValue);
+            const leaf = (name) => ({ name, paidTotal: 0, unpaidTotal: 0, paidAmountTotal: 0, unpaidAmountTotal: 0, children: null });
+            const add = (target, row) => {
+                target.paidTotal += Number(row.paidTotal || 0);
+                target.unpaidTotal += Number(row.unpaidTotal || 0);
+                target.paidAmountTotal += Number(row.paidAmountTotal || 0);
+                target.unpaidAmountTotal += Number(row.unpaidAmountTotal || 0);
+            };
+            const buildDcNode = (dcName) => {
+                const dc = normalizeDcName(dcName);
+                const paidInfo = paidInfoByDc[dc] || {};
+                const seenIvrs = new Set();
+                const hqMap = {};
+                getRevenueMasterRowsForDc(dcName).forEach((row) => {
+                    if (govtFilter === "GOVT" && !row.govtFlag) return;
+                    if (govtFilter === "NONGOVT" && row.govtFlag) return;
+                    const ivrs = normalizeRevenueIvrs(row.ivrsNo);
+                    if (!ivrs || seenIvrs.has(ivrs)) return;
+                    seenIvrs.add(ivrs);
+                    const paidAmount = getRevenueMasterConsumerPaidAmount(paidInfo[ivrs]);
+                    const dueAmount = parseRevenuePendingAmount(row.netBill || 0);
+                    const isFullPaid = paidAmount > 0 && (dueAmount <= 0 || paidAmount + 0.0001 >= dueAmount);
+                    if (paymentFilter === "PAID" && !isFullPaid) return;
+                    if (paymentFilter === "PENDING" && isFullPaid) return;
+                    const hq = String(row.hqName || "GENERAL").trim().toUpperCase() || "GENERAL";
+                    const village = String(row.village || "UNKNOWN").trim().toUpperCase() || "UNKNOWN";
+                    if (!hqMap[hq]) hqMap[hq] = {};
+                    if (!hqMap[hq][village]) hqMap[hq][village] = leaf(village);
+                    const target = hqMap[hq][village];
+                    if (isFullPaid) { target.paidTotal += 1; target.paidAmountTotal += Math.min(paidAmount, dueAmount || paidAmount); }
+                    else { target.unpaidTotal += 1; target.unpaidAmountTotal += Math.max(0, dueAmount - paidAmount); }
+                });
+                const hqNodes = Object.keys(hqMap).sort((a, b) => a.localeCompare(b)).map((hq) => {
+                    const hqNode = leaf(hq);
+                    hqNode.children = Object.keys(hqMap[hq]).sort((a, b) => a.localeCompare(b)).map((village) => hqMap[hq][village]);
+                    hqNode.children.forEach((child) => add(hqNode, child));
+                    return hqNode;
+                });
+                const dcNode = leaf(dc);
+                dcNode.children = hqNodes;
+                hqNodes.forEach((child) => add(dcNode, child));
+                return dcNode;
+            };
+            const dcs = activeViewLevel === "DC" ? [activeDC] : (activeViewLevel === "DIVISION" ? getDivisionDcNames(activeDiv) : getRevenueCategoryTargetDcs());
+            const dcNodes = dcs.map(buildDcNode).filter((node) => node.children && node.children.length);
+            const tree = activeViewLevel === "DC" ? ((dcNodes[0] && dcNodes[0].children) || []) : dcNodes;
+            const totals = tree.reduce((acc, row) => { add(acc, row); return acc; }, leaf("TOTAL"));
+            totals.totalConsumer = totals.paidTotal + totals.unpaidTotal;
+            return { tree, totals };
         }
 
         function renderRevenueHqVillageSummaryCardsHtml(data) {
