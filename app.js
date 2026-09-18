@@ -2842,6 +2842,10 @@
             // backend available na ho (purana/redeploy-na-hua backend - capability
             // mismatch fallback).
             if (paidInfo?.reconciled) {
+                if (paidInfo.legacyAmbiguous) {
+                    const dcLabel = row.dcName || row.dc_name || "unknown DC";
+                    throw new Error(`Legacy ambiguous payment record मिला (${dcLabel}/${ivrs}); report silently गलत नहीं बनाई गई। Cash List/payment rows ठीक करके फिर चलाएँ।`);
+                }
                 const bucketCategory = revenueCategoryList.includes(category) ? category : "OTHER";
                 if (!group.categories[bucketCategory]) group.categories[bucketCategory] = { paid: 0, unpaid: 0, paidAmount: 0, unpaidAmount: 0 };
                 const amount = Number(paidInfo.amount || 0);
@@ -4872,30 +4876,9 @@
         const revenueFreezePaidCacheWarmedAt_ = {};
         const REVENUE_FREEZE_PAID_CACHE_TTL_MS = 60000;
         async function fetchRevenueFreezePaidSummaryBatch_(dcNames, attempts = 2) {
-            const names = Array.from(new Set((dcNames || []).map(normalizeDcName).filter(Boolean)));
-            if (!names.length) return { status: "success", scope_mode: "batch", requested_dc_names: [], entries: [] };
-            for (let attempt = 1; attempt <= attempts; attempt++) {
-                const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
-                const timer = setTimeout(() => { try { if (controller) controller.abort(); } catch (_) {} }, 90000);
-                try {
-                    const parsed = await withAppsScriptConcurrencyGate_(revenueCollectionSubmitScriptUrl, async () => {
-                        const url = `${revenueCollectionSubmitScriptUrl}?action=getFreezePaidSummary&dc_names=${encodeURIComponent(names.join(","))}&t=${Date.now()}`;
-                        const response = await fetch(url, controller ? { signal: controller.signal } : {});
-                        return await response.json();
-                    });
-                    const returnedNames = Array.isArray(parsed?.requested_dc_names)
-                        ? parsed.requested_dc_names.map(normalizeDcName).filter(Boolean).sort()
-                        : [];
-                    const expectedNames = names.slice().sort();
-                    const exactScope = returnedNames.length === expectedNames.length
-                        && returnedNames.every((name, index) => name === expectedNames[index]);
-                    if (parsed?.status === "success" && parsed.scope_mode === "batch"
-                        && exactScope && Array.isArray(parsed.entries)) return parsed;
-                } catch (_) {} finally {
-                    clearTimeout(timer);
-                }
-                if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, 800));
-            }
+            // This action is not deployed in the freeze backend. Skip the
+            // guaranteed failed request and let the caller use the proven
+            // warmRevenueCategoryUploadedPaidCache fallback immediately.
             return null;
         }
 
@@ -5726,7 +5709,7 @@
 
         function renderRevenueHqVillageStaticTableHtml(tree, colLabel) {
             const rows = tree || [];
-            let html = `<div class="summary-wrapper" style="margin-top:6px;"><div class="summary-table-header" style="grid-template-columns: 1.4fr 0.85fr 0.85fr 0.85fr;"><div>${colLabel}</div><div>TOTAL</div><div>PAID</div><div>UNPAID</div></div>`;
+            let html = `<div class="summary-wrapper" style="margin-top:6px;"><div class="summary-table-header" style="grid-template-columns: 1.4fr 0.85fr 0.85fr 0.85fr;"><div>${colLabel}</div><div>TOTAL CONSUMER</div><div>PAID</div><div>UNPAID</div></div>`;
             if (!rows.length) {
                 html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div class="text-rose-600">Data nahi mila.</div></div>`;
             } else {
@@ -5848,7 +5831,7 @@
         function renderRevenuePaidCountTableHtml(rows, colLabel) {
             const sorted = sortRevenuePaidCountRowsAscPct(rows);
             const cols = "1.4fr 0.85fr 0.85fr 0.7fr";
-            let html = `<div class="summary-wrapper" style="margin-top:6px;"><div class="summary-table-header" style="grid-template-columns: ${cols};"><div>${escapeHtml(colLabel)}</div><div>TOTAL</div><div>PAID</div><div>%</div></div>`;
+            let html = `<div class="summary-wrapper" style="margin-top:6px;"><div class="summary-table-header" style="grid-template-columns: ${cols};"><div>${escapeHtml(colLabel)}</div><div>TOTAL CONSUMER</div><div>PAID</div><div>%</div></div>`;
             if (!sorted.length) {
                 html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div class="text-rose-600">Data nahi mila.</div></div>`;
             } else {
@@ -6331,7 +6314,7 @@
                 </div>
                 <div style="font-size:0.62rem; font-weight:900; color:#1d4ed8; text-align:center; margin-top:10px;">CATEGORY WISE</div>
                 <div class="summary-wrapper" style="margin-top:6px;">
-                    <div class="summary-table-header" style="grid-template-columns: 1fr 1fr 1fr 1fr;"><div>CATEGORY</div><div>TOTAL</div><div>PAID</div><div>UNPAID</div></div>
+                    <div class="summary-table-header" style="grid-template-columns: 1fr 1fr 1fr 1fr;"><div>CATEGORY</div><div>TOTAL CONSUMER</div><div>PAID</div><div>UNPAID</div></div>
                     ${catRows || `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div class="text-rose-600">Category data nahi mila.</div></div>`}
                 </div>
                 <div style="font-size:0.62rem; font-weight:900; color:#1d4ed8; text-align:center; margin-top:10px;">${colLabel} WISE</div>
@@ -21368,7 +21351,7 @@
 
             // Counts-only (Total -> Paid -> Unpaid): amount wise detail summary cards +
             // category table me pehle se hai, yahan sirf compact HQ/Village drill list hai.
-            let html = `<div class="summary-wrapper">${breadcrumbHtml}<div class="summary-table-header" style="grid-template-columns: 1.4fr 0.85fr 0.85fr 0.85fr;"><div>${colLabel}</div><div>TOTAL</div><div>PAID</div><div>UNPAID</div></div>`;
+            let html = `<div class="summary-wrapper">${breadcrumbHtml}<div class="summary-table-header" style="grid-template-columns: 1.4fr 0.85fr 0.85fr 0.85fr;"><div>${colLabel}</div><div>TOTAL CONSUMER</div><div>PAID</div><div>UNPAID</div></div>`;
 
             if (!rows || !rows.length) {
                 html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div class="text-rose-600">Is scope me data nahi mila.</div></div>`;
@@ -21433,7 +21416,7 @@
                 </div>
                 <div style="font-size:0.6rem; font-weight:950; color:#166534; text-align:center; margin:12px auto 0; max-width:360px; text-transform:uppercase;">Category Wise</div>
                 <div class="summary-wrapper" style="max-width:360px; margin:6px auto 0;">
-                    <div class="summary-table-header" style="grid-template-columns: 1fr 1fr 1fr 1fr;"><div>CATEGORY</div><div>TOTAL</div><div>PAID</div><div>UNPAID</div></div>
+                    <div class="summary-table-header" style="grid-template-columns: 1fr 1fr 1fr 1fr;"><div>CATEGORY</div><div>TOTAL CONSUMER</div><div>PAID</div><div>UNPAID</div></div>
                     ${catRows || `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div class="text-rose-600">Category data nahi mila.</div></div>`}
                 </div>
                 <div style="font-size:0.6rem; font-weight:950; color:#166534; text-align:center; margin:14px auto 0; max-width:360px; text-transform:uppercase;">${activeViewLevel === "DC" ? "HQ Wise" : "DC Wise"} (tap karke aage drill down karein)</div>
@@ -21572,9 +21555,19 @@
             setRevenueHqVillageDownloadState(true, `${type === "PDF" ? "PDF" : "Excel"} download ho raha hai... kripya wait kijiye`, true);
             try {
                 const headers = activeViewLevel === "DC"
-                    ? [revenueHqLabelUpper(), revenueVillageLabelUpper(), "PAID", "PAID AMT", "UNPAID", "UNPAID AMT"]
-                    : ["DC NAME", "HQ NAME", "VILLAGE", "PAID", "PAID AMT", "UNPAID", "UNPAID AMT"];
-                const rows = flatRows.map((r) => [...r.path, r.paidTotal, formatProgressReportAmount(r.paidAmountTotal), r.unpaidTotal, formatProgressReportAmount(r.unpaidAmountTotal)]);
+                    ? [revenueHqLabelUpper(), revenueVillageLabelUpper(), "TOTAL CONSUMER", "PAID", "PAID AMT", "UNPAID", "UNPAID AMT"]
+                    : ["DC NAME", "HQ NAME", "VILLAGE", "TOTAL CONSUMER", "PAID", "PAID AMT", "UNPAID", "UNPAID AMT"];
+                const rows = flatRows.map((r) => [...r.path, Number(r.paidTotal || 0) + Number(r.unpaidTotal || 0), r.paidTotal, formatProgressReportAmount(r.paidAmountTotal), r.unpaidTotal, formatProgressReportAmount(r.unpaidAmountTotal)]);
+                const grand = flatRows.reduce((acc, r) => {
+                    acc.total += Number(r.paidTotal || 0) + Number(r.unpaidTotal || 0);
+                    acc.paid += Number(r.paidTotal || 0);
+                    acc.paidAmount += Number(r.paidAmountTotal || 0);
+                    acc.unpaid += Number(r.unpaidTotal || 0);
+                    acc.unpaidAmount += Number(r.unpaidAmountTotal || 0);
+                    return acc;
+                }, { total: 0, paid: 0, paidAmount: 0, unpaid: 0, unpaidAmount: 0 });
+                const grandPath = activeViewLevel === "DC" ? ["GRAND TOTAL", ""] : ["GRAND TOTAL", "", ""];
+                rows.push([...grandPath, grand.total, grand.paid, formatProgressReportAmount(grand.paidAmount), grand.unpaid, formatProgressReportAmount(grand.unpaidAmount)]);
                 const reportTitle = getRevenueHqVillageReportTitle();
                 const scopeLine = `Scope: ${activeViewLevel === "DC" ? `DC - ${activeDC}` : (activeViewLevel === "DIVISION" ? `Division - ${activeDiv}` : "Circle - SEONI CIRCLE")}`;
                 const periodLine = `Period: ${getRevenueHqVillagePeriodDisplay()}`;
@@ -21956,6 +21949,9 @@
                 const colLabel = revenueTargetViewBy === "DC" ? "DC NAME" : (revenueTargetViewBy === "HQ" ? (activeViewLevel === "DC" ? revenueHqLabelUpper() : "HQ NAME") : (activeViewLevel === "DC" ? revenueVillageLabelUpper() : "VILLAGE"));
                 const headers = [colLabel, "TARGET", "ACHIEVED", "%"];
                 const rows = flatRows.map((r) => [r.name, formatProgressReportAmount(r.target), formatProgressReportAmount(r.paidAmountTotal), `${r.pct}%`]);
+                const grandTarget = flatRows.reduce((sum, r) => sum + Number(r.target || 0), 0);
+                const grandAchieved = flatRows.reduce((sum, r) => sum + Number(r.paidAmountTotal || 0), 0);
+                rows.push(["GRAND TOTAL", formatProgressReportAmount(grandTarget), formatProgressReportAmount(grandAchieved), `${getRevenueAchievementPct(grandAchieved, grandTarget)}%`]);
                 const reportTitle = getRevenueTargetReportTitle();
                 const govtFilterValue = document.getElementById("revenue-target-govt")?.value || "";
                 const govtFilterLabel = govtFilterValue === "GOVT" ? "Govt Only" : (govtFilterValue === "NONGOVT" ? "Non Govt Only" : "All (Govt + Non Govt)");
