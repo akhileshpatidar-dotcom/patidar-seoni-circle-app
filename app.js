@@ -6844,19 +6844,25 @@
                 // 30-second timeout diya hai (backend load ab halka hai,
                 // isliye asal me itna lagega nahi, bas dheeme network ke liye
                 // gunjaish rakhi hai).
-                // SAFETY HOLD: the old raw MOBILE DAILY SUMMARY is intentionally
-                // not used.  It is incomplete for historical data and duplicates
-                // consumer rows.  The new compact indexes are being verified first;
-                // until then both Daily and Monthly keep the proven source route.
-                const mobileSummaryAction = "getSummary";
-                const mobileSummaryDateParam = "";
-                let cloudData;
+                // Fast compact endpoint: Daily/Monthly count + corrected-IVRS
+                // index only.  Older backend par proven scoped getSummary fallback
+                // remains, so deployment order is safe.
+                const mobileAggregatePeriod = summaryMode === "DAILY"
+                    ? (() => { const [d, m, y] = dStr.split("/"); return `${y}-${m}-${d}`; })()
+                    : (() => { const [m, y] = mStr.split("/"); return `${y}-${m}`; })();
+                let cloudData = [];
+                let mobileAggregateData = null;
                 try {
-                    cloudData = await loadRemoteJson(`${scriptURL}?action=${mobileSummaryAction}${mobileSummaryDcParam}${mobileSummaryDateParam}`, 30000);
+                    const aggregateResponse = await loadRemoteJson(
+                        `${scriptURL}?action=getProgressAggregate&mode=${encodeURIComponent(summaryMode)}&period=${encodeURIComponent(mobileAggregatePeriod)}${mobileSummaryDcParam}`,
+                        30000
+                    );
+                    if (!aggregateResponse || aggregateResponse.status !== "success" || aggregateResponse.supported !== true || !Array.isArray(aggregateResponse.counts)) {
+                        throw new Error("Mobile aggregate endpoint unavailable");
+                    }
+                    mobileAggregateData = aggregateResponse;
                 } catch (_) {
-                    // New daily-summary route unavailable on an older deployment:
-                    // fall back to the proven scoped getSummary path so the
-                    // Division/Circle report shows data instead of an error.
+                    // Old/unprepared backend: correctness-first legacy fallback.
                     cloudData = await loadRemoteJson(`${scriptURL}?action=getSummary${mobileSummaryDcParam}`, 30000);
                 }
                 if (isStaleSummaryRefresh()) return;
@@ -6872,6 +6878,10 @@
                 // bas yahan DC/HQ-wise summary-count ke roop me.
                 const getFixedIvrsSetForDc = (dcName) => {
                     const normDc = normalizeDcName(dcName);
+                    if (mobileAggregateData) {
+                        const fixedByDc = mobileAggregateData.fixed_ivrs_by_dc || {};
+                        return new Set((fixedByDc[normDc] || []).map((ivrs) => normalizeLookupDigits(ivrs)).filter(Boolean));
+                    }
                     const set = new Set();
                     cloudData.forEach((u) => {
                         const uDc = (u.dc || "").trim().toUpperCase();
@@ -6881,6 +6891,16 @@
                         if (ivrs) set.add(ivrs);
                     });
                     return set;
+                };
+                const getAggregateUpdatedCount = (dcName, hqName = null) => {
+                    if (!mobileAggregateData) return null;
+                    const normDc = normalizeDcName(dcName);
+                    const normHq = hqName === null ? null : String(hqName || "GENERAL").trim().toUpperCase();
+                    return mobileAggregateData.counts.reduce((sum, row) => {
+                        if (normalizeDcName(row.dc || "") !== normDc) return sum;
+                        if (normHq !== null && String(row.hq || "GENERAL").trim().toUpperCase() !== normHq) return sum;
+                        return sum + (Number(row.count) || 0);
+                    }, 0);
                 };
                 const getMobileFieldFromRow = (row) => getConsumerField(row, ["MOBILE NO", "MOBILE NUMBER", "MOBILE"]);
                 const isRowStillWrong = (row, fixedSet, freqMap) => {
@@ -6913,14 +6933,19 @@
                     rows.forEach((row) => {
                         if (isRowStillWrong(row, fixedSet, freqMap)) tw++;
                     });
-                    cloudData.forEach((u) => {
-                        const ts = (u.date || "").trim();
-                        const uDc = (u.dc || "").trim().toUpperCase();
-                        const mobileVal = u.correct_mobile || "";
-                        const hasMobile = mobileVal.toString().trim().length === 10;
-                        const matchesDate = matchesProgressDate(ts, summaryMode, dStr, mStr);
-                        if (uDc === normDc && hasMobile && matchesDate) tu++;
-                    });
+                    const aggregateUpdated = getAggregateUpdatedCount(dcName);
+                    if (aggregateUpdated !== null) {
+                        tu = aggregateUpdated;
+                    } else {
+                        cloudData.forEach((u) => {
+                            const ts = (u.date || "").trim();
+                            const uDc = (u.dc || "").trim().toUpperCase();
+                            const mobileVal = u.correct_mobile || "";
+                            const hasMobile = mobileVal.toString().trim().length === 10;
+                            const matchesDate = matchesProgressDate(ts, summaryMode, dStr, mStr);
+                            if (uDc === normDc && hasMobile && matchesDate) tu++;
+                        });
+                    }
                     return { tc, tu, tw };
                 };
 
@@ -6939,18 +6964,27 @@
                         stats[h].tc++;
                         if (isRowStillWrong(row, fixedSet, freqMap)) stats[h].tw++;
                     });
-                    cloudData.forEach((u) => {
-                        const ts = (u.date || "").trim();
-                        const uDc = (u.dc || "").trim().toUpperCase();
-                        const uHq = (u.hq || "GENERAL").trim().toUpperCase();
-                        const mobileVal = u.correct_mobile || "";
-                        const hasMobile = mobileVal.toString().trim().length === 10;
-                        const matchesDate = matchesProgressDate(ts, summaryMode, dStr, mStr);
-                        if (uDc === normalizeDcName(activeDC) && hasMobile && matchesDate) {
+                    if (mobileAggregateData) {
+                        mobileAggregateData.counts.forEach((row) => {
+                            if (normalizeDcName(row.dc || "") !== normalizeDcName(activeDC)) return;
+                            const uHq = String(row.hq || "GENERAL").trim().toUpperCase();
                             if (!stats[uHq]) stats[uHq] = { tc: 0, tu: 0, tw: 0 };
-                            stats[uHq].tu++;
-                        }
-                    });
+                            stats[uHq].tu += Number(row.count) || 0;
+                        });
+                    } else {
+                        cloudData.forEach((u) => {
+                            const ts = (u.date || "").trim();
+                            const uDc = (u.dc || "").trim().toUpperCase();
+                            const uHq = (u.hq || "GENERAL").trim().toUpperCase();
+                            const mobileVal = u.correct_mobile || "";
+                            const hasMobile = mobileVal.toString().trim().length === 10;
+                            const matchesDate = matchesProgressDate(ts, summaryMode, dStr, mStr);
+                            if (uDc === normalizeDcName(activeDC) && hasMobile && matchesDate) {
+                                if (!stats[uHq]) stats[uHq] = { tc: 0, tu: 0, tw: 0 };
+                                stats[uHq].tu++;
+                            }
+                        });
+                    }
                     Object.keys(stats).sort().forEach((h) => {
                         uiListSummary.push({ name: h, tc: stats[h].tc, tu: stats[h].tu, tw: stats[h].tw });
                         grandTC += stats[h].tc;
