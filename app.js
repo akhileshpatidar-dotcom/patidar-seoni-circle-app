@@ -6844,7 +6844,17 @@
                 // 30-second timeout diya hai (backend load ab halka hai,
                 // isliye asal me itna lagega nahi, bas dheeme network ke liye
                 // gunjaish rakhi hai).
-                const cloudData = await loadRemoteJson(`${scriptURL}?action=getSummary${mobileSummaryDcParam}`, 30000);
+                const mobileSummaryAction = summaryMode === "DAILY" ? "getDailySummary" : "getSummary";
+                const mobileSummaryDateParam = summaryMode === "DAILY" ? `&date=${encodeURIComponent(dStr.replace(/-/g, "/"))}` : "";
+                let cloudData;
+                try {
+                    cloudData = await loadRemoteJson(`${scriptURL}?action=${mobileSummaryAction}${mobileSummaryDcParam}${mobileSummaryDateParam}`, 30000);
+                } catch (_) {
+                    // New daily-summary route unavailable on an older deployment:
+                    // fall back to the proven scoped getSummary path so the
+                    // Division/Circle report shows data instead of an error.
+                    cloudData = await loadRemoteJson(`${scriptURL}?action=getSummary${mobileSummaryDcParam}`, 30000);
+                }
                 if (isStaleSummaryRefresh()) return;
                 uiListSummary = [];
                 grandTC = 0;
