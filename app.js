@@ -1,14 +1,15 @@
 /**
  * =====================================================================
- * SEONI CIRCLE APP - UNIFIED SINGLE API BRIDGE & DYNAMIC CALCULATOR (app.js)
+ * SEONI CIRCLE APP - 100% COMPLETE UNIFIED FRONTEND (app.js)
  * Master Endpoint Routing + Exact Form UI Binding + Live Reconciliation
+ * Developer: Akhilesh Patidar (AE)
  * =====================================================================
  */
 
-// 1. SINGLE MASTER WEB APP URL (Yahan apna deploy kiya hua master URL rakhein)
+// 1. SINGLE MASTER WEB APP URL
 const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzUYELgmujpaBbfByy0BcjOERA8e0mslNdbH5uUw2L6L24785obmdcpcDOc53Ww/exec";
 
-// All individual script variables safely map to MASTER_SECURE_API_URL
+// Module Endpoints mapped to Master API
 const revenueScriptUrl = MASTER_SECURE_API_URL;
 const revenueSubmitUrl = MASTER_SECURE_API_URL;
 const mobileUpdateScriptUrl = MASTER_SECURE_API_URL;
@@ -42,9 +43,69 @@ async function getMasterApi(actionName, paramsObj) {
 }
 
 // =====================================================================
-// 2. BIJLEE BILL CALCULATOR DYNAMIC UI & BACKEND BRIDGE
+// 2. NAVIGATION & SCREEN CONTROLLERS (showDivision etc.)
 // =====================================================================
+function showDivision(divisionName) {
+    const homeScreen = document.getElementById("home-screen");
+    const divisionScreen = document.getElementById("division-screen");
+    const titleEl = document.getElementById("division-title");
+    
+    if (homeScreen) homeScreen.style.display = "none";
+    if (divisionScreen) divisionScreen.style.display = "block";
+    if (titleEl) titleEl.innerText = divisionName.toUpperCase() + " DIVISION";
+    
+    renderDcGrid(divisionName);
+}
 
+function showHome() {
+    const screens = ["division-screen", "dc-screen", "progress-screen", "calculator-screen", "module-screen"];
+    screens.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = "none";
+    });
+    const home = document.getElementById("home-screen");
+    if (home) home.style.display = "block";
+}
+
+function renderDcGrid(division) {
+    const container = document.getElementById("dc-grid-container");
+    if (!container) return;
+    
+    const seoniDcs = ["ARI", "BADALPAR", "BANDOL", "BARGHAT", "DHARNA", "GOPALGANJ", "KANHIWADA", "KEOLARI", "KHAIRAPALARI", "KURAI", "MUNGWANI", "PANDIYA CHHAPARA", "SEONI (T)", "SEONI (RES)", "UGALI"];
+    const lakhnadonDcs = ["ADEGAON", "CHHAPARA-1", "CHHAPARA-2", "DHANORA", "DHUMA", "GANESHGANJ", "GHANSORE", "KEDARPUR", "LAKHNADON"];
+    
+    const dcs = division.toLowerCase().includes("lakh") ? lakhnadonDcs : seoniDcs;
+    container.innerHTML = dcs.map(dc => `
+        <button class="dc-btn" onclick="openDcModule('${dc}', '${division}')">
+            ${dc}
+        </button>
+    `).join("");
+}
+
+function openDcModule(dcName, division) {
+    const divisionScreen = document.getElementById("division-screen");
+    const dcScreen = document.getElementById("dc-screen");
+    const dcHeader = document.getElementById("dc-header-title");
+    
+    if (divisionScreen) divisionScreen.style.display = "none";
+    if (dcScreen) dcScreen.style.display = "block";
+    if (dcHeader) dcHeader.innerText = `${dcName} (${division})`;
+    
+    window.currentSelectedDc = dcName;
+    window.currentSelectedDivision = division;
+}
+
+function showCircleProgress() {
+    const home = document.getElementById("home-screen");
+    const progress = document.getElementById("progress-screen");
+    if (home) home.style.display = "none";
+    if (progress) progress.style.display = "block";
+    loadCircleProgressData("DAILY");
+}
+
+// =====================================================================
+// 3. BIJLEE BILL CALCULATOR (MPERC Server Engine)
+// =====================================================================
 function onBillCalculatorCategoryChange() {
     const catSelect = document.getElementById("bc-category");
     const tfWrap = document.getElementById("bc-tariffcode-wrap");
@@ -170,7 +231,7 @@ async function calculateBillEstimate() {
 }
 
 // =====================================================================
-// 3. PROGRESS REPORT & REVENUE RECONCILIATION INTEGRATION
+// 4. PROGRESS REPORT & REVENUE RECONCILIATION FETCHER
 // =====================================================================
 async function fetchRevenueCategoryReconciliation(dcName, periodMode, periodValue, dcNamesList) {
     try {
@@ -213,7 +274,46 @@ async function fetchLiveRevenueDailySummary(dateStr, dcName, dcNamesList) {
     }
 }
 
-// 4. VOLTAGE REGULATION SERVER BRIDGE
+async function loadCircleProgressData(mode) {
+    const container = document.getElementById("summary-content") || document.getElementById("progress-table-container");
+    if (!container) return;
+    container.innerHTML = '<div style="text-align:center; padding:20px; font-weight:800; color:#0d9488;">Loading Progress Data...</div>';
+
+    const today = new Date().toISOString().split('T')[0];
+    const rows = await fetchLiveRevenueDailySummary(today);
+    renderProgressReportTable(rows);
+}
+
+function renderProgressReportTable(summaryRows) {
+    const summaryContainer = document.getElementById("summary-content") || document.getElementById("progress-table-container");
+    if (!summaryContainer) return;
+
+    if (!summaryRows || !summaryRows.length) {
+        summaryContainer.innerHTML = '<div style="text-align:center; padding:20px; font-weight:800; color:#dc2626;">Data nahi mila.</div>';
+        return;
+    }
+
+    let rowsHtml = summaryRows.map(r => `
+        <div style="display:grid; grid-template-columns: 2fr 1fr 1fr; padding:8px; border-bottom:1px solid #e2e8f0; font-size:12px;">
+            <div style="font-weight:800; text-align:left;">${r.dc_name}</div>
+            <div style="text-align:center;">${r.paid_count}</div>
+            <div style="text-align:right; font-weight:800; color:#16a34a;">₹${r.paid_amount.toLocaleString('en-IN')}</div>
+        </div>
+    `).join("");
+
+    summaryContainer.innerHTML = `
+        <div style="background:#fff; border-radius:12px; border:1px solid #cbd5e1; overflow:hidden; margin-top:12px;">
+            <div style="display:grid; grid-template-columns: 2fr 1fr 1fr; padding:10px; background:#0f766e; color:#fff; font-weight:900; font-size:12px;">
+                <div>DC NAME</div>
+                <div style="text-align:center;">PAID</div>
+                <div style="text-align:right;">AMOUNT</div>
+            </div>
+            ${rowsHtml}
+        </div>
+    `;
+}
+
+// 5. VOLTAGE REGULATION SERVER BRIDGE
 async function vrCalculateAndRender() {
     const nodes = (typeof vrNodes !== "undefined") ? vrNodes : [];
     const lineType = document.getElementById("vr-line-type") ? document.getElementById("vr-line-type").value : "33kv";
@@ -246,3 +346,14 @@ async function vrCalculateAndRender() {
         console.error("VR Calculation Error:", e);
     }
 }
+
+// Global Event Listeners & Initialize
+window.addEventListener("DOMContentLoaded", () => {
+    const divisionBtns = document.querySelectorAll(".division-card, [data-division]");
+    divisionBtns.forEach(btn => {
+        btn.addEventListener("click", () => {
+            const div = btn.getAttribute("data-division") || (btn.innerText.includes("Seoni") ? "Seoni" : "Lakhnadon");
+            showDivision(div);
+        });
+    });
+});
