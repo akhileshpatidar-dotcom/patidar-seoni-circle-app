@@ -24,6 +24,7 @@
     <!-- Shared report sync indicator: kept here so every screen gets the same
          round spinner even if an older styles.css is cached on a device. -->
     <style>
+        @keyframes revenueUploadBlink { 50% { opacity: 0.18; } }
         .app-sync-spinner {
             display: block !important;
             width: 38px !important;
@@ -189,7 +190,7 @@
             <div class="px-2 py-8 flex flex-col gap-4">
                 <button class="dashboard-btn btn-green-fix" onclick="window.open('https://billing.mpez.co.in/', '_blank')">PAY & VIEW BIJLEE BILL</button>
                 <button class="dashboard-btn btn-update-red" onclick="switchView('mobile-update')">Mobile No Update</button>
-                <button class="dashboard-btn btn-revenue-blue" onclick="switchView('revenue-collection')">Revenue Collection<span id="revenue-upload-freshness-inline" style="display:none; color:#fecaca; font-size:0.56rem; font-weight:900; margin-top:3px; line-height:1.1;">आज की Cash List Upload नहीं हुई</span></button>
+                <button class="dashboard-btn btn-revenue-blue" onclick="switchView('revenue-collection')">Revenue Collection<span id="revenue-upload-freshness-inline" style="display:none; color:#fecaca; font-size:0.56rem; font-weight:900; margin-top:3px; line-height:1.1; animation:revenueUploadBlink 1.1s steps(2,start) infinite;">आज की Cash List Upload नहीं हुई</span></button>
                 <div id="revenue-upload-freshness-ticker" class="ticker-wrap" style="display:none; margin-top:6px;"><span class="ticker-text" style="color:#ffffff;"></span></div>
                 <button id="meter-checking-dashboard-btn" class="dashboard-btn" style="display:none; background:#8b5a2b; color:#fdf6ec;" onclick="switchView('meter-checking')">Meeter Cheking</button>
                 <button class="dashboard-btn" style="background: linear-gradient(135deg, #fbcfe8 0%, #f9a8d4 100%); color:#831843 !important;" onclick="switchView('bill-calculator')">Bijlee Bill Calculator</button>
@@ -1813,6 +1814,6 @@
         </main>
     </div>
 
-    <script src="./app.js?v=20260918-revenue-warning-r11"></script>
+    <script src="./app.js?v=20260918-paid-status-filter-r22"></script>
 </body>
 </html>
