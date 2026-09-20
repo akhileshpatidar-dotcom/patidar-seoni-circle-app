@@ -246,3 +246,4 @@ async function vrCalculateAndRender() {
         console.error("VR Calculation Error:", e);
     }
 }
+```[cite: 11]
