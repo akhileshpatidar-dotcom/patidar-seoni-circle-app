@@ -1,6 +1,6 @@
 /**
  * =====================================================================
- * SEONI CIRCLE APP - 100% COMPLETE UNIFIED FRONTEND (app.js)
+ * SEONI CIRCLE APP - 100% COMPLETE UNIFIED MASTER FRONTEND (app.js)
  * Master Endpoint Routing + Exact Form UI Binding + Live Reconciliation
  * Developer: Akhilesh Patidar (AE)
  * =====================================================================
@@ -9,7 +9,7 @@
 // 1. SINGLE MASTER WEB APP URL
 const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzUYELgmujpaBbfByy0BcjOERA8e0mslNdbH5uUw2L6L24785obmdcpcDOc53Ww/exec";
 
-// Module Endpoints mapped to Master API
+// All individual script endpoints map to Master URL
 const revenueScriptUrl = MASTER_SECURE_API_URL;
 const revenueSubmitUrl = MASTER_SECURE_API_URL;
 const mobileUpdateScriptUrl = MASTER_SECURE_API_URL;
@@ -43,29 +43,45 @@ async function getMasterApi(actionName, paramsObj) {
 }
 
 // =====================================================================
-// 2. NAVIGATION & SCREEN CONTROLLERS (showDivision etc.)
+// 2. GLOBAL WINDOW NAVIGATION EXPORTS (Desktop Mouse & Mobile Fix)
 // =====================================================================
-function showDivision(divisionName) {
-    const homeScreen = document.getElementById("home-screen");
+
+window.showDivision = function(divisionName) {
+    const homeScreen = document.getElementById("home-screen") || document.querySelector(".welcome-container");
     const divisionScreen = document.getElementById("division-screen");
     const titleEl = document.getElementById("division-title");
     
+    document.querySelectorAll(".app-screen, [id$='-screen']").forEach(s => s.style.display = "none");
+    
     if (homeScreen) homeScreen.style.display = "none";
     if (divisionScreen) divisionScreen.style.display = "block";
-    if (titleEl) titleEl.innerText = divisionName.toUpperCase() + " DIVISION";
+    if (titleEl) titleEl.innerText = String(divisionName).toUpperCase() + " DIVISION";
     
     renderDcGrid(divisionName);
-}
+};
 
-function showHome() {
-    const screens = ["division-screen", "dc-screen", "progress-screen", "calculator-screen", "module-screen"];
-    screens.forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.style.display = "none";
-    });
-    const home = document.getElementById("home-screen");
-    if (home) home.style.display = "block";
-}
+window.showHome = function() {
+    document.querySelectorAll(".app-screen, [id$='-screen']").forEach(s => s.style.display = "none");
+    const homeScreen = document.getElementById("home-screen") || document.querySelector(".welcome-container");
+    if (homeScreen) homeScreen.style.display = "block";
+};
+
+window.openDcModule = function(dcName, division) {
+    document.querySelectorAll(".app-screen, [id$='-screen']").forEach(s => s.style.display = "none");
+    const dcScreen = document.getElementById("dc-screen");
+    const dcHeader = document.getElementById("dc-header-title");
+    if (dcScreen) dcScreen.style.display = "block";
+    if (dcHeader) dcHeader.innerText = `${dcName} (${division})`;
+    window.currentSelectedDc = dcName;
+    window.currentSelectedDivision = division;
+};
+
+window.showCircleProgress = function() {
+    document.querySelectorAll(".app-screen, [id$='-screen']").forEach(s => s.style.display = "none");
+    const progress = document.getElementById("progress-screen");
+    if (progress) progress.style.display = "block";
+    loadCircleProgressData("DAILY");
+};
 
 function renderDcGrid(division) {
     const container = document.getElementById("dc-grid-container");
@@ -74,38 +90,18 @@ function renderDcGrid(division) {
     const seoniDcs = ["ARI", "BADALPAR", "BANDOL", "BARGHAT", "DHARNA", "GOPALGANJ", "KANHIWADA", "KEOLARI", "KHAIRAPALARI", "KURAI", "MUNGWANI", "PANDIYA CHHAPARA", "SEONI (T)", "SEONI (RES)", "UGALI"];
     const lakhnadonDcs = ["ADEGAON", "CHHAPARA-1", "CHHAPARA-2", "DHANORA", "DHUMA", "GANESHGANJ", "GHANSORE", "KEDARPUR", "LAKHNADON"];
     
-    const dcs = division.toLowerCase().includes("lakh") ? lakhnadonDcs : seoniDcs;
+    const dcs = String(division).toLowerCase().includes("lakh") ? lakhnadonDcs : seoniDcs;
     container.innerHTML = dcs.map(dc => `
-        <button class="dc-btn" onclick="openDcModule('${dc}', '${division}')">
+        <button class="dc-btn" onclick="window.openDcModule('${dc}', '${division}')">
             ${dc}
         </button>
     `).join("");
 }
 
-function openDcModule(dcName, division) {
-    const divisionScreen = document.getElementById("division-screen");
-    const dcScreen = document.getElementById("dc-screen");
-    const dcHeader = document.getElementById("dc-header-title");
-    
-    if (divisionScreen) divisionScreen.style.display = "none";
-    if (dcScreen) dcScreen.style.display = "block";
-    if (dcHeader) dcHeader.innerText = `${dcName} (${division})`;
-    
-    window.currentSelectedDc = dcName;
-    window.currentSelectedDivision = division;
-}
-
-function showCircleProgress() {
-    const home = document.getElementById("home-screen");
-    const progress = document.getElementById("progress-screen");
-    if (home) home.style.display = "none";
-    if (progress) progress.style.display = "block";
-    loadCircleProgressData("DAILY");
-}
-
 // =====================================================================
-// 3. BIJLEE BILL CALCULATOR (MPERC Server Engine)
+// 3. BIJLEE BILL CALCULATOR DYNAMIC UI & BACKEND BRIDGE
 // =====================================================================
+
 function onBillCalculatorCategoryChange() {
     const catSelect = document.getElementById("bc-category");
     const tfWrap = document.getElementById("bc-tariffcode-wrap");
@@ -289,7 +285,7 @@ function renderProgressReportTable(summaryRows) {
     if (!summaryContainer) return;
 
     if (!summaryRows || !summaryRows.length) {
-        summaryContainer.innerHTML = '<div style="text-align:center; padding:20px; font-weight:800; color:#dc2626;">Data nahi mila.</div>';
+        summaryContainer.innerHTML = '<div style="text-align:center; padding:20px; font-weight:800; color:#dc2626;">Data nahi mila. Kripya doosri date chunein.</div>';
         return;
     }
 
@@ -313,7 +309,9 @@ function renderProgressReportTable(summaryRows) {
     `;
 }
 
+// =====================================================================
 // 5. VOLTAGE REGULATION SERVER BRIDGE
+// =====================================================================
 async function vrCalculateAndRender() {
     const nodes = (typeof vrNodes !== "undefined") ? vrNodes : [];
     const lineType = document.getElementById("vr-line-type") ? document.getElementById("vr-line-type").value : "33kv";
@@ -347,13 +345,23 @@ async function vrCalculateAndRender() {
     }
 }
 
-// Global Event Listeners & Initialize
-window.addEventListener("DOMContentLoaded", () => {
-    const divisionBtns = document.querySelectorAll(".division-card, [data-division]");
-    divisionBtns.forEach(btn => {
-        btn.addEventListener("click", () => {
-            const div = btn.getAttribute("data-division") || (btn.innerText.includes("Seoni") ? "Seoni" : "Lakhnadon");
-            showDivision(div);
-        });
-    });
-});
+// =====================================================================
+// 6. DESKTOP MOUSE & TOUCH EVENT INTERCEPTOR (Instant Click Guarantee)
+// =====================================================================
+document.addEventListener("click", function(e) {
+    const target = e.target.closest("button, div, a");
+    if (!target) return;
+
+    const text = (target.innerText || "").trim().toLowerCase();
+    
+    if (text.includes("seoni division") && !text.includes("progress")) {
+        e.preventDefault();
+        window.showDivision("Seoni");
+    } else if (text.includes("lakhnadon division")) {
+        e.preventDefault();
+        window.showDivision("Lakhnadon");
+    } else if (text.includes("seoni circle daily progress") || text.includes("daily progress")) {
+        e.preventDefault();
+        window.showCircleProgress();
+    }
+}, true);
