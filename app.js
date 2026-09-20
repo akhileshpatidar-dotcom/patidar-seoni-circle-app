@@ -1,15 +1,14 @@
 /**
  * =====================================================================
- * SEONI CIRCLE APP - LIGHTWEIGHT & SECURE MASTER FRONTEND (app.js)
- * Single Master Gateway Bridge + Direct Navigation (No Passwords)
- * Developer: Akhilesh Patidar (AE)
+ * SEONI CIRCLE APP - UNIFIED SINGLE API BRIDGE & DYNAMIC CALCULATOR (app.js)
+ * Master Endpoint Routing + Exact Form UI Binding + Live Reconciliation
  * =====================================================================
  */
 
-// 1. SINGLE MASTER WEB APP URL
+// 1. SINGLE MASTER WEB APP URL (Yahan apna deploy kiya hua master URL rakhein)
 const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzUYELgmujpaBbfByy0BcjOERA8e0mslNdbH5uUw2L6L24785obmdcpcDOc53Ww/exec";
 
-// All individual module variables map to MASTER_SECURE_API_URL
+// All individual script variables safely map to MASTER_SECURE_API_URL
 const revenueScriptUrl = MASTER_SECURE_API_URL;
 const revenueSubmitUrl = MASTER_SECURE_API_URL;
 const mobileUpdateScriptUrl = MASTER_SECURE_API_URL;
@@ -43,110 +42,7 @@ async function getMasterApi(actionName, paramsObj) {
 }
 
 // =====================================================================
-// 2. DIRECT UI NAVIGATION HANDLERS (No Passwords - Instant Access)
-// =====================================================================
-
-// HTML onclick="askPassword('...')" bina kisi password ke direct view kholega
-window.askPassword = function(divisionOrScope) {
-    const target = (divisionOrScope || "").toString().trim().toUpperCase();
-    if (target.includes("CIRCLE") || target.includes("PROGRESS")) {
-        window.showCircleProgress();
-    } else if (target.includes("LAKH")) {
-        window.showDivision("DIVISION LAKHNADON");
-    } else {
-        window.showDivision("DIVISION SEONI");
-    }
-};
-
-window.showDivision = function(divName) {
-    const screens = document.querySelectorAll(".view, .app-screen, [id$='-view'], [id$='-screen']");
-    screens.forEach(s => s.classList.remove("active"));
-
-    const dcView = document.getElementById("dc-selection-view") || document.getElementById("division-screen");
-    if (dcView) {
-        dcView.classList.add("active");
-        dcView.style.display = "block";
-    }
-
-    const titleEl = document.getElementById("main-header-title") || document.getElementById("division-title");
-    if (titleEl) {
-        titleEl.textContent = String(divName).toUpperCase();
-    }
-
-    renderDcGrid(divName);
-};
-
-window.showHome = function() {
-    const screens = document.querySelectorAll(".view, .app-screen, [id$='-view'], [id$='-screen']");
-    screens.forEach(s => {
-        s.classList.remove("active");
-        if (s.id !== "home-view" && s.id !== "home-screen") s.style.display = "none";
-    });
-
-    const home = document.getElementById("home-view") || document.getElementById("home-screen");
-    if (home) {
-        home.classList.add("active");
-        home.style.display = "block";
-    }
-};
-
-window.showCircleProgress = function() {
-    const screens = document.querySelectorAll(".view, .app-screen, [id$='-view'], [id$='-screen']");
-    screens.forEach(s => {
-        s.classList.remove("active");
-        s.style.display = "none";
-    });
-
-    const summaryView = document.getElementById("summary-view") || document.getElementById("progress-screen");
-    if (summaryView) {
-        summaryView.classList.add("active");
-        summaryView.style.display = "block";
-    }
-
-    const title = document.getElementById("summary-title");
-    if (title) title.textContent = "SEONI CIRCLE PROGRESS REPORT";
-
-    loadCircleProgressData();
-};
-
-window.openGpsCameraFlow = function() {
-    const cam = document.getElementById("gps-camera-input") || document.querySelector("input[type='file'][capture]");
-    if (cam) cam.click();
-    else alert("GPS Camera Flow trigger.");
-};
-
-window.selectDC = function(dcName) {
-    const dcLabel = document.getElementById("selected-dc-label");
-    if (dcLabel) dcLabel.textContent = dcName;
-
-    const headerTitle = document.getElementById("main-header-title");
-    if (headerTitle) headerTitle.textContent = dcName;
-
-    const screens = document.querySelectorAll(".view, .app-screen");
-    screens.forEach(s => s.classList.remove("active"));
-
-    const dcDash = document.getElementById("dc-dashboard-view") || document.getElementById("dc-screen");
-    if (dcDash) {
-        dcDash.classList.add("active");
-        dcDash.style.display = "block";
-    }
-};
-
-function renderDcGrid(division) {
-    const dcMenu = document.getElementById("dc-menu") || document.getElementById("dc-grid-container");
-    if (!dcMenu) return;
-
-    const seoniDcs = ["ARI", "BADALPAR", "BANDOL", "BARGHAT", "DHARNA", "GOPALGANJ", "KANHIWADA", "KEOLARI", "KHAIRAPALARI", "KURAI", "MUNGWANI", "PANDIYA CHHAPARA", "SEONI (T)", "SEONI (RES)", "UGALI"];
-    const lakhnadonDcs = ["ADEGAON", "CHHAPARA-1", "CHHAPARA-2", "DHANORA", "DHUMA", "GANESHGANJ", "GHANSORE", "KEDARPUR", "LAKHNADON"];
-
-    const list = String(division).toUpperCase().includes("LAKH") ? lakhnadonDcs : seoniDcs;
-    dcMenu.innerHTML = list.map(dc => `
-        <div class="option-item dc-btn" style="padding:10px; cursor:pointer;" onclick="window.selectDC('${dc}')">${dc}</div>
-    `).join("");
-}
-
-// =====================================================================
-// 3. BIJLEE BILL CALCULATOR (MPERC Server Engine)
+// 2. BIJLEE BILL CALCULATOR DYNAMIC UI & BACKEND BRIDGE
 // =====================================================================
 
 function onBillCalculatorCategoryChange() {
@@ -274,9 +170,8 @@ async function calculateBillEstimate() {
 }
 
 // =====================================================================
-// 4. PROGRESS REPORT & RECONCILIATION FETCHER
+// 3. PROGRESS REPORT & REVENUE RECONCILIATION INTEGRATION
 // =====================================================================
-
 async function fetchRevenueCategoryReconciliation(dcName, periodMode, periodValue, dcNamesList) {
     try {
         const payload = {
@@ -318,55 +213,7 @@ async function fetchLiveRevenueDailySummary(dateStr, dcName, dcNamesList) {
     }
 }
 
-async function loadCircleProgressData() {
-    const content = document.getElementById("summary-content") || document.getElementById("progress-table-container");
-    if (!content) return;
-    content.innerHTML = '<div style="text-align:center; padding:20px; font-weight:800; color:#0d9488;">Loading Circle Progress...</div>';
-
-    const today = new Date().toISOString().split("T")[0];
-    const rows = await fetchLiveRevenueDailySummary(today);
-
-    if (!rows || !rows.length) {
-        content.innerHTML = '<div style="text-align:center; padding:20px; font-weight:800; color:#64748b;">Aaj ka data update nahi hua hai.</div>';
-        return;
-    }
-
-    let totalPaid = 0;
-    let totalAmt = 0;
-
-    let rowsHtml = rows.map(r => {
-        totalPaid += Number(r.paid_count) || 0;
-        totalAmt += Number(r.paid_amount) || 0;
-        return `
-            <div style="display:grid; grid-template-columns: 2fr 1fr 1fr; padding:8px; border-bottom:1px solid #e2e8f0; font-size:12px;">
-                <div style="font-weight:800; text-align:left;">${r.dc_name}</div>
-                <div style="text-align:center;">${r.paid_count || 0}</div>
-                <div style="text-align:right; font-weight:800; color:#16a34a;">₹${(r.paid_amount || 0).toLocaleString('en-IN')}</div>
-            </div>
-        `;
-    }).join("");
-
-    content.innerHTML = `
-        <div style="background:#fff; border-radius:12px; border:1px solid #cbd5e1; overflow:hidden; margin-top:12px;">
-            <div style="display:grid; grid-template-columns: 2fr 1fr 1fr; padding:10px; background:#0f766e; color:#fff; font-weight:900; font-size:12px;">
-                <div>DC / UNIT</div>
-                <div style="text-align:center;">PAID</div>
-                <div style="text-align:right;">AMOUNT</div>
-            </div>
-            ${rowsHtml}
-            <div style="display:grid; grid-template-columns: 2fr 1fr 1fr; padding:10px; background:#f1f5f9; font-weight:900; font-size:12px; border-top:2px solid #0f766e;">
-                <div>TOTAL</div>
-                <div style="text-align:center;">${totalPaid}</div>
-                <div style="text-align:right; color:#16a34a;">₹${totalAmt.toLocaleString('en-IN')}</div>
-            </div>
-        </div>
-    `;
-}
-
-// =====================================================================
-// 5. VOLTAGE REGULATION SERVER BRIDGE
-// =====================================================================
-
+// 4. VOLTAGE REGULATION SERVER BRIDGE
 async function vrCalculateAndRender() {
     const nodes = (typeof vrNodes !== "undefined") ? vrNodes : [];
     const lineType = document.getElementById("vr-line-type") ? document.getElementById("vr-line-type").value : "33kv";
