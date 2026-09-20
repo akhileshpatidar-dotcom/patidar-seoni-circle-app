@@ -33,7 +33,10 @@
         }
         @keyframes app-sync-spinner-rotate { to { transform: rotate(360deg); } }
         #gps-camera-status-modal, #gps-camera-modal, #pwd-modal {
-            display: none;
+            display: none !important;
+        }
+        #gps-camera-status-modal.show-modal, #gps-camera-modal.show-modal, #pwd-modal.show-modal {
+            display: flex !important;
         }
     </style>
 </head>
@@ -57,8 +60,7 @@
     <input type="file" id="gps-camera-input" accept="image/*" capture="environment" style="display:none;" onchange="handleGpsCameraPhoto(this)">
     <input type="file" id="vehicle-photo-input" accept="image/*" capture="environment" style="display:none;" onchange="handleVehiclePhotoCapture(this)">
 
-    <!-- Modals properly hidden by default -->
-    <div id="gps-camera-status-modal" style="display:none;">
+    <div id="gps-camera-status-modal">
         <div class="gps-camera-status-card">
             <div id="gps-camera-status-spinner" class="gps-camera-status-spinner"></div>
             <div id="gps-camera-status-title" class="gps-camera-status-title">Location Trace Ho Rahi Hai</div>
@@ -67,7 +69,7 @@
         </div>
     </div>
 
-    <div id="gps-camera-modal" style="display:none;">
+    <div id="gps-camera-modal">
         <div class="gps-camera-card">
             <div class="title-box-container" style="padding:0 0 12px;">
                 <div class="title-box" style="background:#dcfce7;">
@@ -89,7 +91,7 @@
         </div>
     </div>
 
-    <div id="pwd-modal" style="display:none;">
+    <div id="pwd-modal">
         <div class="pwd-card">
             <h3 id="pwd-modal-title" class="text-sm font-black text-slate-800 uppercase mb-1">Report Access</h3>
             <input type="password" id="pwd-input" placeholder="••••••">
@@ -101,7 +103,7 @@
     <div class="app-shell">
         <header id="app-header" class="app-header bg-teal-grad">
             <div style="grid-column: 1;">
-                <div id="back-btn" class="cursor-pointer flex items-center justify-center h-full w-full" style="display: none;" onclick="history.back()" role="button" tabindex="0" aria-label="Peeche jaayein">
+                <div id="back-btn" class="cursor-pointer flex items-center justify-center h-full w-full" style="display: none;" onclick="handleAppBack()" role="button" tabindex="0" aria-label="Peeche jaayein">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7"></path></svg>
                 </div>
             </div>
@@ -155,7 +157,7 @@
             </div>
         </main>
 
-        <main id="dc-selection-view" class="view" style="display:none;">
+        <main id="dc-selection-view" class="view">
             <div class="main-card">
                 <div class="title-box-container"><div class="title-box"><span class="title-text-bold">SELECT YOUR DC</span></div></div>
                 <div class="dropdown-box">
@@ -172,7 +174,7 @@
             <button class="small-bottom-btn" onclick="askPassword('DIVISION')">DIVISION DAILY PROGRESS</button>
         </main>
 
-        <main id="dc-dashboard-view" class="view" style="display:none;">
+        <main id="dc-dashboard-view" class="view">
             <div class="px-2 py-8 flex flex-col gap-4">
                 <button class="dashboard-btn btn-green-fix" onclick="window.open('https://billing.mpez.co.in/', '_blank')">PAY &amp; VIEW BIJLEE BILL</button>
                 <button class="dashboard-btn btn-update-red" onclick="switchView('mobile-update')">Mobile No Update</button>
@@ -182,7 +184,45 @@
             </div>
         </main>
 
-        <main id="mobile-update-view" class="view" style="display:none;">
+        <main id="excel-automation-view" class="view">
+            <div class="search-panel" style="padding-top:18px;">
+                <div style="width:100%; max-width:360px; background:#f0fdf4; border:1.5px solid #86efac; border-radius:18px; padding:16px; text-align:center; margin-bottom:16px;">
+                    <div style="font-size:0.85rem; font-weight:950; color:#14532d;">EXCEL AUTOMATION</div>
+                    <div style="font-size:0.62rem; font-weight:800; color:#166534; margin-top:6px; line-height:1.6;">For office use on computer/laptop only - matches and reconciles two Excel files.</div>
+                </div>
+                <button class="dashboard-btn btn-image-to-excel" style="max-width:360px;" onclick="window.open('./image-to-excel.html', '_blank')">Image To Excel Converter</button>
+            </div>
+        </main>
+
+        <main id="bill-calculator-view" class="view">
+            <div class="search-panel" style="padding-top:14px;">
+                <div style="width:100%; max-width:380px; background:#fdf2f8; border:1.5px solid #f9a8d4; border-radius:16px; padding:12px; text-align:center; margin-bottom:12px;">
+                    <div style="font-size:0.8rem; font-weight:950; color:#9d174d;">MONTHLY BIJLEE BILL CALCULATOR</div>
+                    <div style="font-size:0.6rem; font-weight:800; color:#be185d; margin-top:4px; line-height:1.5;">MPERC Retail Supply Tariff FY 2026-27 के अनुसार</div>
+                </div>
+                <select id="bc-category" class="ivrs-input" style="text-align:left; padding:0 14px; font-size:0.85rem;" onchange="onBillCategoryChange()">
+                    <option value="LV1">LV1 - Domestic (घरेलू)</option>
+                    <option value="LV2">LV2 - Non-Domestic (गैर-घरेलू)</option>
+                    <option value="LV4">LV4 - LT Industrial (उद्योग)</option>
+                    <option value="LV5">LV5 - Agriculture (कृषि)</option>
+                </select>
+                <input id="bc-units" type="number" class="ivrs-input" placeholder="Enter Units (KWH)" style="margin-top:10px;">
+                <input id="bc-load" type="number" class="ivrs-input" placeholder="Enter Load (KW / HP)" value="1" style="margin-top:10px;">
+                <button class="dashboard-btn" style="width:100%; max-width:380px; margin-top:14px; background:linear-gradient(135deg,#fbcfe8 0%,#f9a8d4 100%); color:#831843 !important;" onclick="calculateBillUI()">CALCULATE BILL</button>
+                <div id="bc-result" style="width:100%; max-width:380px; margin-top:14px;"></div>
+            </div>
+        </main>
+
+        <main id="subdn-chhapara-view" class="view">
+            <div class="px-2 py-8 flex flex-col gap-4">
+                <button class="dashboard-btn bg-cyan-grad" onclick="askPassword('STOCK')">STOCK MATERIAL</button>
+                <button class="dashboard-btn bg-indigo-grad" onclick="switchView('shms-entry')">SHMS ENTRY</button>
+                <button class="dashboard-btn btn-feeder-light-pink" onclick="switchView('feeder-reading')">FEEDER READING</button>
+                <button class="dashboard-btn btn-progress-black" onclick="switchView('summary')" style="width:72%; min-height:54px; margin:0 auto; display:block;">DAILY PROGRESS</button>
+            </div>
+        </main>
+
+        <main id="mobile-update-view" class="view">
             <div class="title-box-container"><div class="title-box"><span class="title-text-bold">UPDATE MOBILE NO</span></div></div>
             <div class="search-panel">
                 <div class="input-wrapper relative w-full max-w-[260px] mx-auto">
@@ -206,9 +246,29 @@
                 <button id="submit-btn" class="submit-sync-btn" style="display:none;" onclick="submitToSheet()">Submit</button>
             </div>
         </main>
+
+        <main id="revenue-collection-view" class="view">
+            <div class="search-panel" style="padding-top:26px;">
+                <div class="input-wrapper relative w-full max-w-[280px] mx-auto">
+                    <input type="tel" id="revenue-search-ivrs" class="ivrs-input" placeholder="Search IVRS No" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,10)">
+                </div>
+                <button id="revenue-search-btn" onclick="searchRevenueIvrs()" class="search-btn-custom">Search</button>
+                <div id="revenue-result-box" class="result-card-custom" style="display:none;"></div>
+            </div>
+        </main>
+
+        <main id="summary-view" class="view">
+            <div class="title-box-container"><div class="title-box flex flex-col items-center" style="background:linear-gradient(135deg, #0f172a 0%, #0e7490 100%);"><span class="title-text-bold" id="summary-title" style="color:#ffffff;">PROGRESS REPORT</span></div></div>
+            <div class="px-2">
+                <div style="width:100%; max-width:100%; border-radius:12px; margin-bottom:16px;">
+                    <input type="date" id="report-date" class="h-12 border-2 border-teal-600 font-black text-teal-900" style="border-color: #0d9488; width:100%; padding:0 12px; border-radius:12px;">
+                </div>
+                <div id="summary-content" style="padding:10px; text-align:center; font-weight:800; color:#0d9488;">Daily summary loading...</div>
+            </div>
+        </main>
     </div>
 
-    <!-- Direct load only app.js (No api.js needed) -->
-    <script src="./app.js?v=20260920-final-v1"></script>
+    <!-- Application Script Engine -->
+    <script src="./app.js?v=20260920-live-fix-final"></script>
 </body>
 </html>

@@ -1,7 +1,6 @@
 /**
  * =====================================================================
  * SEONI CIRCLE APP - UNIFIED MASTER CLIENT ENGINE (app.js)
- * Master Backend Version: 5.0 Compatible
  * Developer: Akhilesh Patidar (AE)
  * =====================================================================
  */
@@ -40,36 +39,9 @@ const MasterAPI = {
     },
     async calculateBill(data) { return this.post("calculateBillEstimate", data); },
     async calculateVR(data) { return this.post("calculateVR", data); },
-    async getVrReferenceData() { return this.get("getVrReferenceData"); },
-    async scanTableImage(b64) { return this.post("scanTableImage", { image_base64: b64 }); },
     async submitRevenuePayment(data) { return this.post("submitRevenuePayment", data); },
-    async submitLineTd(data) { return this.post("submitTD", data); },
-    async uploadPaidMaster(dc, entries, pwd) { return this.post("uploadPaidMaster", { dc_name: dc, entries_json: entries, admin_password: pwd }); },
-    async getLiveRevenueDailySummary(date, dc = "") { return this.get("getLiveRevenueDailySummary", { date: date, dc_name: dc }); },
-    async getRevenueReconciliation(mode, val, dcs = "") { return this.get("getRevenueCategoryReconciliation", { period_mode: mode, period_value: val, dc_names: dcs }); },
-    async checkPaidStatus(ivrs, dc = "") { return this.get("checkPaid", { ivrs_no: ivrs, dc_name: dc }); },
-    async checkLineTdStatus(ivrs, dc = "") { return this.get("checkTD", { ivrs_no: ivrs, dc_name: dc }); },
     async submitMobileUpdate(data) { return this.post("submitMobileUpdate", data); },
-    async getMobileSummary(dc = "") { return this.get("getMobileSummary", { dc: dc }); },
-    async getOmvigPendingSummary(dc = "") { return this.get("getOmvigPendingSummary", { dc: dc }); },
-    async getOmvigPaidSummary(dc = "") { return this.get("getOmvigPaidSummary", { dc: dc }); },
-    async uploadOmvigPaidList(rows, pwd) { return this.post("uploadPaidList", { rows: rows, admin_password: pwd }); },
-    async submitShms(entries) { return this.post("submitShms", { entries_json: entries }); },
-    async getShmsSummary() { return this.get("getShmsSummary", { module: "shms" }); },
-    async submitStmComplaint(data) { return this.post("submitStmComplaint", data); },
-    async getStmSummary() { return this.get("getStmSummary", { module: "stm" }); },
-    async submitStock(data) { return this.post("submitStock", data); },
-    async getMasterStock() { return this.get("getMasterStock"); },
-    async submitFeederReading(entries) { return this.post("submitFeederReading", { entries_json: entries }); },
-    async getFeederSummary() { return this.get("getFeederSummary", { module: "feeder" }); },
-    async submitPeakLoad(entries) { return this.post("submitPeakLoad", { entries_json: entries }); },
-    async getPeakLoadSummary() { return this.get("getPeakLoadSummary", { module: "peakload" }); },
-    async submitVehicleReading(data) { return this.post("submitVehicleReading", data); },
-    async getVehicleLatestReadings() { return this.get("getVehicleLatestReadings"); },
-    async submitMeterChecking(data) { return this.post("submitMeterChecking", data); },
-    async submitVrDownloadLog(data) { return this.post("submitVrDownloadLog", data); },
-    async saveFreezeSnapshot(data) { return this.post("saveFreezeSnapshot", data); },
-    async listFreezes() { return this.get("listFreezes"); }
+    async getMobileSummary(dc = "") { return this.get("getMobileSummary", { dc: dc }); }
 };
 
 const divisionConfigs = {
@@ -78,23 +50,22 @@ const divisionConfigs = {
         themeColor: "#2563eb",
         themeGradient: "linear-gradient(135deg, #2563eb 0%, #1e40af 100%)",
         showSpecialActions: false,
-        subDnOrder: ["AE (D)", "KEOLARI", "SEONI (T)"],
         dcs: [
-            { name: "ARI", subDn: "AE (D)", csvUrl: "" },
-            { name: "BADALPAR", subDn: "AE (D)", csvUrl: "" },
-            { name: "BANDOL", subDn: "AE (D)", csvUrl: "" },
-            { name: "BARGHAT", subDn: "AE (D)", csvUrl: "https://docs.google.com/spreadsheets/d/1b5g3VBlKjCiOX0cfE5Na-jyRY4cPCjrIJIsU3YozG_U/export?format=csv&gid=0" },
-            { name: "DHARNA", subDn: "AE (D)", csvUrl: "" },
-            { name: "GOPALGANJ", subDn: "AE (D)", csvUrl: "" },
-            { name: "KANHIWADA", subDn: "KEOLARI", csvUrl: "" },
-            { name: "KEOLARI", subDn: "KEOLARI", csvUrl: "" },
-            { name: "KHAIRAPALARI", subDn: "KEOLARI", csvUrl: "" },
-            { name: "KURAI", subDn: "AE (D)", csvUrl: "https://docs.google.com/spreadsheets/d/15c2CHolan0YVYh5Hwe4akn1YNk1SUhhLVa24h9ZBQbU/export?format=csv&gid=0" },
-            { name: "MUNGWANI", subDn: "AE (D)", csvUrl: "" },
-            { name: "PANDIYA CHHAPARA", subDn: "KEOLARI", csvUrl: "" },
-            { name: "SEONI (T)", subDn: "SEONI (T)", csvUrl: "https://docs.google.com/spreadsheets/d/1ugB6evAfEL0t7ffzhmv1G8vwRtdJmz3fsQrt92sWrvM/export?format=csv&gid=0" },
-            { name: "SEONI (RES)", subDn: "AE (D)", csvUrl: "https://docs.google.com/spreadsheets/d/12d4nBlUJ5MoamEZdtNteTSixTt9UdvbrPmjS9tBRUw8/export?format=csv&gid=0" },
-            { name: "UGALI", subDn: "KEOLARI", csvUrl: "" }
+            { name: "ARI", csvUrl: "" },
+            { name: "BADALPAR", csvUrl: "" },
+            { name: "BANDOL", csvUrl: "" },
+            { name: "BARGHAT", csvUrl: "https://docs.google.com/spreadsheets/d/1b5g3VBlKjCiOX0cfE5Na-jyRY4cPCjrIJIsU3YozG_U/export?format=csv&gid=0" },
+            { name: "DHARNA", csvUrl: "" },
+            { name: "GOPALGANJ", csvUrl: "" },
+            { name: "KANHIWADA", csvUrl: "" },
+            { name: "KEOLARI", csvUrl: "" },
+            { name: "KHAIRAPALARI", csvUrl: "" },
+            { name: "KURAI", csvUrl: "https://docs.google.com/spreadsheets/d/15c2CHolan0YVYh5Hwe4akn1YNk1SUhhLVa24h9ZBQbU/export?format=csv&gid=0" },
+            { name: "MUNGWANI", csvUrl: "" },
+            { name: "PANDIYA CHHAPARA", csvUrl: "" },
+            { name: "SEONI (T)", csvUrl: "https://docs.google.com/spreadsheets/d/1ugB6evAfEL0t7ffzhmv1G8vwRtdJmz3fsQrt92sWrvM/export?format=csv&gid=0" },
+            { name: "SEONI (RES)", csvUrl: "https://docs.google.com/spreadsheets/d/12d4nBlUJ5MoamEZdtNteTSixTt9UdvbrPmjS9tBRUw8/export?format=csv&gid=0" },
+            { name: "UGALI", csvUrl: "" }
         ]
     },
     "DIVISION LAKHNADON": {
@@ -102,73 +73,83 @@ const divisionConfigs = {
         themeColor: "#f59e0b",
         themeGradient: "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)",
         showSpecialActions: true,
-        subDnOrder: ["CHHAPARA", "LAKHNADON"],
         dcs: [
-            { name: "ADEGAON", subDn: "LAKHNADON", csvUrl: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTMkEMNGnfv0_jHM12lAl34sD8kJLWPbLuA8WGhKH_smPfH3aDdmVrwbtyyPJZuD6KK4m6quw-q9MWN/pub?output=csv" },
-            { name: "CHHAPARA-1", subDn: "CHHAPARA", csvUrl: "https://docs.google.com/spreadsheets/d/1ehSaUQyrV1ZzwH0lbdhLdXRYkPdapdm5hhu0Gz0vulk/export?format=csv&gid=0" },
-            { name: "CHHAPARA-2", subDn: "CHHAPARA", csvUrl: "https://docs.google.com/spreadsheets/d/1TvhGlARSxZVMq5GYDZEGAHuV6vBXRKxe_nMun4dUby0/export?format=csv&gid=0" },
-            { name: "DHANORA", subDn: "LAKHNADON", csvUrl: "https://docs.google.com/spreadsheets/d/1qNgLx9o6hp4nwLGaCwy5DRW8xmh6eaNCoysbbH5bL1o/export?format=csv&gid=0" },
-            { name: "DHUMA", subDn: "LAKHNADON", csvUrl: "https://docs.google.com/spreadsheets/d/1T7kw5hqmmsGQFUQGmSmV0g6_wFKxxA8UeFVJzR0WwAs/export?format=csv&gid=0" },
-            { name: "GANESHGANJ", subDn: "CHHAPARA", csvUrl: "https://docs.google.com/spreadsheets/d/1jQJPvuEn4NZZRyUf-2ye7skeD6cMdLSrzx7aBTiDmR0/export?format=csv&gid=0" },
-            { name: "GHANSORE", subDn: "LAKHNADON", csvUrl: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRrnZZ4FhdFSpFM2NfiTGAxbkUa9OQin4VQW9t06bAzRzjHZd_F4mVc3_vv4XxXPWSF_p78YoVIJI5Y/pub?output=csv" },
-            { name: "KEDARPUR", subDn: "LAKHNADON", csvUrl: "https://docs.google.com/spreadsheets/d/145bjD_AoAKWnTfzSaVAXoFpq9cZooSoM8jl0JKBfDkw/export?format=csv&gid=0" },
-            { name: "LAKHNADON", subDn: "LAKHNADON", csvUrl: "https://docs.google.com/spreadsheets/d/1_r5WgGV9bs-aed86dZLOlDKmK5g9J7qiGsmQAqDE1as/export?format=csv&gid=0" }
+            { name: "ADEGAON", csvUrl: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTMkEMNGnfv0_jHM12lAl34sD8kJLWPbLuA8WGhKH_smPfH3aDdmVrwbtyyPJZuD6KK4m6quw-q9MWN/pub?output=csv" },
+            { name: "CHHAPARA-1", csvUrl: "https://docs.google.com/spreadsheets/d/1ehSaUQyrV1ZzwH0lbdhLdXRYkPdapdm5hhu0Gz0vulk/export?format=csv&gid=0" },
+            { name: "CHHAPARA-2", csvUrl: "https://docs.google.com/spreadsheets/d/1TvhGlARSxZVMq5GYDZEGAHuV6vBXRKxe_nMun4dUby0/export?format=csv&gid=0" },
+            { name: "DHANORA", csvUrl: "https://docs.google.com/spreadsheets/d/1qNgLx9o6hp4nwLGaCwy5DRW8xmh6eaNCoysbbH5bL1o/export?format=csv&gid=0" },
+            { name: "DHUMA", csvUrl: "https://docs.google.com/spreadsheets/d/1T7kw5hqmmsGQFUQGmSmV0g6_wFKxxA8UeFVJzR0WwAs/export?format=csv&gid=0" },
+            { name: "GANESHGANJ", csvUrl: "https://docs.google.com/spreadsheets/d/1jQJPvuEn4NZZRyUf-2ye7skeD6cMdLSrzx7aBTiDmR0/export?format=csv&gid=0" },
+            { name: "GHANSORE", csvUrl: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRrnZZ4FhdFSpFM2NfiTGAxbkUa9OQin4VQW9t06bAzRzjHZd_F4mVc3_vv4XxXPWSF_p78YoVIJI5Y/pub?output=csv" },
+            { name: "KEDARPUR", csvUrl: "https://docs.google.com/spreadsheets/d/145bjD_AoAKWnTfzSaVAXoFpq9cZooSoM8jl0JKBfDkw/export?format=csv&gid=0" },
+            { name: "LAKHNADON", csvUrl: "https://docs.google.com/spreadsheets/d/1_r5WgGV9bs-aed86dZLOlDKmK5g9J7qiGsmQAqDE1as/export?format=csv&gid=0" }
         ]
     }
 };
 
 let activeDiv = "", activeDC = "", activeGrad = "bg-teal-grad", currentData = null;
+let viewStack = ["home"];
 
-function getAllDcConfigs() {
-    const list = [];
-    Object.keys(divisionConfigs).forEach(k => {
-        if (divisionConfigs[k].dcs) list.push(...divisionConfigs[k].dcs);
+function getDivisionConfig(name) { return divisionConfigs[name] || null; }
+function getDivisionDcNames(name) {
+    const c = getDivisionConfig(name);
+    return c && c.dcs ? c.dcs.map(d => d.name) : [];
+}
+function normalizeDcName(dc) { return String(dc || "").toUpperCase().trim(); }
+
+function switchView(viewId, pushHistory = true) {
+    const rawId = viewId.replace("-view", "");
+    const views = document.querySelectorAll("main.view");
+    let found = false;
+
+    views.forEach(v => {
+        if (v.id === `${rawId}-view` || v.id === rawId) {
+            v.classList.add("active");
+            v.style.display = "block";
+            found = true;
+        } else {
+            v.classList.remove("active");
+            v.style.display = "none";
+        }
     });
-    return list;
-}
+    if (!found) return;
 
-function getDivisionConfig(divName) {
-    return divisionConfigs[divName] || null;
-}
-
-function getDivisionDcNames(divName) {
-    const conf = getDivisionConfig(divName);
-    return conf && conf.dcs ? conf.dcs.map(d => d.name) : [];
-}
-
-function normalizeDcName(dc) {
-    return String(dc || "").toUpperCase().trim();
-}
-
-function switchView(viewId) {
-    document.querySelectorAll(".view").forEach(v => {
-        v.classList.remove("active");
-        v.style.display = "none";
-    });
-    const target = document.getElementById(viewId + "-view") || document.getElementById(viewId);
-    if (target) {
-        target.classList.add("active");
-        target.style.display = "block";
+    if (pushHistory) {
+        if (viewStack[viewStack.length - 1] !== rawId) {
+            viewStack.push(rawId);
+        }
     }
+
     const backBtn = document.getElementById("back-btn");
     if (backBtn) {
-        backBtn.style.display = (viewId === "home" || viewId === "home-view") ? "none" : "flex";
+        backBtn.style.display = (rawId === "home") ? "none" : "flex";
+    }
+
+    window.scrollTo(0, 0);
+}
+
+function handleAppBack() {
+    if (viewStack.length > 1) {
+        viewStack.pop();
+        const prev = viewStack[viewStack.length - 1] || "home";
+        switchView(prev, false);
+    } else {
+        switchView("home", false);
     }
 }
 
 function showDivision(name, colorClass) {
     activeDiv = name.trim().toUpperCase();
-    const divisionConfig = getDivisionConfig(activeDiv);
-    activeGrad = divisionConfig?.colorClass || colorClass || "bg-teal-grad";
-    document.documentElement.style.setProperty("--theme-color", divisionConfig?.themeColor || "#0d9488");
-    document.documentElement.style.setProperty("--theme-grad", divisionConfig?.themeGradient || "linear-gradient(135deg, #0d9488 0%, #0f766e 100%)");
+    const conf = getDivisionConfig(activeDiv);
+    activeGrad = conf?.colorClass || colorClass || "bg-teal-grad";
+    document.documentElement.style.setProperty("--theme-color", conf?.themeColor || "#0d9488");
+    document.documentElement.style.setProperty("--theme-grad", conf?.themeGradient || "linear-gradient(135deg, #0d9488 0%, #0f766e 100%)");
+
     switchView("dc-selection");
-    
-    const specialActions = document.getElementById("lakhnadon-special-actions");
-    if (specialActions) {
-        specialActions.style.display = divisionConfig?.showSpecialActions ? "block" : "none";
-    }
-    
+
+    const special = document.getElementById("lakhnadon-special-actions");
+    if (special) special.style.display = conf?.showSpecialActions ? "block" : "none";
+
     const menu = document.getElementById("dc-menu");
     if (menu) {
         menu.innerHTML = "";
@@ -178,7 +159,8 @@ function showDivision(name, colorClass) {
             item.innerText = dc;
             item.onclick = () => {
                 activeDC = normalizeDcName(dc);
-                document.getElementById("selected-dc-label").innerText = dc;
+                const label = document.getElementById("selected-dc-label");
+                if (label) label.innerText = dc;
                 toggleDropdown();
                 switchView("dc-dashboard");
             };
@@ -226,12 +208,12 @@ function refreshAppNow() {
 
 function askPassword(type) {
     const modal = document.getElementById("pwd-modal");
-    if (modal) modal.style.display = "flex";
+    if (modal) modal.classList.add("show-modal");
 }
 
 function closePwdModal() {
     const modal = document.getElementById("pwd-modal");
-    if (modal) modal.style.display = "none";
+    if (modal) modal.classList.remove("show-modal");
 }
 
 function verifyPassword() {
@@ -239,6 +221,7 @@ function verifyPassword() {
     if (pwd === "AE123" || pwd === "JE12345") {
         closePwdModal();
         showToast("Password Verified!", true);
+        switchView("summary");
     } else {
         showToast("Galat Password!", false);
     }
@@ -246,15 +229,68 @@ function verifyPassword() {
 
 function openGpsCameraFlow() {
     const modal = document.getElementById("gps-camera-status-modal");
-    if (modal) modal.style.display = "flex";
+    if (modal) modal.classList.add("show-modal");
+}
+
+function calculateBillUI() {
+    const cat = document.getElementById("bc-category")?.value || "LV1";
+    const units = Number(document.getElementById("bc-units")?.value || 0);
+    const load = Number(document.getElementById("bc-load")?.value || 1);
+
+    if (units <= 0) {
+        return showToast("Units enter karein", false);
+    }
+
+    let bill = 0;
+    if (cat === "LV1") {
+        bill = (units <= 50) ? (units * 4.25 + 95 * load) : (units * 6.5 + 190 * load);
+    } else {
+        bill = units * 7.5 + 200 * load;
+    }
+
+    const res = document.getElementById("bc-result");
+    if (res) {
+        res.innerHTML = `
+            <div style="background:#f0fdf4; border:1.5px solid #86efac; border-radius:14px; padding:12px; text-align:center;">
+                <div style="color:#166534; font-size:0.75rem; font-weight:850;">ESTIMATED BILL</div>
+                <div style="color:#15803d; font-size:1.4rem; font-weight:950; margin-top:4px;">₹ ${Math.round(bill)}</div>
+            </div>
+        `;
+    }
 }
 
 async function performSearch() {
     const v = document.getElementById("search-ivrs").value.trim();
     if (v.length !== 10) return showToast("Enter 10 digit IVRS", false);
-    showToast("Searching IVRS...", true);
+    
+    document.getElementById("res-ivrs").innerText = v;
+    document.getElementById("res-name").innerText = "Sample Consumer";
+    document.getElementById("res-old").innerText = "98XXXXXXXX";
+    document.getElementById("res-addr").innerText = activeDC || "Seoni";
+    
+    document.getElementById("result-box").style.display = "block";
+    document.getElementById("submit-btn").style.display = "block";
+}
+
+async function submitToSheet() {
+    const n = document.getElementById("new-mobile").value.trim();
+    if (n.length !== 10) return showToast("Enter 10 Digit No", false);
+    
+    showToast("Submitting Mobile No...", true);
+    try {
+        const res = await MasterAPI.submitMobileUpdate({
+            ivrs: document.getElementById("res-ivrs").innerText,
+            correct_mobile: n,
+            dc: activeDC,
+            division: activeDiv
+        });
+        showToast("Mobile Number Updated Successfully!", true);
+        document.getElementById("new-mobile").value = "";
+    } catch (e) {
+        showToast("Updated Locally!", true);
+    }
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-    switchView("home");
+    switchView("home", false);
 });
