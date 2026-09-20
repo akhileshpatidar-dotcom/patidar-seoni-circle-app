@@ -1,15 +1,15 @@
 /**
  * =====================================================================
- * SEONI CIRCLE APP - COMPLETE PRODUCTION JAVASCRIPT (app.js)
+ * SEONI CIRCLE APP - LIGHTWEIGHT & SECURE MASTER FRONTEND (app.js)
+ * Single Master Gateway Bridge + Direct Navigation (No Passwords)
  * Developer: Akhilesh Patidar (AE)
- * Single Master Backend Gateway Integration (v5.1 Production)
  * =====================================================================
  */
 
-// 1. MASTER UNIFIED BACKEND GATEWAY URL
+// 1. SINGLE MASTER WEB APP URL
 const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzUYELgmujpaBbfByy0BcjOERA8e0mslNdbH5uUw2L6L24785obmdcpcDOc53Ww/exec";
 
-// All individual script variables point to the Master Gateway
+// All individual module variables map to MASTER_SECURE_API_URL
 const revenueScriptUrl = MASTER_SECURE_API_URL;
 const revenueSubmitUrl = MASTER_SECURE_API_URL;
 const mobileUpdateScriptUrl = MASTER_SECURE_API_URL;
@@ -23,275 +23,141 @@ const feederReadingScriptUrl = MASTER_SECURE_API_URL;
 const freezeTrackingScriptUrl = MASTER_SECURE_API_URL;
 const meterCheckingScriptUrl = MASTER_SECURE_API_URL;
 
-// =====================================================================
-// 2. CORE APP STATE & DIVISION DATA
-// =====================================================================
-let currentDivision = "";
-let currentDC = "";
-let currentScope = ""; // 'CIRCLE', 'DIVISION', 'DC', 'STOCK'
-let currentProgressMode = "DAILY";
-let currentReportSource = "SHMS";
-let vrNodes = [];
+// Generic POST Dispatcher
+async function postMasterApi(actionName, payloadObj) {
+    const payload = Object.assign({ action: actionName }, payloadObj);
+    const response = await fetch(MASTER_SECURE_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=UTF-8" },
+        body: JSON.stringify(payload)
+    });
+    return await response.json();
+}
 
-const DIVISION_DATA = {
-    "DIVISION SEONI": [
-        "ARI", "BADALPAR", "BANDOL", "BARGHAT", "DHARNA", "GOPALGANJ",
-        "KANHIWADA", "KEOLARI", "KHAIRAPALARI", "KURAI", "MUNGWANI",
-        "PANDIYA CHHAPARA", "SEONI (T)", "SEONI (RES)", "UGALI"
-    ],
-    "DIVISION LAKHNADON": [
-        "ADEGAON", "CHHAPARA-1", "CHHAPARA-2", "DHANORA", "DHUMA",
-        "GANESHGANJ", "GHANSORE", "KEDARPUR", "LAKHNADON"
-    ]
+// Generic GET Dispatcher
+async function getMasterApi(actionName, paramsObj) {
+    const params = Object.assign({ action: actionName }, paramsObj);
+    const query = new URLSearchParams(params).toString();
+    const response = await fetch(`${MASTER_SECURE_API_URL}?${query}`);
+    return await response.json();
+}
+
+// =====================================================================
+// 2. DIRECT UI NAVIGATION HANDLERS (No Passwords - Instant Access)
+// =====================================================================
+
+// HTML onclick="askPassword('...')" bina kisi password ke direct view kholega
+window.askPassword = function(divisionOrScope) {
+    const target = (divisionOrScope || "").toString().trim().toUpperCase();
+    if (target.includes("CIRCLE") || target.includes("PROGRESS")) {
+        window.showCircleProgress();
+    } else if (target.includes("LAKH")) {
+        window.showDivision("DIVISION LAKHNADON");
+    } else {
+        window.showDivision("DIVISION SEONI");
+    }
 };
 
-// =====================================================================
-// 3. MASTER API DISPATCHERS (POST & GET)
-// =====================================================================
-async function postMasterApi(actionName, payloadObj) {
-    try {
-        const payload = Object.assign({ action: actionName }, payloadObj);
-        const response = await fetch(MASTER_SECURE_API_URL, {
-            method: "POST",
-            headers: { "Content-Type": "text/plain;charset=UTF-8" },
-            body: JSON.stringify(payload)
-        });
-        return await response.json();
-    } catch (err) {
-        console.error("API POST Error [" + actionName + "]:", err);
-        return { status: "error", message: err.message || "Network error" };
-    }
-}
+window.showDivision = function(divName) {
+    const screens = document.querySelectorAll(".view, .app-screen, [id$='-view'], [id$='-screen']");
+    screens.forEach(s => s.classList.remove("active"));
 
-async function getMasterApi(actionName, paramsObj) {
-    try {
-        const params = Object.assign({ action: actionName }, paramsObj);
-        const query = new URLSearchParams(params).toString();
-        const response = await fetch(`${MASTER_SECURE_API_URL}?${query}`);
-        return await response.json();
-    } catch (err) {
-        console.error("API GET Error [" + actionName + "]:", err);
-        return { status: "error", message: err.message || "Network error" };
-    }
-}
-
-// =====================================================================
-// 4. NAVIGATION, MODALS & VIEW SWITCHING (CRITICAL FIX)
-// =====================================================================
-function switchView(viewId) {
-    const views = document.querySelectorAll(".view");
-    views.forEach(v => v.classList.remove("active"));
-
-    const target = document.getElementById(viewId + "-view") || document.getElementById(viewId);
-    if (target) {
-        target.classList.add("active");
-        target.scrollTop = 0;
+    const dcView = document.getElementById("dc-selection-view") || document.getElementById("division-screen");
+    if (dcView) {
+        dcView.classList.add("active");
+        dcView.style.display = "block";
     }
 
-    const backBtn = document.getElementById("back-btn");
-    if (backBtn) {
-        backBtn.style.display = (viewId === "home" || viewId === "home-view") ? "none" : "flex";
+    const titleEl = document.getElementById("main-header-title") || document.getElementById("division-title");
+    if (titleEl) {
+        titleEl.textContent = String(divName).toUpperCase();
     }
 
-    updateHeaderMenuVisibility(viewId);
-}
+    renderDcGrid(divName);
+};
 
-function showDivision(divName, gradClass) {
-    currentDivision = divName;
-    const headerTitle = document.getElementById("main-header-title");
-    if (headerTitle) headerTitle.textContent = divName.toUpperCase();
+window.showHome = function() {
+    const screens = document.querySelectorAll(".view, .app-screen, [id$='-view'], [id$='-screen']");
+    screens.forEach(s => {
+        s.classList.remove("active");
+        if (s.id !== "home-view" && s.id !== "home-screen") s.style.display = "none";
+    });
 
-    const dcMenu = document.getElementById("dc-menu");
-    const dcs = DIVISION_DATA[divName] || [];
-    if (dcMenu) {
-        dcMenu.innerHTML = dcs.map(dc => `
-            <div class="option-item" onclick="selectDC('${dc}')">${dc}</div>
-        `).join("");
+    const home = document.getElementById("home-view") || document.getElementById("home-screen");
+    if (home) {
+        home.classList.add("active");
+        home.style.display = "block";
+    }
+};
+
+window.showCircleProgress = function() {
+    const screens = document.querySelectorAll(".view, .app-screen, [id$='-view'], [id$='-screen']");
+    screens.forEach(s => {
+        s.classList.remove("active");
+        s.style.display = "none";
+    });
+
+    const summaryView = document.getElementById("summary-view") || document.getElementById("progress-screen");
+    if (summaryView) {
+        summaryView.classList.add("active");
+        summaryView.style.display = "block";
     }
 
-    const selectedLabel = document.getElementById("selected-dc-label");
-    if (selectedLabel) selectedLabel.textContent = "Choose DC Name...";
+    const title = document.getElementById("summary-title");
+    if (title) title.textContent = "SEONI CIRCLE PROGRESS REPORT";
 
-    const lakhnadonActions = document.getElementById("lakhnadon-special-actions");
-    if (lakhnadonActions) {
-        lakhnadonActions.style.display = (divName === "DIVISION LAKHNADON") ? "block" : "none";
-    }
+    loadCircleProgressData();
+};
 
-    switchView("dc-selection");
-}
+window.openGpsCameraFlow = function() {
+    const cam = document.getElementById("gps-camera-input") || document.querySelector("input[type='file'][capture]");
+    if (cam) cam.click();
+    else alert("GPS Camera Flow trigger.");
+};
 
-function selectDC(dcName) {
-    currentDC = dcName;
-    const selectedLabel = document.getElementById("selected-dc-label");
-    if (selectedLabel) selectedLabel.textContent = dcName;
-    toggleDropdown(false);
+window.selectDC = function(dcName) {
+    const dcLabel = document.getElementById("selected-dc-label");
+    if (dcLabel) dcLabel.textContent = dcName;
 
     const headerTitle = document.getElementById("main-header-title");
     if (headerTitle) headerTitle.textContent = dcName;
 
-    const meterCheckBtn = document.getElementById("meter-checking-dashboard-btn");
-    if (meterCheckBtn) {
-        meterCheckBtn.style.display = (dcName === "SEONI (T)") ? "block" : "none";
+    const screens = document.querySelectorAll(".view, .app-screen");
+    screens.forEach(s => s.classList.remove("active"));
+
+    const dcDash = document.getElementById("dc-dashboard-view") || document.getElementById("dc-screen");
+    if (dcDash) {
+        dcDash.classList.add("active");
+        dcDash.style.display = "block";
     }
+};
 
-    switchView("dc-dashboard");
-}
+function renderDcGrid(division) {
+    const dcMenu = document.getElementById("dc-menu") || document.getElementById("dc-grid-container");
+    if (!dcMenu) return;
 
-function toggleDropdown(forceState) {
-    const trigger = document.getElementById("prof-trigger");
-    const menu = document.getElementById("dc-menu");
-    if (!menu) return;
+    const seoniDcs = ["ARI", "BADALPAR", "BANDOL", "BARGHAT", "DHARNA", "GOPALGANJ", "KANHIWADA", "KEOLARI", "KHAIRAPALARI", "KURAI", "MUNGWANI", "PANDIYA CHHAPARA", "SEONI (T)", "SEONI (RES)", "UGALI"];
+    const lakhnadonDcs = ["ADEGAON", "CHHAPARA-1", "CHHAPARA-2", "DHANORA", "DHUMA", "GANESHGANJ", "GHANSORE", "KEDARPUR", "LAKHNADON"];
 
-    const isOpen = menu.classList.contains("show");
-    const shouldOpen = (typeof forceState === "boolean") ? forceState : !isOpen;
-
-    if (shouldOpen) {
-        menu.classList.add("show");
-        if (trigger) trigger.classList.add("active");
-    } else {
-        menu.classList.remove("show");
-        if (trigger) trigger.classList.remove("active");
-    }
-}
-
-// Password Verification & Modal Handler
-function askPassword(scope) {
-    currentScope = scope;
-    const pwdInput = document.getElementById("pwd-input");
-    const pwdModal = document.getElementById("pwd-modal");
-    const pwdTitle = document.getElementById("pwd-modal-title");
-
-    if (pwdInput) pwdInput.value = "";
-    if (pwdTitle) pwdTitle.textContent = scope + " REPORT ACCESS";
-    if (pwdModal) pwdModal.style.display = "flex";
-    if (pwdInput) pwdInput.focus();
-}
-
-function closePwdModal() {
-    const pwdModal = document.getElementById("pwd-modal");
-    if (pwdModal) pwdModal.style.display = "none";
-}
-
-async function verifyPassword() {
-    const pwdInput = document.getElementById("pwd-input");
-    const pwd = pwdInput ? pwdInput.value.trim() : "";
-
-    if (!pwd) {
-        showToast("Kripya password daliye", "error");
-        return;
-    }
-
-    // Direct password verification or server check
-    const type = (currentScope === "STOCK") ? "revenue" : "revenue";
-    const res = await postMasterApi("verifyAdminPassword", { password_type: type, password: pwd });
-
-    if (res.valid || pwd === "JE12345" || pwd === "AE123" || pwd === "admin123") {
-        closePwdModal();
-        if (currentScope === "CIRCLE" || currentScope === "DIVISION" || currentScope === "DC") {
-            openProgressReportView(currentScope);
-        } else if (currentScope === "STOCK") {
-            switchView("stock-material");
-        }
-    } else {
-        showToast("Galat Password!", "error");
-    }
-}
-
-function openProgressReportView(scope) {
-    const summaryTitle = document.getElementById("summary-title");
-    if (summaryTitle) {
-        summaryTitle.textContent = (scope === "CIRCLE") ? "SEONI CIRCLE PROGRESS REPORT" :
-                                   (scope === "DIVISION") ? `${currentDivision} PROGRESS REPORT` : `${currentDC} PROGRESS REPORT`;
-    }
-    switchView("summary");
-    initProgressReportDate();
-}
-
-function initProgressReportDate() {
-    const dateInput = document.getElementById("report-date");
-    if (dateInput && !dateInput.value) {
-        const today = new Date().toISOString().split("T")[0];
-        dateInput.value = today;
-    }
+    const list = String(division).toUpperCase().includes("LAKH") ? lakhnadonDcs : seoniDcs;
+    dcMenu.innerHTML = list.map(dc => `
+        <div class="option-item dc-btn" style="padding:10px; cursor:pointer;" onclick="window.selectDC('${dc}')">${dc}</div>
+    `).join("");
 }
 
 // =====================================================================
-// 5. THEME & HEADER MENU CONTROLS
+// 3. BIJLEE BILL CALCULATOR (MPERC Server Engine)
 // =====================================================================
-function changeTheme(colorHex) {
-    document.documentElement.style.setProperty("--theme-color", colorHex);
-    document.documentElement.style.setProperty("--theme-grad", `linear-gradient(135deg, ${colorHex} 0%, #0f766e 100%)`);
-    const appHeader = document.getElementById("app-header");
-    if (appHeader) appHeader.style.background = colorHex;
-}
 
-function toggleDarkMode() {
-    document.documentElement.classList.toggle("dark-mode-on");
-}
-
-function refreshAppNow() {
-    const btn = document.getElementById("app-refresh-btn");
-    if (btn) btn.classList.add("app-refresh-spinning");
-    setTimeout(() => {
-        window.location.reload();
-    }, 400);
-}
-
-function toggleHeaderMenu(e) {
-    if (e) e.stopPropagation();
-    const list = document.getElementById("header-menu-list");
-    if (list) {
-        list.style.display = (list.style.display === "block") ? "none" : "block";
-    }
-}
-
-document.addEventListener("click", () => {
-    const list = document.getElementById("header-menu-list");
-    if (list) list.style.display = "none";
-});
-
-function updateHeaderMenuVisibility(viewId) {
-    const wrap = document.getElementById("header-menu-wrap");
-    if (!wrap) return;
-
-    wrap.style.display = (viewId === "home" || viewId === "home-view") ? "none" : "block";
-
-    const isRevenue = (viewId === "revenue-collection" || viewId === "revenue-collection-view");
-    const isMobile = (viewId === "mobile-update" || viewId === "mobile-update-view");
-    const isMeter = (viewId === "meter-checking" || viewId === "meter-checking-view");
-    const isVR = (viewId === "vr-calculation" || viewId === "vr-calculation-view");
-    const isDashboard = (viewId === "dc-dashboard" || viewId === "dc-dashboard-view");
-
-    document.querySelectorAll(".revenue-header-menu-item").forEach(el => el.style.display = isRevenue ? "block" : "none");
-    document.querySelectorAll(".mobile-update-header-menu-item").forEach(el => el.style.display = isMobile ? "block" : "none");
-    document.querySelectorAll(".meter-checking-header-menu-item").forEach(el => el.style.display = isMeter ? "block" : "none");
-    document.querySelectorAll(".vr-header-menu-item").forEach(el => el.style.display = isVR ? "block" : "none");
-    document.querySelectorAll(".dc-dashboard-header-menu-item").forEach(el => el.style.display = isDashboard ? "block" : "none");
-
-    const staffAdmin = document.getElementById("staff-admin-header-menu-item");
-    if (staffAdmin) staffAdmin.style.display = isRevenue ? "block" : "none";
-}
-
-function showToast(msg, type) {
-    const toast = document.getElementById("toast-notif");
-    if (!toast) return;
-    toast.textContent = msg;
-    toast.style.background = (type === "error") ? "#ef4444" : "#10b981";
-    toast.style.display = "block";
-    setTimeout(() => { toast.style.display = "none"; }, 3000);
-}
-
-// =====================================================================
-// 6. BIJLEE BILL CALCULATOR (DYNAMIC UI & BACKEND BRIDGE)
-// =====================================================================
 function onBillCalculatorCategoryChange() {
-    const cat = document.getElementById("bc-category") ? document.getElementById("bc-category").value : "";
+    const catSelect = document.getElementById("bc-category");
     const tfWrap = document.getElementById("bc-tariffcode-wrap");
     const tfSelect = document.getElementById("bc-tariffcode");
     const fieldsDiv = document.getElementById("bc-fields");
     const resultDiv = document.getElementById("bc-result");
 
     if (resultDiv) resultDiv.innerHTML = "";
+    const cat = catSelect ? catSelect.value : "";
     if (!cat) {
         if (tfWrap) tfWrap.style.display = "none";
         if (fieldsDiv) fieldsDiv.innerHTML = "";
@@ -303,7 +169,9 @@ function onBillCalculatorCategoryChange() {
         renderBillCalculatorFields();
     } else {
         if (tfWrap) tfWrap.style.display = "block";
-        if (tfSelect) tfSelect.innerHTML = `<option value="${cat}-STD">${cat} Standard Supply</option>`;
+        if (tfSelect) {
+            tfSelect.innerHTML = `<option value="${cat}-STD">${cat} Standard Supply</option>`;
+        }
         renderBillCalculatorFields();
     }
 }
@@ -376,151 +244,158 @@ async function calculateBillEstimate() {
         resultDiv.innerHTML = '<div class="app-sync-spinner"></div><p style="text-align:center; font-size:12px; font-weight:800; color:#0d9488; margin-top:8px;">Calculating Bill (Server Engine)...</p>';
     }
 
-    const res = await postMasterApi("calculateBillEstimate", {
-        category: category,
-        units: units,
-        load_kw: loadKw,
-        load_hp: loadHp,
-        is_flat_rate: isFlat
-    });
+    try {
+        const res = await postMasterApi("calculateBillEstimate", {
+            category: category,
+            units: units,
+            load_kw: loadKw,
+            load_hp: loadHp,
+            is_flat_rate: isFlat
+        });
 
-    if (res.status !== "success") {
-        if (resultDiv) resultDiv.innerHTML = `<p style="color:#dc2626; font-weight:800; text-align:center;">Error: ${res.message || "Failed"}</p>`;
+        if (res.status !== "success") throw new Error(res.message || "Calculation failed");
+
+        const data = res.billing_breakdown;
+        if (resultDiv) {
+            resultDiv.innerHTML = `
+                <div style="background:#ffffff; border:2px solid #0d9488; border-radius:16px; padding:16px; margin-top:12px; box-shadow:0 8px 20px rgba(13,148,136,0.12);">
+                    <div style="font-size:14px; font-weight:900; color:#0f766e; text-align:center; border-bottom:1px solid #e2e8f0; padding-bottom:8px;">BILL ESTIMATE (MPERC TARIFF)</div>
+                    <div style="display:flex; justify-content:space-between; margin-top:10px; font-size:13px; font-weight:700;"><span>Energy Charge:</span><span>₹${data.energy_charge}</span></div>
+                    <div style="display:flex; justify-content:space-between; margin-top:6px; font-size:13px; font-weight:700;"><span>Fixed Charge:</span><span>₹${data.fixed_charge}</span></div>
+                    <div style="display:flex; justify-content:space-between; margin-top:6px; font-size:13px; font-weight:700;"><span>FCA Charge:</span><span>₹${data.fca_charge}</span></div>
+                    <div style="display:flex; justify-content:space-between; margin-top:6px; font-size:13px; font-weight:700;"><span>Electricity Duty:</span><span>₹${data.electricity_duty}</span></div>
+                    <div style="display:flex; justify-content:space-between; margin-top:12px; font-size:16px; font-weight:900; color:#000; border-top:2px solid #0d9488; padding-top:8px;"><span>Total Payable:</span><span>₹${data.total_payable}</span></div>
+                </div>
+            `;
+        }
+    } catch (err) {
+        if (resultDiv) resultDiv.innerHTML = `<p style="color:#dc2626; font-weight:800; text-align:center;">Error: ${err.message}</p>`;
+    }
+}
+
+// =====================================================================
+// 4. PROGRESS REPORT & RECONCILIATION FETCHER
+// =====================================================================
+
+async function fetchRevenueCategoryReconciliation(dcName, periodMode, periodValue, dcNamesList) {
+    try {
+        const payload = {
+            action: "getRevenueCategoryReconciliation",
+            period_mode: periodMode || "date",
+            period_value: periodValue
+        };
+        if (dcName) {
+            payload.dc_name = dcName;
+        } else if (dcNamesList && dcNamesList.length) {
+            payload.dc_names = Array.isArray(dcNamesList) ? dcNamesList.join(",") : dcNamesList;
+        }
+
+        const res = await postMasterApi("getRevenueCategoryReconciliation", payload);
+        if (res && res.status === "success" && Array.isArray(res.entries)) {
+            return res.entries;
+        }
+        return [];
+    } catch (err) {
+        console.error("Reconciliation Fetch Error:", err);
+        return [];
+    }
+}
+
+async function fetchLiveRevenueDailySummary(dateStr, dcName, dcNamesList) {
+    try {
+        const params = { action: "getLiveRevenueDailySummary", date: dateStr };
+        if (dcName) params.dc_name = dcName;
+        if (dcNamesList && dcNamesList.length) params.dc_names = Array.isArray(dcNamesList) ? dcNamesList.join(",") : dcNamesList;
+
+        const res = await postMasterApi("getLiveRevenueDailySummary", params);
+        if (res && res.status === "success" && Array.isArray(res.rows)) {
+            return res.rows;
+        }
+        return [];
+    } catch (err) {
+        console.error("Live Summary Fetch Error:", err);
+        return [];
+    }
+}
+
+async function loadCircleProgressData() {
+    const content = document.getElementById("summary-content") || document.getElementById("progress-table-container");
+    if (!content) return;
+    content.innerHTML = '<div style="text-align:center; padding:20px; font-weight:800; color:#0d9488;">Loading Circle Progress...</div>';
+
+    const today = new Date().toISOString().split("T")[0];
+    const rows = await fetchLiveRevenueDailySummary(today);
+
+    if (!rows || !rows.length) {
+        content.innerHTML = '<div style="text-align:center; padding:20px; font-weight:800; color:#64748b;">Aaj ka data update nahi hua hai.</div>';
         return;
     }
 
-    const data = res.billing_breakdown;
-    if (resultDiv) {
-        resultDiv.innerHTML = `
-            <div style="background:#ffffff; border:2px solid #0d9488; border-radius:16px; padding:16px; margin-top:12px; box-shadow:0 8px 20px rgba(13,148,136,0.12);">
-                <div style="font-size:14px; font-weight:900; color:#0f766e; text-align:center; border-bottom:1px solid #e2e8f0; padding-bottom:8px;">BILL ESTIMATE (MPERC TARIFF)</div>
-                <div style="display:flex; justify-content:space-between; margin-top:10px; font-size:13px; font-weight:700;"><span>Energy Charge:</span><span>₹${data.energy_charge}</span></div>
-                <div style="display:flex; justify-content:space-between; margin-top:6px; font-size:13px; font-weight:700;"><span>Fixed Charge:</span><span>₹${data.fixed_charge}</span></div>
-                <div style="display:flex; justify-content:space-between; margin-top:6px; font-size:13px; font-weight:700;"><span>FCA Charge:</span><span>₹${data.fca_charge}</span></div>
-                <div style="display:flex; justify-content:space-between; margin-top:6px; font-size:13px; font-weight:700;"><span>Electricity Duty:</span><span>₹${data.electricity_duty}</span></div>
-                <div style="display:flex; justify-content:space-between; margin-top:12px; font-size:16px; font-weight:900; color:#000; border-top:2px solid #0d9488; padding-top:8px;"><span>Total Payable:</span><span>₹${data.total_payable}</span></div>
-            </div>
-        `;
-    }
-}
-
-// =====================================================================
-// 7. PROGRESS REPORT & REVENUE RECONCILIATION ENGINE
-// =====================================================================
-function setProgressModule(mod) {
-    document.querySelectorAll(".report-tile").forEach(el => el.classList.remove("active"));
-    const activeTile = document.querySelector(`.report-tile.${mod.toLowerCase()}`);
-    if (activeTile) activeTile.classList.add("active");
-
-    const picker = document.getElementById("progress-report-picker");
-    const chip = document.getElementById("progress-report-chip");
-    if (picker) picker.style.display = "none";
-    if (chip) chip.style.display = "flex";
-
-    refreshSummary();
-}
-
-function showProgressReportPicker() {
-    const picker = document.getElementById("progress-report-picker");
-    const chip = document.getElementById("progress-report-chip");
-    if (picker) picker.style.display = "flex";
-    if (chip) chip.style.display = "none";
-}
-
-function setMode(mode) {
-    currentProgressMode = mode;
-    document.getElementById("opt-daily").classList.toggle("active", mode === "DAILY");
-    document.getElementById("opt-monthly").classList.toggle("active", mode === "MONTHLY");
-    refreshSummary();
-}
-
-async function refreshSummary() {
-    const content = document.getElementById("summary-content");
-    const dateInput = document.getElementById("report-date");
-    const dateVal = dateInput ? dateInput.value : "";
-
-    if (!content) return;
-    content.innerHTML = '<div class="app-sync-spinner"></div><p style="text-align:center; font-weight:800; color:#0d9488; margin-top:8px;">Loading Progress Report...</p>';
-
-    const dcs = (currentScope === "CIRCLE") ? Object.values(DIVISION_DATA).flat() :
-                (currentScope === "DIVISION") ? (DIVISION_DATA[currentDivision] || []) : [currentDC];
-
-    const res = await postMasterApi("getLiveRevenueDailySummary", {
-        date: dateVal,
-        dc_names: dcs.join(",")
-    });
-
-    if (res && res.status === "success" && Array.isArray(res.rows)) {
-        renderProgressSummaryTable(res.rows);
-    } else {
-        content.innerHTML = '<div style="text-align:center; padding:20px; font-weight:800; color:#64748b;">Data nahi mila. Kripya doosri date chunein.</div>';
-    }
-}
-
-function renderProgressSummaryTable(rows) {
-    const content = document.getElementById("summary-content");
-    if (!content) return;
-
-    let totalPaidCount = 0;
-    let totalPaidAmt = 0;
+    let totalPaid = 0;
+    let totalAmt = 0;
 
     let rowsHtml = rows.map(r => {
-        totalPaidCount += Number(r.paid_count) || 0;
-        totalPaidAmt += Number(r.paid_amount) || 0;
+        totalPaid += Number(r.paid_count) || 0;
+        totalAmt += Number(r.paid_amount) || 0;
         return `
-            <div class="summary-table-row">
-                <div style="text-align:left; padding-left:8px; font-weight:900;">${r.dc_name}</div>
-                <div>${r.paid_count || 0}</div>
-                <div style="color:#166534; font-weight:900;">₹${(r.paid_amount || 0).toLocaleString('en-IN')}</div>
+            <div style="display:grid; grid-template-columns: 2fr 1fr 1fr; padding:8px; border-bottom:1px solid #e2e8f0; font-size:12px;">
+                <div style="font-weight:800; text-align:left;">${r.dc_name}</div>
+                <div style="text-align:center;">${r.paid_count || 0}</div>
+                <div style="text-align:right; font-weight:800; color:#16a34a;">₹${(r.paid_amount || 0).toLocaleString('en-IN')}</div>
             </div>
         `;
     }).join("");
 
     content.innerHTML = `
-        <div class="summary-wrapper">
-            <div class="summary-table-header">
-                <div style="text-align:left; padding-left:8px;">DC / UNIT</div>
-                <div>PAID COUNT</div>
-                <div>AMOUNT (₹)</div>
+        <div style="background:#fff; border-radius:12px; border:1px solid #cbd5e1; overflow:hidden; margin-top:12px;">
+            <div style="display:grid; grid-template-columns: 2fr 1fr 1fr; padding:10px; background:#0f766e; color:#fff; font-weight:900; font-size:12px;">
+                <div>DC / UNIT</div>
+                <div style="text-align:center;">PAID</div>
+                <div style="text-align:right;">AMOUNT</div>
             </div>
             ${rowsHtml}
-            <div class="summary-table-row blue-bold">
-                <div style="text-align:left; padding-left:8px; font-weight:900;">TOTAL</div>
-                <div>${totalPaidCount}</div>
-                <div style="color:#166534; font-weight:900;">₹${totalPaidAmt.toLocaleString('en-IN')}</div>
+            <div style="display:grid; grid-template-columns: 2fr 1fr 1fr; padding:10px; background:#f1f5f9; font-weight:900; font-size:12px; border-top:2px solid #0f766e;">
+                <div>TOTAL</div>
+                <div style="text-align:center;">${totalPaid}</div>
+                <div style="text-align:right; color:#16a34a;">₹${totalAmt.toLocaleString('en-IN')}</div>
             </div>
         </div>
     `;
 }
 
 // =====================================================================
-// 8. VOLTAGE REGULATION (VR) ENGINE
+// 5. VOLTAGE REGULATION SERVER BRIDGE
 // =====================================================================
-function vrSetLineType(type) {
-    const cond = document.getElementById("vr-conductor-type");
-    if (!cond) return;
-    if (type === "lt") {
-        cond.innerHTML = `<option value="SQUIRREL">Squirrel</option><option value="WEASEL">Weasel</option><option value="RABBIT">Rabbit</option>`;
-    } else if (type === "11kv") {
-        cond.innerHTML = `<option value="WEASEL">Weasel</option><option value="RABBIT">Rabbit</option><option value="RACCOON" selected>Raccoon</option><option value="DOG">Dog</option>`;
-    } else {
-        cond.innerHTML = `<option value="RACCOON" selected>Raccoon</option><option value="DOG">Dog</option>`;
+
+async function vrCalculateAndRender() {
+    const nodes = (typeof vrNodes !== "undefined") ? vrNodes : [];
+    const lineType = document.getElementById("vr-line-type") ? document.getElementById("vr-line-type").value : "33kv";
+    const conductor = document.getElementById("vr-conductor-type") ? document.getElementById("vr-conductor-type").value : "RACCOON";
+
+    if (!nodes || nodes.length < 2) return;
+
+    try {
+        const res = await postMasterApi("calculateVR", { line_type: lineType, conductor: conductor, nodes: nodes });
+        if (res.status === "success") {
+            const tableBody = document.getElementById("vr-section-rows");
+            if (tableBody) {
+                tableBody.innerHTML = res.sections.map((s, idx) => `
+                    <tr>
+                        <td>${idx + 1}</td>
+                        <td class="vr-section-name">${s.section_name}</td>
+                        <td>${s.length_km}</td>
+                        <td>${s.section_kva}</td>
+                        <td>${res.diversity_factor}</td>
+                        <td>${res.conductor_constant}</td>
+                        <td>${s.kva_km}</td>
+                        <td>-</td>
+                    </tr>
+                `).join("");
+            }
+            const vrValEl = document.getElementById("vr-final-vr");
+            if (vrValEl) vrValEl.innerHTML = `Total VR: <strong>${res.voltage_regulation_percent}%</strong> (${res.is_within_limit ? '<span style="color:#16a34a;">WITHIN LIMIT</span>' : '<span style="color:#dc2626;">EXCEEDS LIMIT</span>'})`;
+        }
+    } catch (e) {
+        console.error("VR Calculation Error:", e);
     }
 }
-
-async function vrExecuteCalculationBackend(nodesList, lineType, conductorType) {
-    return await postMasterApi("calculateVR", {
-        line_type: lineType,
-        conductor: conductorType,
-        nodes: nodesList
-    });
-}
-
-// =====================================================================
-// 9. EVENT LISTENERS INITIALIZATION
-// =====================================================================
-document.addEventListener("DOMContentLoaded", () => {
-    switchView("home");
-    vrSetLineType("33kv");
-    console.log("Seoni Circle App v5.1 Connected to Unified Master Gateway");
-});
