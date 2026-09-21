@@ -18727,6 +18727,15 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             return `${day}/${month}/${year}`;
         }
 
+        // USER REQUEST (2026-09-21): CHHAPARA-1 jaisi badi DC me Cash List upload ke
+        // baad backend verification me kaafi time lagta hai. Pehle is dauraan
+        // (checkRevenueUploadFreshness chal rahi ho tab) box hidden hi rehta tha -
+        // lagta tha jaise kuch ho hi nahi raha, aur agar yeh check khud fail/timeout
+        // ho jaaye to bhi box hide ho jaata tha (matlab galti se "sab thik hai" jaisa
+        // dikhta tha). runId race-guard rakha hai taaki DC jaldi-jaldi switch karne
+        // par purani (slow) check ka result naye DC ki screen par overwrite na kare.
+        let revenueUploadFreshnessRunId_ = 0;
+
         async function checkRevenueUploadFreshness() {
             const box = document.getElementById("revenue-upload-freshness-ticker");
             const inline = document.getElementById("revenue-upload-freshness-inline");
@@ -18737,8 +18746,25 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 if (inline) inline.style.display = "none";
                 return;
             }
+            const runId = ++revenueUploadFreshnessRunId_;
             const today = new Date();
             const todayDDMMYYYY = `${String(today.getDate()).padStart(2, "0")}/${String(today.getMonth() + 1).padStart(2, "0")}/${today.getFullYear()}`;
+
+            // Check shuru hote hi turant ek chhota spinner + "wait kijiye" dikha dete
+            // hain, taaki bade DC me thoda time lagne par bhi user ko pata rahe ki
+            // status check ho raha hai, khaali screen "sab thik hai" jaisi na lage.
+            box.innerHTML = `
+                <div style="display:flex; align-items:center; justify-content:center; gap:8px;">
+                    <div class="app-refresh-spinning" style="width:13px; height:13px; border:2px solid rgba(255,255,255,0.35); border-top-color:#ffffff; border-radius:50%; flex-shrink:0;"></div>
+                    <span class="ticker-text" style="color:#ffffff;">⏳ Upload status check ho raha hai, kripya wait kijiye...</span>
+                </div>
+            `;
+            box.style.display = "block";
+            if (inline) {
+                inline.innerText = "⏳ Status check ho raha hai...";
+                inline.style.display = "block";
+            }
+
             // NOTE: pehle yahan ek alag backend action "getPaidMasterLastUploadDate" call
             // hoti thi, jo Cash List upload ho jaane ke baad bhi kabhi-kabhi purani/galat
             // date laut rahi thi (isliye upload ho jaane par bhi warning ticker chhupta
@@ -18748,7 +18774,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             // to ticker turant chhup jayega.
             try {
                 const parsed = await fetchUploadedPaidIvrsListWithRetry_(normalizeDcName(dcName), 1);
-                if (activeDC !== dcName) return;
+                if (activeDC !== dcName || runId !== revenueUploadFreshnessRunId_) return;
                 const entries = Array.isArray(parsed?.entries) ? parsed.entries : (Array.isArray(parsed?.data) ? parsed.data : []);
                 const uploadedToday = parsed?.status === "success" && entries.some((entry) => {
                     const rawDate = String(entry?.uploaded_date || entry?.uploadedDate || "").trim();
@@ -18769,14 +18795,28 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     if (inline) inline.style.display = "none";
                     return;
                 }
+                box.innerHTML = `<span class="ticker-text" style="color:#ffffff;"></span>`;
                 const span = box.querySelector(".ticker-text");
                 if (span) {
                     span.innerText = `⚠️ आज दिनांक ${todayDDMMYYYY} को Cash List Upload ना होने के कारण Latest Paid Consumer का Data Show नहीं होगा   ⚠️   आज दिनांक ${todayDDMMYYYY} को Cash List Upload ना होने के कारण Latest Paid Consumer का Data Show नहीं होगा`;
-                    if (inline) inline.style.display = "block";
+                }
+                if (inline) {
+                    inline.innerText = "आज की Cash List Upload नहीं हुई";
+                    inline.style.display = "block";
                 }
                 box.style.display = "block";
             } catch (_) {
-                box.style.display = "none";
+                if (activeDC !== dcName || runId !== revenueUploadFreshnessRunId_) return;
+                // USER REQUEST (2026-09-21): pehle yahan check fail/timeout hone par
+                // ticker poori tarah hide ho jaata tha - jaise upload sab thik ho gaya
+                // ho, chahe asal me status pata hi na chal paaya ho. Ab clearly bata
+                // dete hain ki confirm nahi ho paaya, taaki galti se "safe" na lage.
+                box.innerHTML = `<span class="ticker-text" style="color:#ffffff;">⚠️ Upload status confirm nahi ho paaya, thodi der me screen dobara khol kar check karein ⚠️</span>`;
+                box.style.display = "block";
+                if (inline) {
+                    inline.innerText = "⚠️ Status confirm nahi ho paaya";
+                    inline.style.display = "block";
+                }
             }
         }
 
@@ -19354,7 +19394,16 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             }));
         }
 
-        async function verifyRevenuePaidBackendUpload(entries, dcName, maxAttempts = 30) {
+        // USER REQUEST (2026-09-21): CHHAPARA-1 jaisi badi DC (jahan AG rows purane
+        // upload ke saath merge hote hain aur Apps Script ko poora likhne/verify
+        // karne me zyada time lagta hai) me pehle sirf 30 attempt x 3s = 90 second
+        // ke andar backend confirm na ho paane par upload "99% - Verification
+        // pending" par ruk jaata tha - chahe backend me data asal me thodi der baad
+        // sahi save ho hi gaya ho. Baaki jagah (getUploadedPaidIvrsList) bhi isi
+        // tarah ki badi DC ke liye already 150s tak wait karta hai, isliye yahan
+        // bhi attempts badha kar 60 (~180 second) kar diya hai taaki badi DC ko
+        // verify hone ka poora, fair mauka mile.
+        async function verifyRevenuePaidBackendUpload(entries, dcName, maxAttempts = 60) {
             const expectedIvrs = Array.from(new Set((entries || [])
                 .map((entry) => getRevenueUploadedPaidRowIvrs(entry))
                 .filter(Boolean)));
