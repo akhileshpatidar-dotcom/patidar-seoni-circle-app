@@ -18605,9 +18605,45 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             setRevenuePaidUploadStatus("", true, false);
             const localMeta = getRevenuePaidUploadMeta(activeDC || "");
             renderRevenuePaidUploadSummary(localMeta);
-            // Upload summary is intentionally local-first: after a successful
-            // upload it appears immediately on this device and is never
-            // overwritten by a slower/stale backend verification response.
+            // Upload summary is local-first: is device ka purana/cached summary
+            // turant dikhta hai (taaki panel khulte hi khaali na lage), lekin
+            // saath hi background me backend se fresh/confirmed summary bhi
+            // fetch karte hain.
+            // USER REQUEST (2026-09-21): pehle yeh backend-fetch kabhi call hi
+            // nahi hoti thi (function bana hua tha par istemal nahi ho raha
+            // tha), isliye yahan hamesha purana local data hi dikhta rehta tha,
+            // chahe backend par asal me kuch aur ho. Ab panel khulte hi neeche
+            // "lal patti" (Revenue Collection ki tarah) spinner ke saath dikhti
+            // hai jab tak backend se confirm na ho jaaye - isse user ko pata
+            // chalta hai ki abhi jo summary dikh rahi hai wo purani ho sakti
+            // hai, wait karna hai.
+            refreshRevenuePaidUploadSummaryFromBackend_(activeDC || "");
+        }
+
+        let revenuePaidUploadSummaryFetchRunId_ = 0;
+
+        async function refreshRevenuePaidUploadSummaryFromBackend_(dcName) {
+            const banner = document.getElementById("revenue-paid-upload-summary-fetch-banner");
+            const bannerText = document.getElementById("revenue-paid-upload-summary-fetch-text");
+            if (!banner || !dcName) return;
+            const runId = ++revenuePaidUploadSummaryFetchRunId_;
+            if (bannerText) bannerText.innerText = "Last Upload Summary backend se fetch ho rahi hai, kripya yahi rukiye...";
+            banner.style.display = "block";
+            try {
+                const serverMeta = await fetchRevenuePaidUploadSummaryFromServer(dcName);
+                if (runId !== revenuePaidUploadSummaryFetchRunId_ || activeDC !== dcName) return;
+                if (serverMeta) {
+                    saveRevenuePaidUploadMeta(serverMeta);
+                    renderRevenuePaidUploadSummary(serverMeta);
+                }
+                // serverMeta null hone par (backend par aaj tak kabhi upload
+                // nahi hua, ya fetch fail hui) purani local summary jo already
+                // dikh rahi hai wahi rehne dete hain - kuch todte nahi.
+            } catch (_) {
+                // Chup-chaap ignore - local summary jaisi hai waisi dikhti rahegi.
+            } finally {
+                if (runId === revenuePaidUploadSummaryFetchRunId_) banner.style.display = "none";
+            }
         }
 
         function unlockRevenuePaidUpload() {
