@@ -15347,10 +15347,6 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     : "Revenue Collection CSV connect hai. IVRS No search kijiye.";
             }
             renderRevenueOfflineRetryBox();
-            // USER REQUEST (2026-09-21): is screen par bhi (DC chip ke upar) "aaj
-            // Cash List upload nahi hui" ticker dikhani hai - DC dashboard jaaye
-            // bina seedha yahan aane par bhi status pata chal jaaye.
-            checkRevenueUploadFreshness();
         }
 
         function normalizeRevenueIvrs(value) {
@@ -18743,8 +18739,15 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         function formatIndianDateTimeDisplay_(dateValue, timeValue = "") {
             const rawDate = String(dateValue || "").trim();
             const datePart = rawDate.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
+            // BUG FIX (2026-09-21, USER REPORT): backend (Master Backend ka
+            // REV_formatDate_ ho ya OMVIG ka Utilities.formatDate) hamesha
+            // "dd/MM/yyyy" (din pehle - Indian order) bhejta hai. Yahan pehle
+            // group[1] aur group[2] ko HAMESHA swap kar diya jaata tha (jaise
+            // input MM/DD ho) - isse ek sahi "19/09/2026" (19 Sept) ulta hoke
+            // "09-19-2026" (galat, mahina 19 ban jaata) dikhta tha. Backend ka
+            // din-pehle order already sahi hai, ise dobara swap nahi karna.
             const normalized = datePart
-                ? `${datePart[2].padStart(2, "0")}-${datePart[1].padStart(2, "0")}-${datePart[3]}`
+                ? `${datePart[1].padStart(2, "0")}-${datePart[2].padStart(2, "0")}-${datePart[3]}`
                 : normalizeRevenueReportDate(rawDate);
             let dateText = normalized ? normalized : rawDate;
             if (dateText.includes("/")) dateText = dateText.replaceAll("/", "-");
@@ -18803,19 +18806,16 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         async function checkRevenueUploadFreshness() {
             const box = document.getElementById("revenue-upload-freshness-ticker");
             const inline = document.getElementById("revenue-upload-freshness-inline");
-            // USER REQUEST (2026-09-21): Revenue Collection (IVRS search) screen par
-            // bhi, DC name chip ke just upar, yahi ticker dikhana hai - taaki jab
-            // tak user IVRS bharta hai (background check ke poora hone jitna time),
-            // use bhi pata chal jaaye ki aaj Cash List upload nahi hui hai. Ek hi
-            // backend check se dono jagah (DC dashboard + is search screen) sync
-            // rehte hain.
-            const searchBox = document.getElementById("revenue-search-freshness-ticker");
-            if (!box && !searchBox) return;
+            // USER REQUEST (2026-09-21): pehle isi Revenue Collection (IVRS search)
+            // screen par bhi yeh ticker duplicate kiya gaya tha (DC chip ke upar) -
+            // user ne test karke wapas hatane ko bola, ticker sirf DC dashboard
+            // (Revenue Collection button ke neeche wala) me hi rahegi, jo already
+            // sahi chal rahi hai. Is screen par duplicate ab hata diya hai.
+            if (!box) return;
             const dcName = activeDC;
             if (!dcName || !revenueCollectionSubmitScriptUrl) {
-                if (box) box.style.display = "none";
+                box.style.display = "none";
                 if (inline) inline.style.display = "none";
-                if (searchBox) searchBox.style.display = "none";
                 return;
             }
             const runId = ++revenueUploadFreshnessRunId_;
@@ -18855,46 +18855,31 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                         || convertUploadedDateToDDMMYYYY(rawDate) === todayDDMMYYYY;
                 });
                 if (uploadedToday) {
-                    if (box) box.style.display = "none";
+                    box.style.display = "none";
                     if (inline) inline.style.display = "none";
-                    if (searchBox) searchBox.style.display = "none";
                     return;
                 }
-                const warningText = `⚠️ आज दिनांक ${todayDDMMYYYY} को Cash List Upload ना होने के कारण Latest Paid Consumer का Data Show नहीं होगा   ⚠️   आज दिनांक ${todayDDMMYYYY} को Cash List Upload ना होने के कारण Latest Paid Consumer का Data Show नहीं होगा`;
-                if (box) {
-                    box.innerHTML = `<span class="ticker-text" style="color:#ffffff;"></span>`;
-                    const span = box.querySelector(".ticker-text");
-                    if (span) span.innerText = warningText;
-                    box.style.display = "block";
+                box.innerHTML = `<span class="ticker-text" style="color:#ffffff;"></span>`;
+                const span = box.querySelector(".ticker-text");
+                if (span) {
+                    span.innerText = `⚠️ आज दिनांक ${todayDDMMYYYY} को Cash List Upload ना होने के कारण Latest Paid Consumer का Data Show नहीं होगा   ⚠️   आज दिनांक ${todayDDMMYYYY} को Cash List Upload ना होने के कारण Latest Paid Consumer का Data Show नहीं होगा`;
                 }
                 if (inline) {
                     inline.innerText = "आज की Cash List Upload नहीं हुई";
                     inline.style.display = "block";
                 }
-                if (searchBox) {
-                    searchBox.innerHTML = `<span class="ticker-text" style="color:#ffffff;"></span>`;
-                    const searchSpan = searchBox.querySelector(".ticker-text");
-                    if (searchSpan) searchSpan.innerText = warningText;
-                    searchBox.style.display = "block";
-                }
+                box.style.display = "block";
             } catch (_) {
                 if (activeDC !== dcName || runId !== revenueUploadFreshnessRunId_) return;
                 // USER REQUEST (2026-09-21): pehle yahan check fail/timeout hone par
                 // ticker poori tarah hide ho jaata tha - jaise upload sab thik ho gaya
                 // ho, chahe asal me status pata hi na chal paaya ho. Ab clearly bata
                 // dete hain ki confirm nahi ho paaya, taaki galti se "safe" na lage.
-                const errorText = "⚠️ Upload status confirm nahi ho paaya, thodi der me screen dobara khol kar check karein ⚠️";
-                if (box) {
-                    box.innerHTML = `<span class="ticker-text" style="color:#ffffff;">${errorText}</span>`;
-                    box.style.display = "block";
-                }
+                box.innerHTML = `<span class="ticker-text" style="color:#ffffff;">⚠️ Upload status confirm nahi ho paaya, thodi der me screen dobara khol kar check karein ⚠️</span>`;
+                box.style.display = "block";
                 if (inline) {
                     inline.innerText = "⚠️ Status confirm nahi ho paaya";
                     inline.style.display = "block";
-                }
-                if (searchBox) {
-                    searchBox.innerHTML = `<span class="ticker-text" style="color:#ffffff;">${errorText}</span>`;
-                    searchBox.style.display = "block";
                 }
             }
         }
