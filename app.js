@@ -204,6 +204,18 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // karta hai (jo is frontend wali "AE123"/"admin123" se ALAG rakhni chahiye,
         // taaki sirf public app.js padh lene se koi backend ko bypass na kar sake).
         let freezeAdminPasswordEntered = "", omvigAdminPasswordEntered = "";
+        // USER DECISION (2026-09-21): ADMIN STAFF aur Paid Master Upload ka asli
+        // password ab sirf backend Script Property se hi verify hota hai (koi
+        // fixed value app.js/GitHub me nahi) - isi Freeze/OMVIG wale pattern jaisa.
+        // Jo bhi yahan type kiya jaata hai, wahi neeche har admin POST ke saath
+        // `admin_password` field me backend ko bhej dete hain.
+        let staffAdminActionPasswordEntered = "", revenuePaidUploadPasswordEntered = "";
+        // USER DECISION (2026-09-21): Tool-upload panels (Compare Excel/Panchnama/
+        // Arrange Excel/Image to Excel) bhi ab isi flow me - koi fixed password
+        // app.js me nahi, jo type kiya wahi backend ko jaata hai. Backend ab bhi
+        // wahi shared "staff" property (REV_STAFF_ADMIN_PASSWORD) check karta hai,
+        // jaisa pehle tha - sirf frontend hardcode hata hai.
+        let toolUploadPasswordEntered = "";
         // Progress Report (Daily Progress) ke Revenue tab me Category Wise ke saath-saath
         // Target vs Achievement aur Top 20/50 Defaulters bhi dropdown se select ho sakein -
         // teeno DC/Division/Circle scope automatically activeViewLevel se hi follow karte
@@ -333,8 +345,14 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         const revenueMessageSessionStorageKey = "seoni-revenue-message-staff-session-v2";
         const revenueMessageDeviceStorageKey = "seoni-revenue-message-device-v2";
         const revenueMessageBatchLimit = 25;
-        const revenueAdminPassword = "JE12345";
-        const staffAdminPassword = "AE123";
+        // USER DECISION (2026-09-21): Ab koi bhi admin password app.js me
+        // hardcoded nahi hai - "revenueAdminPassword" aur "staffAdminPassword"
+        // dono constants hata diye. Sabhi admin panels (Staff Admin, Paid Upload,
+        // tool-upload, Freeze, O&M/VIG) ek hi flow follow karte hain: jo bhi type
+        // kiya jaaye, wahi seedha backend ko `admin_password` field me jaata hai;
+        // backend Script Property se match karta hai. Password badalna ho to
+        // bas Apps Script > Project Settings > Script Properties me value badlo
+        // aur nayi deployment banao - app.js/GitHub kabhi touch nahi karna padta.
         let staffAdminUnlocked = false;
         let staffAdminCurrentAccount = null;
         const revenueUploadedPaidStorageKey = "seoni-revenue-uploaded-paid-cache-v2";
@@ -1693,39 +1711,32 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 else { initOmvigAdmin(); switchView("omvig-admin"); }
                 return;
             }
-            const pws = { STOCK: "AE123", EXCEL_TOOL_ADMIN: "AE123", PANCHNAMA_TOOL_ADMIN: "AE123", ARRANGE_EXCEL_TOOL_ADMIN: "AE123", IMAGE_TO_EXCEL_TOOL_ADMIN: "AE123" };
-            if (document.getElementById("pwd-input").value === pws[pendingLevel]) {
+            // USER DECISION (2026-09-21): Tool-upload panels bhi ab isi "type karo,
+            // wahi backend ko jaayega" flow me - koi fixed password app.js me nahi.
+            const toolUploadLevels = ["EXCEL_TOOL_ADMIN", "PANCHNAMA_TOOL_ADMIN", "ARRANGE_EXCEL_TOOL_ADMIN", "IMAGE_TO_EXCEL_TOOL_ADMIN"];
+            if (toolUploadLevels.indexOf(pendingLevel) > -1) {
+                const enteredPwd = document.getElementById("pwd-input").value;
+                if (!enteredPwd) { showToast("Password daliye", false); return; }
+                toolUploadPasswordEntered = enteredPwd;
                 activeViewLevel = pendingLevel;
                 closePwdModal();
-                if (pendingLevel === "STOCK") {
-                    openStockDashboard();
-                    return;
-                }
-                if (pendingLevel === "EXCEL_TOOL_ADMIN") {
-                    initExcelToolAdminUpload();
-                    switchView("excel-tool-admin");
-                    return;
-                }
-                if (pendingLevel === "PANCHNAMA_TOOL_ADMIN") {
-                    initPanchnamaToolAdminUpload();
-                    switchView("panchnama-tool-admin");
-                    return;
-                }
-                if (pendingLevel === "ARRANGE_EXCEL_TOOL_ADMIN") {
-                    initArrangeExcelToolAdminUpload();
-                    switchView("arrange-excel-tool-admin");
-                    return;
-                }
-                if (pendingLevel === "IMAGE_TO_EXCEL_TOOL_ADMIN") {
-                    initImageToExcelToolAdminUpload();
-                    switchView("image-to-excel-tool-admin");
-                    return;
-                }
-                switchView("summary");
-                resetProgressReportTypeSelection();
-            } else {
-                showToast("Invalid Password!", false);
+                if (pendingLevel === "EXCEL_TOOL_ADMIN") { initExcelToolAdminUpload(); switchView("excel-tool-admin"); return; }
+                if (pendingLevel === "PANCHNAMA_TOOL_ADMIN") { initPanchnamaToolAdminUpload(); switchView("panchnama-tool-admin"); return; }
+                if (pendingLevel === "ARRANGE_EXCEL_TOOL_ADMIN") { initArrangeExcelToolAdminUpload(); switchView("arrange-excel-tool-admin"); return; }
+                if (pendingLevel === "IMAGE_TO_EXCEL_TOOL_ADMIN") { initImageToExcelToolAdminUpload(); switchView("image-to-excel-tool-admin"); return; }
+                return;
             }
+            // STOCK - koi backend verification hai hi nahi is feature ke liye (Stock
+            // Material apna alag, simple module hai) - isliye yahan ek local-only
+            // lock hamesha rakha hai. Yeh AE123 hardcoded hi rahega jab tak Stock ke
+            // liye bhi koi backend password-check nahi banaya jaata.
+            if (document.getElementById("pwd-input").value === "AE123" && pendingLevel === "STOCK") {
+                activeViewLevel = pendingLevel;
+                closePwdModal();
+                openStockDashboard();
+                return;
+            }
+            showToast("Invalid Password!", false);
         }
 
         // Sub DN Chhapara ke 3-dot menu se password-protected "Update Excel Automation
@@ -1801,7 +1812,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     const payload = JSON.stringify({
                         action: "uploadExternalToolHtml",
                         tool_key: "EXCEL_AUTOMATION",
-                        admin_password: staffAdminPassword,
+                        admin_password: toolUploadPasswordEntered,
                         html: htmlContent,
                         file_name: file.name
                     });
@@ -1901,7 +1912,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     const payload = JSON.stringify({
                         action: "uploadExternalToolHtml",
                         tool_key: "PANCHNAMA",
-                        admin_password: staffAdminPassword,
+                        admin_password: toolUploadPasswordEntered,
                         html: htmlContent,
                         file_name: file.name
                     });
@@ -1999,7 +2010,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     const payload = JSON.stringify({
                         action: "uploadExternalToolHtml",
                         tool_key: "ARRANGE_EXCEL",
-                        admin_password: staffAdminPassword,
+                        admin_password: toolUploadPasswordEntered,
                         html: htmlContent,
                         file_name: file.name
                     });
@@ -2096,7 +2107,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     const payload = JSON.stringify({
                         action: "uploadExternalToolHtml",
                         tool_key: "IMAGE_TO_EXCEL",
-                        admin_password: staffAdminPassword,
+                        admin_password: toolUploadPasswordEntered,
                         html: htmlContent,
                         file_name: file.name
                     });
@@ -17208,16 +17219,15 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         function unlockStaffAdmin() {
             const passwordInput = document.getElementById("staff-admin-password");
             const password = String(passwordInput?.value || "").trim();
-            if (password !== staffAdminPassword) {
-                if (passwordInput) {
-                    passwordInput.value = "";
-                    passwordInput.focus();
-                }
-                return showToast("Invalid Admin Password", false);
-            }
-            // USER DECISION (2026-09-21): Owner Staff Login pehle se zaroori
-            // nahi hai - sirf admin_password se hi panel khulta hai, jaisa
-            // pehle tha aur baaki tool panels me hai.
+            if (!password) return showToast("Password daliye", false);
+            // USER DECISION (2026-09-21): ADMIN STAFF ka password ab yahan
+            // frontend me fixed check nahi hota (Freeze/OMVIG wale pattern jaisa)
+            // - jo bhi type kiya jaaye, wahi neeche admin_password field me
+            // backend ko bhejte hain; asli check poori tarah backend (Script
+            // Property REV_STAFF_ADMIN_ACTION_PASSWORD) par hota hai. Galat
+            // password se panel to khul jaayega, lekin Search/Reset/Unlock/
+            // Deactivate jaisa koi bhi real action galat password se fail hoga.
+            staffAdminActionPasswordEntered = password;
             staffAdminUnlocked = true;
             const lockBox = document.getElementById("staff-admin-lock-box");
             const panel = document.getElementById("staff-admin-panel");
@@ -17280,7 +17290,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             try {
                 const response = await postRevenueMessageStaffApi({
                     action: "staffAdminSearch",
-                    admin_password: staffAdminPassword,
+                    admin_password: staffAdminActionPasswordEntered,
                     dc_name: dcName,
                     mobile_no: mobileNo
                 });
@@ -17310,7 +17320,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             try {
                 const response = await postRevenueMessageStaffApi({
                     action: "staffAdminAction",
-                    admin_password: staffAdminPassword,
+                    admin_password: staffAdminActionPasswordEntered,
                     admin_action: adminAction,
                     dc_name: staffAdminCurrentAccount.dc_name || "",
                     mobile_no: staffAdminCurrentAccount.mobile_no || ""
@@ -18590,13 +18600,14 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         function unlockRevenuePaidUpload() {
             const input = document.getElementById("revenue-admin-password");
             const password = String(input?.value || "").trim();
-            if (password !== revenueAdminPassword) {
-                showToast("Admin password galat hai", false);
-                return;
-            }
-            // USER DECISION (2026-09-21): Owner Staff Login pehle se zaroori
-            // nahi hai - sirf admin_password se hi panel khulta hai, jaisa
-            // pehle tha.
+            if (!password) return showToast("Password daliye", false);
+            // USER DECISION (2026-09-21): Paid Master Upload ka password ab
+            // yahan frontend me fixed check nahi hota - jo bhi type kiya jaaye,
+            // wahi neeche admin_password field me backend ko bhejte hain; asli
+            // check poori tarah backend (Script Property REV_REVENUE_ADMIN_
+            // PASSWORD) par hota hai. Galat password se panel khul jaayega,
+            // lekin asli Upload galat password se fail hoga.
+            revenuePaidUploadPasswordEntered = password;
             revenuePaidUploadUnlocked = true;
             initRevenuePaidUpload();
             showToast("Admin upload unlock ho gaya", true);
@@ -19415,7 +19426,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
 
                 const payload = new URLSearchParams();
                 payload.append("action", "uploadPaidMaster");
-                payload.append("admin_password", revenueAdminPassword);
+                payload.append("admin_password", revenuePaidUploadPasswordEntered);
                 payload.append("dc_name", activeDC || "");
                 payload.append("uploaded_at", new Date().toISOString());
                 payload.append("entries_json", JSON.stringify(entries));
