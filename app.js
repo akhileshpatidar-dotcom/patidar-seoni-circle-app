@@ -15666,11 +15666,24 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
 
                 function cleanup() {
                     clearTimeout(timeout);
+                    // USER DECISION 2026-09-21: don't delete the callback immediately.
+                    // Google's gviz script tag can still finish loading AFTER our timeout
+                    // has already fired (slow network). If it then calls a deleted
+                    // window[callbackName], the browser throws an uncaught
+                    // "ReferenceError: ... is not defined" in the console. Swap in a
+                    // harmless no-op instead so a late/duplicate response is silently
+                    // ignored, then delete it after a grace period to avoid piling up
+                    // stale globals on window.
                     try {
-                        delete window[callbackName];
-                    } catch (_) {
-                        window[callbackName] = undefined;
-                    }
+                        window[callbackName] = function () {};
+                    } catch (_) {}
+                    setTimeout(() => {
+                        try {
+                            delete window[callbackName];
+                        } catch (_) {
+                            window[callbackName] = undefined;
+                        }
+                    }, 15000);
                     try {
                         if (script.parentNode) script.parentNode.removeChild(script);
                     } catch (_) {}
