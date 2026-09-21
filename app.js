@@ -7712,6 +7712,10 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             if (state === "processing") return "Processing...";
             if (state === "done") return "Done";
             if (state === "failed") return "Failed - Retry";
+            // USER REQUEST (2026-09-21): backend verification pending state ko
+            // "Done" jaisa success text kabhi na de - saaf "Verify Pending" dikhana
+            // hai taaki upload karne waale ko lage ki abhi kaam poora nahi hua.
+            if (state === "pending") return "Verify Pending";
             return "";
         }
 
@@ -18633,8 +18637,28 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 const serverMeta = await fetchRevenuePaidUploadSummaryFromServer(dcName);
                 if (runId !== revenuePaidUploadSummaryFetchRunId_ || activeDC !== dcName) return;
                 if (serverMeta) {
-                    saveRevenuePaidUploadMeta(serverMeta);
-                    renderRevenuePaidUploadSummary(serverMeta);
+                    // USER REQUEST (2026-09-21): fetchRevenuePaidUploadSummaryFromServer
+                    // backend ka jo bhi "latest" entry mile use hamesha backendSynced:true
+                    // maan leta hai - chahe wo AAJ ke pending upload ka na ho, kisi PURANE
+                    // din ka ho. Agar abhi local summary genuinely "99% pending" dikha rahi
+                    // hai (matlab abhi-abhi ek upload hua hai jiska backend confirm nahi
+                    // hua), to is fetch ko use kabhi "100% Successfully Uploaded" me upgrade
+                    // nahi karna - warna aaj ka pending upload chhup kar purane din ka
+                    // "success" galti se dikhega. Sirf tabhi overwrite karte hain jab ya to
+                    // pehle se koi pending state hai hi nahi, ya backend ka latest data
+                    // SACH ME AAJ (isi upload) ka hai.
+                    const existingMeta = getRevenuePaidUploadMeta(dcName);
+                    const existingPending = existingMeta && existingMeta.backendSynced === false;
+                    const todayNow = new Date();
+                    const todayDDMMYYYY = `${String(todayNow.getDate()).padStart(2, "0")}-${String(todayNow.getMonth() + 1).padStart(2, "0")}-${todayNow.getFullYear()}`;
+                    const serverDatePart = String(serverMeta.uploadedAtDisplay || "").split(" ")[0];
+                    const serverIsFromToday = serverDatePart === todayDDMMYYYY;
+                    if (!existingPending || serverIsFromToday) {
+                        saveRevenuePaidUploadMeta(serverMeta);
+                        renderRevenuePaidUploadSummary(serverMeta);
+                    }
+                    // existingPending true aur serverIsFromToday false ho to - purani
+                    // "99% Verification Pending" summary hi sach hai, usse chhedte nahi.
                 }
                 // serverMeta null hone par (backend par aaj tak kabhi upload
                 // nahi hua, ya fetch fail hui) purani local summary jo already
@@ -19580,8 +19604,18 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 };
                 saveRevenuePaidUploadMeta(uploadMeta);
                 renderRevenuePaidUploadSummary(uploadMeta);
-                setActionButtonState(uploadBtn, "done", "Upload Paid Data");
-                showToast("Paid data upload ho gaya", true);
+                // USER REQUEST (2026-09-21): pehle backend verification pending (99%)
+                // hone par bhi button "Done" dikhata tha aur toast "Paid data upload
+                // ho gaya" (success/green) bolta tha - yeh jhooti "success" feeling
+                // deta tha, jabki asal me backend se confirm hi nahi hua tha. Ab
+                // dono cheezein sach ke hisaab se dikhti hain.
+                if (backendSynced) {
+                    setActionButtonState(uploadBtn, "done", "Upload Paid Data");
+                    showToast("Paid data upload ho gaya (backend se confirm ho gaya)", true);
+                } else {
+                    setActionButtonState(uploadBtn, "pending", "Upload Paid Data");
+                    showToast("Data bhej diya gaya hai, par backend se abhi confirm nahi ho paaya (99%) - neeche summary me status dekhein", false);
+                }
                 // Freshness ticker (DC dashboard wali red patti) pehle sirf tab check hoti
                 // thi jab dc-dashboard screen par navigate karte the - upload ke turant
                 // baad, jab tak user wapas dc-dashboard par na jaaye, ticker purani hi
