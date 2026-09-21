@@ -474,6 +474,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             // hi hat jaayega, user ko RETRY PENDING DATA button dabane ki zaroorat
             // nahi padegi.
             retryRevenueOfflineQueue(true).catch(() => {});
+            retryFieldOfflineQueue("FEEDER", true).catch(() => {});
+            retryFieldOfflineQueue("PEAKLOAD", true).catch(() => {});
             loadCourtCaseData();
             loadStockMaterialsData();
             preloadDuplicateTrackingData();
@@ -11950,24 +11952,29 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
 
             setActionButtonState(submitBtn, "processing", "Submit");
 
-            try {
-                const formData = new URLSearchParams();
-                formData.append("entries_json", JSON.stringify(rows));
+            const peakLoadClientUuid = generateClientUuid_();
+            const peakLoadFormData = new URLSearchParams();
+            peakLoadFormData.append("entries_json", JSON.stringify(rows));
+            peakLoadFormData.append("client_uuid", peakLoadClientUuid);
+            const peakLoadPayloadBody = peakLoadFormData.toString();
 
+            try {
                 const response = await fetch(peakLoadSubmitScriptUrl, {
                     method: "POST",
                     headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
-                    body: formData.toString()
+                    body: peakLoadPayloadBody
                 });
 
                 const responseText = await response.text();
                 let submitOk = response.ok;
                 let submitMessage = submitOk ? "Daily hourly peak load submit ho gaya" : "Peak load submit error aaya";
+                let serverRejected = false;
 
                 try {
                     const parsed = JSON.parse(responseText || "{}");
                     if (parsed && parsed.status === "error") {
                         submitOk = false;
+                        serverRejected = true;
                         submitMessage = parsed.message || "Peak load submit error aaya";
                     } else if (parsed && parsed.message) {
                         submitMessage = parsed.message;
@@ -11979,7 +11986,9 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 }
 
                 if (!submitOk) {
-                    throw new Error(submitMessage);
+                    const submitError = new Error(submitMessage);
+                    submitError.__peakLoadServerRejected = serverRejected;
+                    throw submitError;
                 }
 
                 setActionButtonState(submitBtn, "done", "Submit");
@@ -11989,7 +11998,16 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 renderPeakLoadFeederMenu();
             } catch (error) {
                 setActionButtonState(submitBtn, "failed", "Submit");
-                showToast(error?.message || "Peak load submit blocked ya network issue aaya", false);
+                const isNetworkFailure = !(error && error.__peakLoadServerRejected);
+                if (isNetworkFailure) {
+                    saveFieldOfflineItem("PEAKLOAD", peakLoadSubmitScriptUrl, peakLoadPayloadBody);
+                    peakLoadEntries = [];
+                    resetPeakLoadSelection(true);
+                    renderPeakLoadFeederMenu();
+                    showToast("Network slow hai. Peak load local save ho gaya, internet aate hi apne aap submit hoga.", false);
+                } else {
+                    showToast(error?.message || "Peak load submit blocked ya network issue aaya", false);
+                }
             } finally {
                 setTimeout(() => setActionButtonState(submitBtn, "idle", "Submit"), 900);
             }
@@ -14091,24 +14109,29 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
 
             setActionButtonState(submitBtn, "processing", "Submit");
 
-            try {
-                const payload = new URLSearchParams();
-                payload.append("entries_json", JSON.stringify(entries));
+            const feederClientUuid = generateClientUuid_();
+            const feederPayload = new URLSearchParams();
+            feederPayload.append("entries_json", JSON.stringify(entries));
+            feederPayload.append("client_uuid", feederClientUuid);
+            const feederPayloadBody = feederPayload.toString();
 
+            try {
                 const response = await fetch(feederSubmitScriptUrl, {
                     method: "POST",
                     headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
-                    body: payload.toString()
+                    body: feederPayloadBody
                 });
 
                 const responseText = await response.text();
                 let submitOk = response.ok;
                 let submitMessage = submitOk ? "Feeder readings submit ho gayi" : "Feeder submit error aaya";
+                let serverRejected = false;
 
                 try {
                     const parsed = JSON.parse(responseText || "{}");
                     if (parsed && parsed.status === "error") {
                         submitOk = false;
+                        serverRejected = true;
                         submitMessage = parsed.message || "Feeder submit error aaya";
                     } else if (parsed && parsed.message) {
                         submitMessage = parsed.message;
@@ -14120,7 +14143,9 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 }
 
                 if (!submitOk) {
-                    throw new Error(submitMessage);
+                    const submitError = new Error(submitMessage);
+                    submitError.__feederServerRejected = serverRejected;
+                    throw submitError;
                 }
 
                 saveRecentFeederSubmittedEntries_(entries);
@@ -14128,8 +14153,22 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 showToast(submitMessage || "Feeder readings submit ho gayi", true);
                 resetFeederReading();
             } catch (error) {
+                // Network/timeout error par data local queue me safe save kar dete
+                // hain (client_uuid ke saath, taaki retry par backend duplicate
+                // rows na bana sake) - saaf "pending" message dikhate hain, taaki
+                // yeh crash/error jaisa na lage. Backend ne khud koi "error" status
+                // diya ho (validation error jaisa) to usko queue nahi karte, seedhe
+                // dikha dete hain - retry karne se bhi wahi error dobara aayega.
                 setActionButtonState(submitBtn, "failed", "Submit");
-                showToast(error?.message || "Feeder submit blocked ya network issue aaya", false);
+                const isNetworkFailure = !(error && error.__feederServerRejected);
+                if (isNetworkFailure) {
+                    saveFieldOfflineItem("FEEDER", feederSubmitScriptUrl, feederPayloadBody);
+                    saveRecentFeederSubmittedEntries_(entries);
+                    resetFeederReading();
+                    showToast("Network slow hai. Reading local save ho gayi, internet aate hi apne aap submit hogi.", false);
+                } else {
+                    showToast(error?.message || "Feeder submit blocked ya network issue aaya", false);
+                }
             } finally {
                 setTimeout(() => setActionButtonState(submitBtn, "idle", "Submit"), 900);
             }
@@ -16650,6 +16689,135 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         window.addEventListener("online", () => {
             retryRevenueOfflineQueue(true).catch(() => {});
         });
+
+        // ===== GENERIC FIELD OFFLINE QUEUE (Feeder Reading + Daily Hourly Peak
+        // Load) — same proven pattern as the Revenue offline queue above, just
+        // generalized for two more forms. Grameen/weak-network area me agar submit
+        // fail ho (timeout/network error), data local (localStorage) me safe save
+        // ho jaata hai aur jaise hi internet wapas aaye, khud-b-khud (ya "Retry
+        // Pending Data" button se) submit ho jaata hai — bina kuch retype kiye.
+        // Meter Checking is queue me shaamil NAHI hai (jaanbujhkar) - usme 3 photos
+        // (base64) hoti hain jo localStorage ki 5-10MB limit ko bahut aasani se
+        // paar kar sakti hain, isliye usko is tarah queue karna risky hai.
+        const fieldOfflineQueueStorageKey = "seoni-field-offline-submit-queue-v1";
+
+        function generateClientUuid_() {
+            return (window.crypto && typeof window.crypto.randomUUID === "function")
+                ? window.crypto.randomUUID()
+                : `cid-${Date.now()}-${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
+        }
+
+        function getFieldOfflineQueue() {
+            try {
+                return JSON.parse(localStorage.getItem(fieldOfflineQueueStorageKey) || "[]");
+            } catch (_) {
+                return [];
+            }
+        }
+
+        function setFieldOfflineQueue(queue) {
+            try {
+                localStorage.setItem(fieldOfflineQueueStorageKey, JSON.stringify(queue || []));
+            } catch (_) {
+                showToast("Local storage full hai, pending data save nahi ho paya", false);
+            }
+            renderFieldOfflineRetryBox("FEEDER");
+            renderFieldOfflineRetryBox("PEAKLOAD");
+        }
+
+        // url/body: EXACT wahi POST target aur already-built body string jo
+        // live-submit ki koshish me bheja tha (client_uuid samet) - taaki retry
+        // hamesha wahi data dobara bheje, kabhi alag nahi.
+        function saveFieldOfflineItem(type, url, body) {
+            const item = {
+                id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                type,
+                url,
+                body,
+                createdAt: new Date().toISOString()
+            };
+            const queue = getFieldOfflineQueue();
+            queue.push(item);
+            setFieldOfflineQueue(queue);
+            return item;
+        }
+
+        async function postFieldQueuedBody(url, body) {
+            const response = await fetchWithTimeout(url, {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+                body
+            }, 25000);
+            const responseText = await response.text();
+            let parsed = null;
+            try { parsed = JSON.parse(responseText || "{}"); } catch (_) {}
+            if (!response.ok || (parsed && parsed.status === "error")) {
+                throw new Error((parsed && parsed.message) || responseText || "Submit retry nahi ho paya");
+            }
+            return parsed || {};
+        }
+
+        function renderFieldOfflineRetryBox(type) {
+            const boxId = type === "FEEDER" ? "feeder-offline-retry-box" : "peakload-offline-retry-box";
+            const textId = type === "FEEDER" ? "feeder-offline-retry-text" : "peakload-offline-retry-text";
+            const box = document.getElementById(boxId);
+            const text = document.getElementById(textId);
+            if (!box || !text) return;
+            const count = getFieldOfflineQueue().filter((item) => item.type === type).length;
+            if (!count) {
+                box.style.display = "none";
+                return;
+            }
+            box.style.display = "block";
+            text.innerText = `${count} pending submit local save hai. Internet theek hone par retry kijiye.`;
+        }
+
+        // silent=true: app khulte hi / online event par background me chalta hai -
+        // koi toast/status disturbance nahi hota jab tak kuch genuinely submit ho
+        // jaaye. silent=false: user ne khud "Retry Pending Data" button dabaya.
+        async function retryFieldOfflineQueue(type, silent = false) {
+            const btnId = type === "FEEDER" ? "feeder-offline-retry-btn" : "peakload-offline-retry-btn";
+            const btn = document.getElementById(btnId);
+            const queue = getFieldOfflineQueue();
+            const matching = queue.filter((item) => item.type === type);
+            if (!matching.length) return renderFieldOfflineRetryBox(type);
+            if (!silent) setActionButtonState(btn, "processing", "Retry Pending Data");
+
+            let successCount = 0;
+            const stillPending = [];
+            for (const item of matching) {
+                try {
+                    await postFieldQueuedBody(item.url, item.body);
+                    successCount += 1;
+                } catch (error) {
+                    stillPending.push(item);
+                }
+            }
+            const others = queue.filter((item) => item.type !== type);
+            setFieldOfflineQueue([...others, ...stillPending]);
+
+            if (!silent) {
+                setActionButtonState(btn, stillPending.length ? "failed" : "done", "Retry Pending Data");
+                showToast(stillPending.length ? `${successCount} submit ho gaya, ${stillPending.length} pending hai` : "Pending data submit ho gaya", !stillPending.length);
+            } else if (successCount) {
+                showToast(`${successCount} pending data automatic submit ho gaya`, true);
+            }
+            setTimeout(() => { renderFieldOfflineRetryBox("FEEDER"); renderFieldOfflineRetryBox("PEAKLOAD"); }, 900);
+        }
+
+        window.addEventListener("online", () => {
+            retryFieldOfflineQueue("FEEDER", true).catch(() => {});
+            retryFieldOfflineQueue("PEAKLOAD", true).catch(() => {});
+        });
+
+        // Android par 'online' event kabhi-kabhi reliably fire nahi hota, isliye
+        // ek halka periodic backup bhi rakha hai - har 60 second par, sirf tab jab
+        // browser khud "online" maan raha ho aur kuch pending ho.
+        setInterval(() => {
+            if (!navigator.onLine) return;
+            retryFieldOfflineQueue("FEEDER", true).catch(() => {});
+            retryFieldOfflineQueue("PEAKLOAD", true).catch(() => {});
+        }, 60000);
 
         function mapRevenueTdSheetEntry(row) {
             return {
