@@ -1799,6 +1799,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     const payload = JSON.stringify({
                         action: "uploadExternalToolHtml",
                         tool_key: "EXCEL_AUTOMATION",
+                        admin_password: staffAdminPassword,
                         html: htmlContent,
                         file_name: file.name
                     });
@@ -1898,6 +1899,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     const payload = JSON.stringify({
                         action: "uploadExternalToolHtml",
                         tool_key: "PANCHNAMA",
+                        admin_password: staffAdminPassword,
                         html: htmlContent,
                         file_name: file.name
                     });
@@ -1995,6 +1997,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     const payload = JSON.stringify({
                         action: "uploadExternalToolHtml",
                         tool_key: "ARRANGE_EXCEL",
+                        admin_password: staffAdminPassword,
                         html: htmlContent,
                         file_name: file.name
                     });
@@ -2091,6 +2094,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     const payload = JSON.stringify({
                         action: "uploadExternalToolHtml",
                         tool_key: "IMAGE_TO_EXCEL",
+                        admin_password: staffAdminPassword,
                         html: htmlContent,
                         file_name: file.name
                     });
@@ -17043,6 +17047,16 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 }
                 return showToast("Invalid Admin Password", false);
             }
+            // Backend ab is admin_password ke saath-saath ek real Owner staff
+            // login session (session_token + device_id) bhi verify karta hai -
+            // isliye pehle "Staff Login" (mobile + PIN) se login hona zaroori
+            // hai. Yah local password-check sirf UI-gate hai, asli security
+            // backend par REV_requireOwnerAuthorized_ karta hai.
+            if (!revenueMessageSession?.token) {
+                showToast("Pehle Staff Login (Mobile + PIN) se login kijiye, fir Staff Admin kholiye", false);
+                openRevenueMessageCenter();
+                return;
+            }
             staffAdminUnlocked = true;
             const lockBox = document.getElementById("staff-admin-lock-box");
             const panel = document.getElementById("staff-admin-panel");
@@ -17105,6 +17119,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             try {
                 const response = await postRevenueMessageStaffApi({
                     action: "staffAdminSearch",
+                    session_token: revenueMessageSession?.token || "",
+                    device_id: getRevenueMessageDeviceId(),
                     admin_password: staffAdminPassword,
                     dc_name: dcName,
                     mobile_no: mobileNo
@@ -17135,6 +17151,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             try {
                 const response = await postRevenueMessageStaffApi({
                     action: "staffAdminAction",
+                    session_token: revenueMessageSession?.token || "",
+                    device_id: getRevenueMessageDeviceId(),
                     admin_password: staffAdminPassword,
                     admin_action: adminAction,
                     dc_name: staffAdminCurrentAccount.dc_name || "",
@@ -18419,6 +18437,14 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 showToast("Admin password galat hai", false);
                 return;
             }
+            // Backend ab admin_password ke saath ek real Owner staff login
+            // session bhi maangta hai - pehle "Staff Login" (mobile+PIN) se
+            // login hona zaroori hai.
+            if (!revenueMessageSession?.token) {
+                showToast("Pehle Staff Login (Mobile + PIN) se login kijiye, fir Paid Upload kholiye", false);
+                openRevenueMessageCenter();
+                return;
+            }
             revenuePaidUploadUnlocked = true;
             initRevenuePaidUpload();
             showToast("Admin upload unlock ho gaya", true);
@@ -19237,6 +19263,9 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
 
                 const payload = new URLSearchParams();
                 payload.append("action", "uploadPaidMaster");
+                payload.append("session_token", revenueMessageSession?.token || "");
+                payload.append("device_id", getRevenueMessageDeviceId());
+                payload.append("admin_password", revenueAdminPassword);
                 payload.append("dc_name", activeDC || "");
                 payload.append("uploaded_at", new Date().toISOString());
                 payload.append("entries_json", JSON.stringify(entries));
