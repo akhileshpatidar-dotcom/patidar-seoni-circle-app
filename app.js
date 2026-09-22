@@ -10183,6 +10183,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 omvigReportCache_ = { scopeKey, rowsWithStatus: [], freeze_date: "" };
                 return omvigReportCache_;
             }
+            const lastUploadAt = freezeStatus.last_upload_at || "";
+            const lastUploadSummary = freezeStatus.last_upload_summary || "";
 
             const dcParam = activeViewLevel === "DC" ? activeDC : "";
             // BUG FIX (2026-09-14): pehle Division level bhi POORI Circle
@@ -10203,7 +10205,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             const paidMap = groupOmvigPaidByPanchanama_(paid);
             const rowsWithStatus = computeOmvigReportRows_(pendingRows, paidMap, pending.freeze_date);
 
-            omvigReportCache_ = { scopeKey, rowsWithStatus, freeze_date: pending.freeze_date };
+            omvigReportCache_ = { scopeKey, rowsWithStatus, freeze_date: pending.freeze_date, lastUploadAt, lastUploadSummary };
             return omvigReportCache_;
         }
 
@@ -10497,7 +10499,14 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         }
 
         function renderOmvigReportHtml_(data) {
-            const freezeLine = `<div style="text-align:center; font-size:0.66rem; font-weight:800; color:#475569; margin-top:4px;">Freeze Date: ${escapeHtml(data.freeze_date)}</div>`;
+            // USER REQUEST (2026-09-22): Daily jaisa hi - Monthly (Full) me bhi
+            // "Latest Paid Upload" (asli upload date+time, Indian format) dikhega
+            // agar upload record maujood ho, warna sirf Freeze Date dikhega
+            // (pehle jaisa).
+            const lastUploadLine = data.lastUploadAt
+                ? `<div style="text-align:center; font-size:0.66rem; font-weight:800; color:#475569; margin-top:2px;">🕒 Latest Paid Upload: ${escapeHtml(formatIndianDateTimeDisplay_(data.lastUploadAt))}${data.lastUploadSummary ? `<br><span style="font-weight:700; color:#64748b;">${escapeHtml(data.lastUploadSummary)}</span>` : ""}</div>`
+                : "";
+            const freezeLine = `<div style="text-align:center; font-size:0.66rem; font-weight:800; color:#475569; margin-top:4px;">Freeze Date: ${escapeHtml(data.freeze_date)}</div>${lastUploadLine}`;
             let bodyHtml;
             if (activeViewLevel === "DC") {
                 bodyHtml = renderOmvigDcLevelHtml_(data.rowsWithStatus);
@@ -10743,9 +10752,24 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             // enrichment (consumer naam, DC fallback) ab backend (`getDailyReport`)
             // hi kar ke deta hai - yahan sirf view-level (DC/Division/Circle)
             // scoping baaki hai, jo purani tarah in-memory/free hai.
-            const { date, rows, dcSummaryMap } = await fetchOmvigDailyReport_(forceRefresh);
+            // USER REQUEST (2026-09-22): screen par "Latest Paid Upload" line ab
+            // Pay_date (jo intentionally "yesterday" hota hai) ki jagah ASLI
+            // upload timestamp (last_upload_at, TIME sahit, Indian format) dikhani
+            // hai - yeh admin panel me pehle se available hai (fetchOmvigFreezeStatus_),
+            // usi cached/fast call ko yahan bhi (parallel) use kar lete hain, koi
+            // naya slow call nahi.
+            const [{ date, rows, dcSummaryMap }, freezeStatus] = await Promise.all([
+                fetchOmvigDailyReport_(forceRefresh),
+                fetchOmvigFreezeStatus_(forceRefresh).catch(() => null)
+            ]);
             const scoped = scopeOmvigDailyRowsToView_(rows);
-            return { date, rowsWithStatus: mapOmvigDailyRowsWithStatus_(scoped, date), dcSummaryMap };
+            return {
+                date,
+                rowsWithStatus: mapOmvigDailyRowsWithStatus_(scoped, date),
+                dcSummaryMap,
+                lastUploadAt: freezeStatus?.last_upload_at || "",
+                lastUploadSummary: freezeStatus?.last_upload_summary || ""
+            };
         }
 
         // Daily-specific render functions (Monthly ki renderOmvigDcLevelHtml_/
@@ -10819,7 +10843,19 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             if (!data.date) {
                 return `<div style="text-align:center; color:#64748b; font-size:0.72rem; padding:20px 0;">Abhi tak koi Paid List upload nahi hui hai.</div>`;
             }
-            const dateLine = `<div style="text-align:center; font-size:0.66rem; font-weight:800; color:#475569; margin-bottom:4px;">Latest Paid Upload - Date: ${escapeHtml(data.date)}</div>`;
+            // USER REQUEST (2026-09-22, USER-REPORTED): pehle yahan sirf Pay_date
+            // (jo Daily report ke "yesterday" business-logic ke hisab se sahi hi
+            // hai, isko chhedna nahi tha) dikhta tha - koi TIME nahi, aur agar
+            // aaj hi Paid List upload hui ho to bhi yeh date "purani" (yesterday's
+            // pay-date) hi dikhti thi, jisse lagta tha ki "aaj ka upload dikh hi
+            // nahi raha". Ab ASLI upload timestamp (last_upload_at, date+time,
+            // formatIndianDateTimeDisplay_ se Indian dd-mm-yyyy hh:mm format me)
+            // dikhate hain - agar aaj upload hui hai to aaj ki hi date+time
+            // dikhegi. last_upload_at na mile (bahut purana/khaali data) to
+            // purana Pay_date-only fallback dikhta hai.
+            const dateLine = data.lastUploadAt
+                ? `<div style="text-align:center; font-size:0.66rem; font-weight:800; color:#475569; margin-bottom:4px;">🕒 Latest Paid Upload: ${escapeHtml(formatIndianDateTimeDisplay_(data.lastUploadAt))}${data.lastUploadSummary ? `<br><span style="font-weight:700; color:#64748b;">${escapeHtml(data.lastUploadSummary)}</span>` : ""}</div>`
+                : `<div style="text-align:center; font-size:0.66rem; font-weight:800; color:#475569; margin-bottom:4px;">Latest Paid Upload - Date: ${escapeHtml(data.date)}</div>`;
             let bodyHtml;
             if (activeViewLevel === "DC") {
                 bodyHtml = renderOmvigDailyDcLevelHtml_(data.rowsWithStatus, data.dcSummaryMap);
@@ -11037,6 +11073,15 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                                 if (state === 2) { cellData.cell.styles.textColor = [22, 101, 52]; cellData.cell.styles.fontStyle = "bold"; }
                                 else if (state === 1) { cellData.cell.styles.textColor = [220, 38, 38]; cellData.cell.styles.fontStyle = "bold"; }
                             }
+                            // USER REQUEST (2026-09-22): Hindi cell ki row ko thodi
+                            // zyada minimum height do - autoTable row-height Latin
+                            // font-metrics se estimate karta hai, jo Devanagari
+                            // glyph ke liye kam pad jaata hai, isliye Hindi image
+                            // banate waqt font choti karni padti thi. Thoda extra
+                            // height dene se ab bade font me hi fit ho jaata hai.
+                            if (cellData.section === "body" && meterCheckingCellHasDevanagari_(cellData.cell.raw)) {
+                                cellData.cell.styles.minCellHeight = Math.max(cellData.cell.styles.minCellHeight || 0, 6);
+                            }
                         },
                         // USER REQUEST (2026-09-14, alignment fix): Hindi image ab
                         // column ke apne halign (left/center) ke hisab se banti hai,
@@ -11178,6 +11223,14 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                         theme: "grid", headStyles: { fillColor: [17, 24, 39], halign: "center" },
                         styles: { fontSize: 6.5, cellPadding: 1.4, halign: "center", valign: "middle", overflow: "linebreak" },
                         columnStyles: omvigDailyColumnStyles_,
+                        // USER REQUEST (2026-09-22): Monthly List PDF jaisa hi -
+                        // Hindi cell ki row ko thodi zyada minimum height taaki
+                        // font choti na karni pade (English jaisa hi size rahe).
+                        didParseCell: (cellData) => {
+                            if (cellData.section === "body" && meterCheckingCellHasDevanagari_(cellData.cell.raw)) {
+                                cellData.cell.styles.minCellHeight = Math.max(cellData.cell.styles.minCellHeight || 0, 6);
+                            }
+                        },
                         didDrawCell: (cellData) => {
                             if (cellData.section === "body" && meterCheckingCellHasDevanagari_(cellData.cell.raw)) {
                                 const align = LEFT_ALIGN_COLS_.includes(cellData.column.index) ? "left" : "center";
@@ -19531,6 +19584,33 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             return false;
         }
 
+        // USER REQUEST (2026-09-22): "BACKEND VERIFICATION PENDING" (99%) dikhne
+        // ke baad bhi chup-chaap, background me, thodi der aur try karte rehna -
+        // badi DC (jaise CHHAPARA-1, 5000+ rows) ke liye backend ko likhne me
+        // kabhi-kabhi 3 minute (verifyRevenuePaidBackendUpload ki poori window)
+        // se bhi zyada lag jaata hai. Yeh function UI ko block nahi karta (fire-
+        // and-forget), aur jab bhi confirm ho jaaye - abhi bhi wahi upload/DC
+        // active ho to summary+button turant "Successfully Uploaded" me update
+        // ho jaate hain, bina user ko kuch karna pade.
+        async function continueRevenuePaidUploadBackgroundVerification_(entries, dcName, uploadMeta) {
+            const confirmed = await verifyRevenuePaidBackendUpload(entries, dcName, 30 /* 30 x 10s = 5 min */).catch(() => false);
+            if (!confirmed) return;
+            const latestMeta = getRevenuePaidUploadMeta(dcName);
+            // Beech me koi naya upload shuru ho gaya ho (uniqueCount badal gaya)
+            // to yeh purana confirmation ab uss par apply nahi karna - sirf tabhi
+            // update karo jab abhi bhi wahi upload (record count match) pending hai.
+            if (!latestMeta || latestMeta.backendSynced || Number(latestMeta.uniqueCount) !== Number(uploadMeta.uniqueCount)) return;
+            const verifiedMeta = { ...latestMeta, backendSynced: true, backendVerifiedAt: new Date().toISOString() };
+            saveRevenuePaidUploadMeta(verifiedMeta);
+            if (activeDC === dcName) {
+                renderRevenuePaidUploadSummary(verifiedMeta);
+                const uploadBtn = document.getElementById("revenue-paid-upload-btn");
+                if (uploadBtn) setActionButtonState(uploadBtn, "done", "Upload Paid Data");
+                showToast(`${dcName} - Cash List ab backend se confirm ho gayi hai (Successfully Uploaded)`, true);
+            }
+            checkRevenueUploadFreshness();
+        }
+
         async function uploadRevenuePaidFiles() {
             const normalFile = document.getElementById("revenue-paid-normal-file")?.files?.[0] || null;
             const agFile = document.getElementById("revenue-paid-ag-file")?.files?.[0] || null;
@@ -19650,6 +19730,17 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 } else {
                     setActionButtonState(uploadBtn, "pending", "Upload Paid Data");
                     showToast("Data bhej diya gaya hai, par backend se abhi confirm nahi ho paaya (99%) - neeche summary me status dekhein", false);
+                    // USER REQUEST (2026-09-22, USER-REPORTED - CHHAPARA-1 jaisi badi DC
+                    // baar-baar 99% par atakti thi): pehle 180s (3 min) ki verification
+                    // window khatam hone ke baad koi aur koshish nahi hoti thi - jab tak
+                    // user khud panel band-khol na kare, tab tak "pending" hi dikhta
+                    // rehta tha, chahe backend ne 3-4 minute baad hi asal me likh liya ho
+                    // (badi DC me hazaron rows likhne me itna time lagna normal hai). Ab
+                    // background me KHUD-BA-KHUD aur 5 minute tak (30 koshish x 10s) chup-
+                    // chaap check hote rehte hain - jaise hi backend confirm kare, status
+                    // apne aap "Successfully Uploaded" me badal jaata hai, user ko panel
+                    // dobara kholne ki zaroorat nahi padti.
+                    continueRevenuePaidUploadBackgroundVerification_(entries, activeDC || "", uploadMeta);
                 }
                 // Freshness ticker (DC dashboard wali red patti) pehle sirf tab check hoti
                 // thi jab dc-dashboard screen par navigate karte the - upload ke turant
@@ -25069,7 +25160,14 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // purana behaviour bilkul same rakhne ke liye) column ke halign ke
         // hisab se text ko canvas ke andar bhi center/left karta hai.
         function renderMeterCheckingHindiCellImage_(text, cellWidthMm, cellHeightMm, align) {
-            const scale = 6; // crisp raster taaki PDF zoom karne par bhi saaf dikhe
+            // USER REQUEST (2026-09-22, USER-REPORTED): PDF me Hindi text English
+            // text ke mukable bahut chhota aur blur dikh raha tha. Do fix: (1)
+            // raster resolution 6x se badha ke 12x kar diya - zoom karne par bhi
+            // saaf dikhega; (2) font size ka starting point aur minimum floor
+            // dono badhaye (0.3->0.42 ratio, 6px->8px floor) - taaki jab tak text
+            // genuinely fit na ho tab tak bhi English jaisa hi visually barabar
+            // size rahe, bahut jyada chhota na ho.
+            const scale = 12; // crisp raster taaki PDF zoom karne par bhi saaf dikhe
             const widthPx = Math.max(24, Math.round(cellWidthMm * scale));
             const heightPx = Math.max(24, Math.round(cellHeightMm * scale));
             const canvas = document.createElement("canvas");
@@ -25082,9 +25180,9 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             const maxWidth = Math.max(4, widthPx - padPx * 2);
             const fontStack = `"Noto Sans Devanagari","Nirmala UI","Mangal",sans-serif`;
             const words = String(text).split(/\s+/).filter(Boolean);
-            let fontSizePx = Math.max(8, Math.round(heightPx * 0.3));
+            let fontSizePx = Math.max(11, Math.round(heightPx * 0.42));
             let lines = [words.join(" ") || ""];
-            for (; fontSizePx >= 6; fontSizePx--) {
+            for (; fontSizePx >= 8; fontSizePx--) {
                 ctx.font = `400 ${fontSizePx}px ${fontStack}`;
                 lines = [];
                 let current = "";
@@ -25099,7 +25197,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 });
                 if (current) lines.push(current);
                 const lineHeight = fontSizePx * 1.25;
-                if (lines.length * lineHeight <= heightPx - padPx * 2 || fontSizePx <= 6) break;
+                if (lines.length * lineHeight <= heightPx - padPx * 2 || fontSizePx <= 8) break;
             }
             ctx.font = `400 ${fontSizePx}px ${fontStack}`;
             const lineHeight = fontSizePx * 1.25;
