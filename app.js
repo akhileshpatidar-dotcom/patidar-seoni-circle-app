@@ -19680,10 +19680,26 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     let parsed = {};
                     try { parsed = JSON.parse(responseText || "{}"); } catch (_) {}
                     if (!response.ok || parsed.status === "error") {
-                        throw new Error(parsed.message || "Paid data upload nahi ho paya");
+                        // USER REQUEST (2026-09-22): backend ne yahan SAAF SAAF error
+                        // diya hai (jaise galat admin password, invalid/corrupt data) -
+                        // yeh "shayad ho jayega" wala pending case nahi hai, yeh PAKKA
+                        // fail hai - dobara verify try karne se bhi kabhi theek nahi
+                        // hoga. Isko alag marker deke aage bhej dete hain taaki yeh
+                        // "99% Verification Pending" me na chhup jaaye, balki turant
+                        // FAILED dikhe (neeche outer catch handle karta hai).
+                        const err = new Error(parsed.message || "Paid data upload nahi ho paya");
+                        err.isExplicitBackendError = true;
+                        throw err;
                     }
                     backendSynced = true;
                 } catch (syncError) {
+                    // Explicit backend error (upar wala) ko yahin turant aage (outer
+                    // catch tak) bhej dete hain - fallback POST ya verification-loop
+                    // me time barbaad nahi karna, kyunki wo kabhi pass nahi hogi.
+                    if (syncError && syncError.isExplicitBackendError) throw syncError;
+                    // Sirf GENUINE network/timeout wale case me hi fallback + background
+                    // verification try karte hain - ho sakta hai backend ne asal me
+                    // process kar liya ho, sirf response client tak na pahuncha ho.
                     try {
                         await fetch(revenueCollectionSubmitScriptUrl, {
                             method: "POST",
