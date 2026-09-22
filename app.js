@@ -21295,11 +21295,29 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // resolve-ho-chuke Map se seedhe (bina await ke) padh sakein, jaisa
         // is app me warmRevenueCategoryUploadedPaidCache/revenueCategoryCache-
         // WarmedAt ka existing pattern hai.
+        // BUG FIX (2026-09-23, USER-REPORTED): cacheKey pehle sirf "mode|filterValue"
+        // tha - DC-scope (DC/Division/Circle, ya kaunsi DC) bilkul shamil nahi tha.
+        // Isse yeh hota tha: DC-level "ARI" ka Category Wise/Target/HQ-Village/Top-
+        // Defaulters kholte hi is key ke against SIRF ARI ka reconciliation cache
+        // ho jaata (60 second TTL) - agar 60 second ke andar hi wapas jaakar Circle
+        // (ya kisi DOOSRI DC/Division) ka wahi report (SAME date) khola jaaye, to
+        // yeh scope-blind cache HIT ho jaata tha aur SIRF ARI wala (bahut chhota)
+        // reconciliation data poori Circle (23 DC) par apply ho jaata - baaki sabhi
+        // DC ke consumer "byKey" Map me match hi nahi karte the, isliye unka
+        // PAID/UNPAID bilkul galat (zyada tar UNPAID) dikhta tha - bina kisi error
+        // ke, kyunki "supported: true" hi reh jaata tha. Yehi wajah thi ki DC->
+        // Division->Circle (ya ulta) bar-bar aana-jaana karne par "kahi na kahi
+        // kisi report me paid/unpaid data sahi nahi aata tha", jabki syncing bhi
+        // ho rahi thi (cache hit hone par bhi progress bar dikhta hai, sirf network
+        // call skip hoti hai - isliye galti turant pakad me nahi aati thi). Fix:
+        // cacheKey me ab exact DC-list (jo is waqt request ho rahi hai) bhi shamil
+        // hai - DC-level "ARI" aur Circle-level (jisme ARI bhi shamil hai) ab do
+        // ALAG cache entries banate hain, kabhi cross-contaminate nahi honge.
         async function ensureRevenueCategoryReconciliationLoaded(mode, filterValue) {
-            const cacheKey = `${mode}|${filterValue}`;
+            const dcList = Array.from(new Set(getRevenueCategoryTargetDcs().map((dcName) => normalizeDcName(dcName)).filter(Boolean))).sort();
+            const cacheKey = `${mode}|${filterValue}|${dcList.join(",")}`;
             const cached = revenueCategoryReconciliationCache_.get(cacheKey);
             if (cached && Date.now() - cached.loadedAt < REVENUE_CATEGORY_RECONCILIATION_TTL_MS) return cached;
-            const dcList = Array.from(new Set(getRevenueCategoryTargetDcs().map((dcName) => normalizeDcName(dcName)).filter(Boolean)));
             if (!dcList.length) {
                 const empty = { supported: false, byKey: new Map(), loadedAt: Date.now() };
                 revenueCategoryReconciliationCache_.set(cacheKey, empty);
