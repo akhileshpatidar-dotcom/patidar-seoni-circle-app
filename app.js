@@ -15326,6 +15326,11 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             const resultBox = document.getElementById("revenue-result-box");
             const noteBox = document.getElementById("revenue-empty-note");
             const dcLabel = document.getElementById("revenue-active-dc-label");
+            // USER REQUEST (2026-09-22): search screen open hote hi turant patti
+            // nahi dikhni chahiye - pehle background me backend check chalta rahe,
+            // upload na milne par hi (checkRevenueSearchUploadFreshness ke andar)
+            // patti dikhe. Isliye yahan sirf call kiya hai, koi turant show nahi.
+            checkRevenueSearchUploadFreshness();
             if (dcLabel) {
                 if (activeDC) {
                     dcLabel.style.display = "block";
@@ -18804,30 +18809,21 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         let revenueUploadFreshnessRunId_ = 0;
 
         async function checkRevenueUploadFreshness() {
-            const box = document.getElementById("revenue-upload-freshness-ticker");
+            // USER REQUEST (2026-09-21): DC dashboard par "Revenue Collection"
+            // button ke NEECHE jo alag/standalone red patti (ticker box) thi, use
+            // PERMANENTLY hata diya gaya hai (index.html se bhi element hata diya).
+            // Ab sirf button ke ANDAR wala chhota blink text rahega - yahi wahi
+            // hai jo user ne "REVENUE KE UNDER" bola tha, use vaisa hi rehne diya.
             const inline = document.getElementById("revenue-upload-freshness-inline");
-            // USER REQUEST (2026-09-21): pehle isi Revenue Collection (IVRS search)
-            // screen par bhi yeh ticker duplicate kiya gaya tha (DC chip ke upar) -
-            // user ne test karke wapas hatane ko bola, ticker sirf DC dashboard
-            // (Revenue Collection button ke neeche wala) me hi rahegi, jo already
-            // sahi chal rahi hai. Is screen par duplicate ab hata diya hai.
-            if (!box) return;
+            if (!inline) return;
             const dcName = activeDC;
             if (!dcName || !revenueCollectionSubmitScriptUrl) {
-                box.style.display = "none";
-                if (inline) inline.style.display = "none";
+                inline.style.display = "none";
                 return;
             }
             const runId = ++revenueUploadFreshnessRunId_;
             const today = new Date();
             const todayDDMMYYYY = `${String(today.getDate()).padStart(2, "0")}/${String(today.getMonth() + 1).padStart(2, "0")}/${today.getFullYear()}`;
-
-            // USER REQUEST (2026-09-21, revert): pehle yahan check shuru hote hi
-            // turant ek "checking..." spinner dikhaya jaata tha. User ne bola ki
-            // screen khulte hi turant kuch nahi dikhna chahiye - jab tak backend se
-            // confirm na ho jaaye ki aaj upload nahi hua, tab tak chup-chap
-            // background me hi check chalti rahe (jaisa pehle tha), sirf tabhi
-            // dikhe jab sach me upload missing confirm ho jaaye.
 
             // NOTE: pehle yahan ek alag backend action "getPaidMasterLastUploadDate" call
             // hoti thi, jo Cash List upload ho jaane ke baad bhi kabhi-kabhi purani/galat
@@ -18855,32 +18851,67 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                         || convertUploadedDateToDDMMYYYY(rawDate) === todayDDMMYYYY;
                 });
                 if (uploadedToday) {
-                    box.style.display = "none";
-                    if (inline) inline.style.display = "none";
+                    inline.style.display = "none";
                     return;
                 }
-                box.innerHTML = `<span class="ticker-text" style="color:#ffffff;"></span>`;
-                const span = box.querySelector(".ticker-text");
-                if (span) {
-                    span.innerText = `⚠️ आज दिनांक ${todayDDMMYYYY} को Cash List Upload ना होने के कारण Latest Paid Consumer का Data Show नहीं होगा   ⚠️   आज दिनांक ${todayDDMMYYYY} को Cash List Upload ना होने के कारण Latest Paid Consumer का Data Show नहीं होगा`;
-                }
-                if (inline) {
-                    inline.innerText = "आज की Cash List Upload नहीं हुई";
-                    inline.style.display = "block";
-                }
-                box.style.display = "block";
+                inline.innerText = "आज की Cash List Upload नहीं हुई";
+                inline.style.display = "block";
             } catch (_) {
                 if (activeDC !== dcName || runId !== revenueUploadFreshnessRunId_) return;
                 // USER REQUEST (2026-09-21): pehle yahan check fail/timeout hone par
                 // ticker poori tarah hide ho jaata tha - jaise upload sab thik ho gaya
                 // ho, chahe asal me status pata hi na chal paaya ho. Ab clearly bata
                 // dete hain ki confirm nahi ho paaya, taaki galti se "safe" na lage.
-                box.innerHTML = `<span class="ticker-text" style="color:#ffffff;">⚠️ Upload status confirm nahi ho paaya, thodi der me screen dobara khol kar check karein ⚠️</span>`;
-                box.style.display = "block";
-                if (inline) {
-                    inline.innerText = "⚠️ Status confirm nahi ho paaya";
-                    inline.style.display = "block";
+                inline.innerText = "⚠️ Status confirm nahi ho paaya";
+                inline.style.display = "block";
+            }
+        }
+
+        // USER REQUEST (2026-09-22): "aaj ki Cash List Upload nahi hui" wali
+        // red patti ab Revenue Collection ki IVRS SEARCH screen par, DC name
+        // chip ke UPAR dikhti hai (pehle yah DC dashboard par Revenue button
+        // ke neeche standalone box ke roop me thi - vahan se yahan shift ki
+        // gayi hai). Flow bilkul checkRevenueUploadFreshness() jaisa hi hai
+        // (backend se aaj ka upload-status check, upload na mile tabhi
+        // dikhna) - lekin yah apna ALAG element/runId use karta hai taaki
+        // Revenue button ke ANDAR wale blink text (revenue-upload-freshness-
+        // inline, jo checkRevenueUploadFreshness() handle karta hai) par
+        // iska koi asar na pade - usse bilkul chheda nahi gaya hai.
+        let revenueSearchUploadFreshnessRunId_ = 0;
+
+        async function checkRevenueSearchUploadFreshness() {
+            const box = document.getElementById("revenue-search-upload-freshness-ticker");
+            if (!box) return;
+            const dcName = activeDC;
+            if (!dcName || !revenueCollectionSubmitScriptUrl) {
+                box.style.display = "none";
+                return;
+            }
+            const runId = ++revenueSearchUploadFreshnessRunId_;
+            const today = new Date();
+            const todayDDMMYYYY = `${String(today.getDate()).padStart(2, "0")}/${String(today.getMonth() + 1).padStart(2, "0")}/${today.getFullYear()}`;
+            try {
+                const parsed = await fetchUploadedPaidIvrsListWithRetry_(normalizeDcName(dcName), 1);
+                if (activeDC !== dcName || runId !== revenueSearchUploadFreshnessRunId_) return;
+                const entries = Array.isArray(parsed?.entries) ? parsed.entries : (Array.isArray(parsed?.data) ? parsed.data : []);
+                const uploadedToday = parsed?.status === "success" && entries.some((entry) => {
+                    const rawDate = String(entry?.uploaded_date || entry?.uploadedDate || "").trim();
+                    if (!rawDate) return false;
+                    return formatRevenueDateIndian(normalizeRevenueReportDate(rawDate)) === todayDDMMYYYY
+                        || convertUploadedDateToDDMMYYYY(rawDate) === todayDDMMYYYY;
+                });
+                if (uploadedToday) {
+                    box.style.display = "none";
+                    return;
                 }
+                const span = box.querySelector(".ticker-text");
+                if (span) {
+                    span.innerText = `⚠️ आज दिनांक ${todayDDMMYYYY} को Cash List Upload ना होने के कारण Latest Paid Consumer का Data Show नहीं होगा   ⚠️   आज दिनांक ${todayDDMMYYYY} को Cash List Upload ना होने के कारण Latest Paid Consumer का Data Show नहीं होगा`;
+                }
+                box.style.display = "block";
+            } catch (_) {
+                if (activeDC !== dcName || runId !== revenueSearchUploadFreshnessRunId_) return;
+                box.style.display = "none";
             }
         }
 
