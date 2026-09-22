@@ -10417,21 +10417,30 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // Division level par status select karne par case-LIST on-screen
         // NAHI khulni chahiye - sirf summary hi filtered dikhe (list sirf
         // download me milegi).
+        // USER REQUEST (2026-09-22): Paid/Unpaid dropdown ab DC select kiye
+        // BINA bhi kaam karta hai - pehle yeh sirf DC chunne ke BAAD hi
+        // dikhta tha, isliye poori Division ki DC-wise summary sirf Paid ya
+        // sirf Pending tak filter nahi ho paati thi (DC chunna zaroori tha,
+        // jo galat tha - Division/Circle-wide filter chahiye tha). Ab Division
+        // dropdown aur Paid/Unpaid dropdown DO ALAG, INDEPENDENT filters hain -
+        // DC chuno ya na chuno, Paid/Unpaid hamesha available hai aur jo bhi
+        // current scope hai (poori Division ya ek DC) usi par lagta hai.
         function renderOmvigDivisionLevelHtml_(rowsWithStatus) {
             const dcOptions = getDivisionDcNames(activeDiv).map((n) => ({ value: n, label: n }));
             const dcSelectHtml = omvigFilterSelectHtml_("omvig-division-dc-select", "-- Select DC --", dcOptions, omvigFilterDc);
-            let summaryHtml, statusSelectHtml = "";
+            const statusSelectHtml = omvigFilterSelectHtml_("omvig-division-status-select", "-- Select Paid/Unpaid --", OMVIG_STATUS_OPTIONS_, omvigFilterStatus);
+            const filteredRowsWithStatus = omvigFilterStatus ? filterOmvigRowsByStatus_(rowsWithStatus, omvigFilterStatus) : rowsWithStatus;
+            const titleSuffix = omvigFilterStatus ? ` - ${omvigFilterStatus}` : "";
+            let summaryHtml;
             if (!omvigFilterDc) {
-                summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", appendOmvigTotalRow_(buildOmvigDivisionDcSummaryRows_(rowsWithStatus, activeDiv)), "DC WISE SUMMARY (AMOUNT IN LAKH)", omvigPaidColLabel_(), "PENDING");
+                summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", appendOmvigTotalRow_(buildOmvigDivisionDcSummaryRows_(filteredRowsWithStatus, activeDiv)), `DC WISE SUMMARY${titleSuffix} (AMOUNT IN LAKH)`, omvigPaidColLabel_(), "PENDING");
+            } else if (!omvigFilterStatus) {
+                const dcRows = rowsWithStatus.filter((r) => normalizeDcName(r.dc_name) === normalizeDcName(omvigFilterDc));
+                summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [buildOmvigSingleDcSummaryRow_(dcRows, omvigFilterDc)], "DC SUMMARY (AMOUNT IN LAKH)", omvigPaidColLabel_(), "PENDING");
             } else {
                 const dcRows = rowsWithStatus.filter((r) => normalizeDcName(r.dc_name) === normalizeDcName(omvigFilterDc));
-                statusSelectHtml = omvigFilterSelectHtml_("omvig-division-status-select", "-- Select Paid/Unpaid --", OMVIG_STATUS_OPTIONS_, omvigFilterStatus);
-                if (!omvigFilterStatus) {
-                    summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [buildOmvigSingleDcSummaryRow_(dcRows, omvigFilterDc)], "DC SUMMARY (AMOUNT IN LAKH)", omvigPaidColLabel_(), "PENDING");
-                } else {
-                    const filteredRows = filterOmvigRowsByStatus_(dcRows, omvigFilterStatus);
-                    summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [buildOmvigStatusSummaryRow_(filteredRows, omvigFilterDc, omvigFilterStatus)], `DC SUMMARY - ${omvigFilterStatus} (AMOUNT IN LAKH)`, omvigPaidColLabel_(), "PENDING");
-                }
+                const filteredRows = filterOmvigRowsByStatus_(dcRows, omvigFilterStatus);
+                summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [buildOmvigStatusSummaryRow_(filteredRows, omvigFilterDc, omvigFilterStatus)], `DC SUMMARY - ${omvigFilterStatus} (AMOUNT IN LAKH)`, omvigPaidColLabel_(), "PENDING");
             }
             return summaryHtml + dcSelectHtml + statusSelectHtml;
         }
@@ -10444,10 +10453,21 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // hai. USER REQUEST (2026-09-14, follow-up): Circle level par bhi
         // status select karne par case-LIST on-screen NAHI khulni chahiye -
         // sirf summary hi filtered dikhe (list sirf download me milegi).
+        // USER REQUEST (2026-09-22): pehle Paid/Unpaid dropdown sirf tab dikhta
+        // tha jab Division + DC dono chun liye ho - isliye poori Circle ya
+        // poori Division ki DC-wise summary kabhi sirf Paid ya sirf Pending
+        // tak filter nahi ho paati thi (DC select karna zaroori tha). Ab
+        // Division/DC dropdown aur Paid/Unpaid dropdown DO ALAG, INDEPENDENT
+        // filters hain - Paid/Unpaid hamesha available hai (Circle-wide,
+        // Division-wide ya single-DC - jo bhi abhi scope hai, usi par lagta
+        // hai), DC chunna zaroori nahi.
         function renderOmvigCircleLevelHtml_(rowsWithStatus) {
             const divOptions = Object.keys(divisionConfigs).map((n) => ({ value: n, label: n.replace(/^DIVISION\s+/i, "") }));
             const divSelectHtml = omvigFilterSelectHtml_("omvig-circle-division-select", "-- Select Division --", divOptions, omvigFilterDivision);
-            let summaryHtml, dcSelectHtml = "", statusSelectHtml = "";
+            const statusSelectHtml = omvigFilterSelectHtml_("omvig-circle-status-select", "-- Select Paid/Unpaid --", OMVIG_STATUS_OPTIONS_, omvigFilterStatus);
+            const filteredRowsWithStatus = omvigFilterStatus ? filterOmvigRowsByStatus_(rowsWithStatus, omvigFilterStatus) : rowsWithStatus;
+            const titleSuffix = omvigFilterStatus ? ` - ${omvigFilterStatus}` : "";
+            let summaryHtml, dcSelectHtml = "";
             if (!omvigFilterDivision) {
                 // USER REQUEST (2026-09-16): pehle yahan SHARED renderFreezeDcWiseSummaryHtml
                 // (Freeze Tracking Report ke saath common) use hota tha - naye
@@ -10455,21 +10475,19 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 // label ke liye ab O&M/VIG-only buildOmvigCircleDcWiseSummaryRows_
                 // (bilkul wahi DC-wise+SUB_TOTAL+GRAND_TOTAL shape) use karte hain,
                 // Freeze Report ka shared function bilkul nahi chheda.
-                summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", buildOmvigCircleDcWiseSummaryRows_(rowsWithStatus), "DC WISE SUMMARY (AMOUNT IN LAKH)", omvigPaidColLabel_(), "PENDING");
+                summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", buildOmvigCircleDcWiseSummaryRows_(filteredRowsWithStatus), `DC WISE SUMMARY${titleSuffix} (AMOUNT IN LAKH)`, omvigPaidColLabel_(), "PENDING");
             } else {
                 const dcOptions = getDivisionDcNames(omvigFilterDivision).map((n) => ({ value: n, label: n }));
                 dcSelectHtml = omvigFilterSelectHtml_("omvig-circle-dc-select", "-- Select DC --", dcOptions, omvigFilterDc);
                 if (!omvigFilterDc) {
-                    summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", appendOmvigTotalRow_(buildOmvigDivisionDcSummaryRows_(rowsWithStatus, omvigFilterDivision)), "DC-WISE SUMMARY (AMOUNT IN LAKH)", omvigPaidColLabel_(), "PENDING");
+                    summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", appendOmvigTotalRow_(buildOmvigDivisionDcSummaryRows_(filteredRowsWithStatus, omvigFilterDivision)), `DC-WISE SUMMARY${titleSuffix} (AMOUNT IN LAKH)`, omvigPaidColLabel_(), "PENDING");
+                } else if (!omvigFilterStatus) {
+                    const dcRows = rowsWithStatus.filter((r) => normalizeDcName(r.dc_name) === normalizeDcName(omvigFilterDc));
+                    summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [buildOmvigSingleDcSummaryRow_(dcRows, omvigFilterDc)], "DC SUMMARY (AMOUNT IN LAKH)", omvigPaidColLabel_(), "PENDING");
                 } else {
                     const dcRows = rowsWithStatus.filter((r) => normalizeDcName(r.dc_name) === normalizeDcName(omvigFilterDc));
-                    statusSelectHtml = omvigFilterSelectHtml_("omvig-circle-status-select", "-- Select Paid/Unpaid --", OMVIG_STATUS_OPTIONS_, omvigFilterStatus);
-                    if (!omvigFilterStatus) {
-                        summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [buildOmvigSingleDcSummaryRow_(dcRows, omvigFilterDc)], "DC SUMMARY (AMOUNT IN LAKH)", omvigPaidColLabel_(), "PENDING");
-                    } else {
-                        const filteredRows = filterOmvigRowsByStatus_(dcRows, omvigFilterStatus);
-                        summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [buildOmvigStatusSummaryRow_(filteredRows, omvigFilterDc, omvigFilterStatus)], `DC SUMMARY - ${omvigFilterStatus} (AMOUNT IN LAKH)`, omvigPaidColLabel_(), "PENDING");
-                    }
+                    const filteredRows = filterOmvigRowsByStatus_(dcRows, omvigFilterStatus);
+                    summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [buildOmvigStatusSummaryRow_(filteredRows, omvigFilterDc, omvigFilterStatus)], `DC SUMMARY - ${omvigFilterStatus} (AMOUNT IN LAKH)`, omvigPaidColLabel_(), "PENDING");
                 }
             }
             return summaryHtml + divSelectHtml + dcSelectHtml + statusSelectHtml;
@@ -10479,19 +10497,26 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // render karte hain - data pehle se hi cache me hai (omvigReportCache_),
         // isliye yeh turant hota hai, koi naya network call nahi.
         function onOmvigFilterChange() {
+            // USER REQUEST (2026-09-22): Paid/Unpaid status filter ab Division/DC
+            // scope-selection se SAPERATE (independent) hai - Division ya DC badalne
+            // par status filter reset NAHI hota (pehle hota tha), taaki Circle/Division
+            // ki poori DC-wise summary bhi sirf Paid ya sirf Unpaid ki nikali ja sake
+            // bina kisi ek DC par drill-down kiye. Status dropdown ab hamesha DOM me
+            // maujood rahta hai (Circle/Division/DC teeno level par), isliye seedhe
+            // uska current value padh lete hain - "kaunsa dropdown badla" guess karne
+            // ki zaroorat nahi.
             if (activeViewLevel === "CIRCLE") {
                 const newDiv = document.getElementById("omvig-circle-division-select")?.value || "";
                 if (newDiv !== omvigFilterDivision) {
-                    omvigFilterDivision = newDiv; omvigFilterDc = ""; omvigFilterStatus = "";
+                    omvigFilterDivision = newDiv;
+                    omvigFilterDc = ""; // scope narrowed/widened -> DC selection reset
                 } else {
-                    const newDc = document.getElementById("omvig-circle-dc-select")?.value || "";
-                    if (newDc !== omvigFilterDc) { omvigFilterDc = newDc; omvigFilterStatus = ""; }
-                    else { omvigFilterStatus = document.getElementById("omvig-circle-status-select")?.value || ""; }
+                    omvigFilterDc = document.getElementById("omvig-circle-dc-select")?.value || "";
                 }
+                omvigFilterStatus = document.getElementById("omvig-circle-status-select")?.value || "";
             } else if (activeViewLevel === "DIVISION") {
-                const newDc = document.getElementById("omvig-division-dc-select")?.value || "";
-                if (newDc !== omvigFilterDc) { omvigFilterDc = newDc; omvigFilterStatus = ""; }
-                else { omvigFilterStatus = document.getElementById("omvig-division-status-select")?.value || ""; }
+                omvigFilterDc = document.getElementById("omvig-division-dc-select")?.value || "";
+                omvigFilterStatus = document.getElementById("omvig-division-status-select")?.value || "";
             } else if (activeViewLevel === "DC") {
                 omvigFilterStatus = document.getElementById("omvig-dc-status-select")?.value || "";
             }
@@ -10675,14 +10700,29 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             };
         }
 
-        function omvigDailyDivisionDcSummaryRows_(dcSummaryMap, divisionName) {
-            return getDivisionDcNames(divisionName).map((dcName) => omvigDailyDcSummaryGroup_(dcSummaryMap, dcName));
+        // USER REQUEST (2026-09-22): Daily (Fast) me row-level "pending" data
+        // client ke paas hoti hi nahi (sirf yesterday ki paid entries row-level
+        // aati hain, speed ke liye poora baseline nahi bhejte) - lekin per-DC
+        // TRUE paidCount/pendingCount dcSummaryMap me already sahi maujood hai.
+        // Isliye Paid/Unpaid filter yahan row-filter se nahi, seedha
+        // dcSummaryMap ke sahi figures dikha/chhupa ke lagta hai - Monthly
+        // (buildOmvigStatusSummaryRow_) jaisa hi: TOTAL = filtered bucket ka
+        // count, doosra bucket 0.
+        function omvigDailyDcSummaryGroupFiltered_(dcSummaryMap, dcName, status) {
+            const base = omvigDailyDcSummaryGroup_(dcSummaryMap, dcName);
+            if (!status) return base;
+            if (status === "PAID") return { ...base, totalCount: base.paidCount, pendingCount: 0, pendingAmount: 0 };
+            return { ...base, totalCount: base.pendingCount, paidCount: 0, paidAmount: 0 };
+        }
+
+        function omvigDailyDivisionDcSummaryRows_(dcSummaryMap, divisionName, status) {
+            return getDivisionDcNames(divisionName).map((dcName) => omvigDailyDcSummaryGroupFiltered_(dcSummaryMap, dcName, status));
         }
 
         // Circle-wide (bina Division filter) DC-wise + per-Division SUB_TOTAL +
         // GRAND_TOTAL - buildOmvigCircleDcWiseSummaryRows_ jaisa hi shape, bas
         // source dcSummaryMap hai (case-level rowsWithStatus nahi).
-        function omvigDailyCircleDcWiseSummaryRows_(dcSummaryMap) {
+        function omvigDailyCircleDcWiseSummaryRows_(dcSummaryMap, status) {
             const emptyGroup = (key) => ({ name: key, totalCount: 0, paidCount: 0, paidAmount: 0, pendingCount: 0, pendingAmount: 0 });
             const withPercents = (g) => ({
                 ...g,
@@ -10692,7 +10732,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             const rows = [];
             const grand = emptyGroup("GRAND TOTAL");
             Object.keys(divisionConfigs).forEach((divisionName) => {
-                const dcRows = getDivisionDcNames(divisionName).map((dcName) => withPercents(omvigDailyDcSummaryGroup_(dcSummaryMap, dcName)));
+                const dcRows = getDivisionDcNames(divisionName).map((dcName) => withPercents(omvigDailyDcSummaryGroupFiltered_(dcSummaryMap, dcName, status)));
                 rows.push(...dcRows);
                 const divTotal = emptyGroup(getDivisionTotalLabel(divisionName));
                 dcRows.forEach((r) => {
@@ -10790,21 +10830,24 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             return summaryHtml + statusSelectHtml + listHtml;
         }
 
+        // USER REQUEST (2026-09-22): Daily (Fast) me bhi Monthly jaisa hi -
+        // Paid/Unpaid dropdown ab DC select kiye BINA kaam karta hai. DC-WISE
+        // SUMMARY (poori Division) ko bhi ab sirf Paid ya sirf Pending tak
+        // filter kar sakte hain, DC chunna zaroori nahi.
         function renderOmvigDailyDivisionLevelHtml_(rowsWithStatus, dcSummaryMap) {
             const dcOptions = getDivisionDcNames(activeDiv).map((n) => ({ value: n, label: n }));
             const dcSelectHtml = omvigFilterSelectHtml_("omvig-division-dc-select", "-- Select DC --", dcOptions, omvigFilterDc);
-            let summaryHtml, statusSelectHtml = "";
+            const statusSelectHtml = omvigFilterSelectHtml_("omvig-division-status-select", "-- Select Paid/Unpaid --", OMVIG_STATUS_OPTIONS_, omvigFilterStatus);
+            const titleSuffix = omvigFilterStatus ? ` - ${omvigFilterStatus}` : "";
+            let summaryHtml;
             if (!omvigFilterDc) {
-                summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", appendOmvigTotalRow_(omvigDailyDivisionDcSummaryRows_(dcSummaryMap, activeDiv)), "DC WISE SUMMARY (AMOUNT IN LAKH)", "YESTERDAY PAID", "PENDING");
+                summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", appendOmvigTotalRow_(omvigDailyDivisionDcSummaryRows_(dcSummaryMap, activeDiv, omvigFilterStatus)), `DC WISE SUMMARY${titleSuffix} (AMOUNT IN LAKH)`, "YESTERDAY PAID", "PENDING");
+            } else if (!omvigFilterStatus) {
+                summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [omvigDailyDcSummaryGroup_(dcSummaryMap, omvigFilterDc)], "DC SUMMARY (AMOUNT IN LAKH)", "YESTERDAY PAID", "PENDING");
             } else {
                 const dcRows = rowsWithStatus.filter((r) => normalizeDcName(r.dc_name) === normalizeDcName(omvigFilterDc));
-                statusSelectHtml = omvigFilterSelectHtml_("omvig-division-status-select", "-- Select Paid/Unpaid --", OMVIG_STATUS_OPTIONS_, omvigFilterStatus);
-                if (!omvigFilterStatus) {
-                    summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [omvigDailyDcSummaryGroup_(dcSummaryMap, omvigFilterDc)], "DC SUMMARY (AMOUNT IN LAKH)", "YESTERDAY PAID", "PENDING");
-                } else {
-                    const filteredRows = filterOmvigRowsByStatus_(dcRows, omvigFilterStatus);
-                    summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [buildOmvigStatusSummaryRow_(filteredRows, omvigFilterDc, omvigFilterStatus)], `DC SUMMARY - ${omvigFilterStatus} (AMOUNT IN LAKH)`, "YESTERDAY PAID", "PENDING");
-                }
+                const filteredRows = filterOmvigRowsByStatus_(dcRows, omvigFilterStatus);
+                summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [buildOmvigStatusSummaryRow_(filteredRows, omvigFilterDc, omvigFilterStatus)], `DC SUMMARY - ${omvigFilterStatus} (AMOUNT IN LAKH)`, "YESTERDAY PAID", "PENDING");
             }
             return summaryHtml + dcSelectHtml + statusSelectHtml;
         }
@@ -10812,23 +10855,22 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         function renderOmvigDailyCircleLevelHtml_(rowsWithStatus, dcSummaryMap) {
             const divOptions = Object.keys(divisionConfigs).map((n) => ({ value: n, label: n.replace(/^DIVISION\s+/i, "") }));
             const divSelectHtml = omvigFilterSelectHtml_("omvig-circle-division-select", "-- Select Division --", divOptions, omvigFilterDivision);
-            let summaryHtml, dcSelectHtml = "", statusSelectHtml = "";
+            const statusSelectHtml = omvigFilterSelectHtml_("omvig-circle-status-select", "-- Select Paid/Unpaid --", OMVIG_STATUS_OPTIONS_, omvigFilterStatus);
+            const titleSuffix = omvigFilterStatus ? ` - ${omvigFilterStatus}` : "";
+            let summaryHtml, dcSelectHtml = "";
             if (!omvigFilterDivision) {
-                summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", omvigDailyCircleDcWiseSummaryRows_(dcSummaryMap), "DC WISE SUMMARY (AMOUNT IN LAKH)", "YESTERDAY PAID", "PENDING");
+                summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", omvigDailyCircleDcWiseSummaryRows_(dcSummaryMap, omvigFilterStatus), `DC WISE SUMMARY${titleSuffix} (AMOUNT IN LAKH)`, "YESTERDAY PAID", "PENDING");
             } else {
                 const dcOptions = getDivisionDcNames(omvigFilterDivision).map((n) => ({ value: n, label: n }));
                 dcSelectHtml = omvigFilterSelectHtml_("omvig-circle-dc-select", "-- Select DC --", dcOptions, omvigFilterDc);
                 if (!omvigFilterDc) {
-                    summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", appendOmvigTotalRow_(omvigDailyDivisionDcSummaryRows_(dcSummaryMap, omvigFilterDivision)), "DC-WISE SUMMARY (AMOUNT IN LAKH)", "YESTERDAY PAID", "PENDING");
+                    summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", appendOmvigTotalRow_(omvigDailyDivisionDcSummaryRows_(dcSummaryMap, omvigFilterDivision, omvigFilterStatus)), `DC-WISE SUMMARY${titleSuffix} (AMOUNT IN LAKH)`, "YESTERDAY PAID", "PENDING");
+                } else if (!omvigFilterStatus) {
+                    summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [omvigDailyDcSummaryGroup_(dcSummaryMap, omvigFilterDc)], "DC SUMMARY (AMOUNT IN LAKH)", "YESTERDAY PAID", "PENDING");
                 } else {
                     const dcRows = rowsWithStatus.filter((r) => normalizeDcName(r.dc_name) === normalizeDcName(omvigFilterDc));
-                    statusSelectHtml = omvigFilterSelectHtml_("omvig-circle-status-select", "-- Select Paid/Unpaid --", OMVIG_STATUS_OPTIONS_, omvigFilterStatus);
-                    if (!omvigFilterStatus) {
-                        summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [omvigDailyDcSummaryGroup_(dcSummaryMap, omvigFilterDc)], "DC SUMMARY (AMOUNT IN LAKH)", "YESTERDAY PAID", "PENDING");
-                    } else {
-                        const filteredRows = filterOmvigRowsByStatus_(dcRows, omvigFilterStatus);
-                        summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [buildOmvigStatusSummaryRow_(filteredRows, omvigFilterDc, omvigFilterStatus)], `DC SUMMARY - ${omvigFilterStatus} (AMOUNT IN LAKH)`, "YESTERDAY PAID", "PENDING");
-                    }
+                    const filteredRows = filterOmvigRowsByStatus_(dcRows, omvigFilterStatus);
+                    summaryHtml = renderFreezeGroupSummaryTableHtml("DC NAME", [buildOmvigStatusSummaryRow_(filteredRows, omvigFilterDc, omvigFilterStatus)], `DC SUMMARY - ${omvigFilterStatus} (AMOUNT IN LAKH)`, "YESTERDAY PAID", "PENDING");
                 }
             }
             return summaryHtml + divSelectHtml + dcSelectHtml + statusSelectHtml;
