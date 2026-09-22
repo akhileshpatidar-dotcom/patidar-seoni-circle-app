@@ -3968,7 +3968,31 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // ("PAID (DD/MM/YYYY)") - isliye har consumer ka SABSE HALIYA (latest)
         // payment date bhi yahin track karte hain (jaisa amount ko sum karte
         // hain, date me sabse aage wali date rakhte hain).
+        // PERF FIX (2026-09-22, USER-REPORTED slowness): pehle yeh function har
+        // baar (Freeze Report screen ke HQ/Village/Category/Slab/Govt/Payment
+        // filter dropdown badalte hi, aur alag se Excel/PDF download button
+        // dabate hi - onclick me seedha computeRevenueFreezeReportData() dobara
+        // call hota hai) SAARI DC ki PURI payment history (getRevenueCategory-
+        // PaymentSourceRows() - mahino ki saari cash-list/upload rows, saari 24
+        // DC milakar) processed karke poora index dobara banata tha - is DC-list
+        // filter se koi lena dena na hone ke bawajood (yeh sirf latest-paid-
+        // amount/date per (DC+IVRS) hai, freezeDateIso param bhi kabhi use hi
+        // nahi hota tha). Bade circle-level NP3/NP6/SinceConnection (50,000+
+        // rows) me yeh baar-baar ka rebuild hi 2-3 minute laga deta tha - screen
+        // par summary dikhne ke baad bhi download dabane par WAHI poora kaam
+        // dobara hota tha. Fix: is index ko cache kar lete hain, aur sirf tabhi
+        // dobara banate hain jab underlying payment source data (raw cache ya
+        // uploaded-paid cache) waqai badla ho (naya reference) - warna cached
+        // result turant return. Baaki poora logic/output bilkul unchanged hai,
+        // sirf repeat calls ab free hain.
+        let revenueFreezePaidIndexCache_ = { rawRef: null, uploadedRef: null, index: null };
         function buildRevenueFreezePaidIndex(freezeDateIso) {
+            const rawRef = getRevenueCategoryRawPaymentRows();
+            const uploadedRef = getRevenueUploadedPaidCache();
+            const cached = revenueFreezePaidIndexCache_;
+            if (cached.index && cached.rawRef === rawRef && cached.uploadedRef === uploadedRef) {
+                return cached.index;
+            }
             const idx = {};
             getRevenueCategoryPaymentSourceRows().forEach((row) => {
                 const dc = getRevenueUploadedPaidRowDcName(row);
@@ -3984,6 +4008,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     if (newKey && (!oldKey || newKey > oldKey)) idx[key].lastPaidDate = rowDate;
                 }
             });
+            revenueFreezePaidIndexCache_ = { rawRef, uploadedRef, index: idx };
             return idx;
         }
 
