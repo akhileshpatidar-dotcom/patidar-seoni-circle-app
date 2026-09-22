@@ -4249,7 +4249,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // shared builder/renderer hai jo Live Non-Payee report aur Freeze Report
         // (NP3/NP6/Since Connection categories) dono me reuse hota hai - caller
         // sirf normalizedRows [{dcName, hqName, pendingAmount}] pass karta hai.
-        function buildRevenueNonPayeeGroupSummary(normalizedRows) {
+        function buildRevenueNonPayeeGroupSummary(normalizedRows, selectedDc) {
             const sumByKey = (list, keyFn) => {
                 const map = {};
                 (list || []).forEach((r) => {
@@ -4272,7 +4272,18 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             // Circle hamesha chal jaate the. Ab yahin ek local helper define kar diya.
             const normalizeHqNameLocal_ = (value) => String(value || "GENERAL").trim().toUpperCase() || "GENERAL";
 
-            if (activeViewLevel === "DC") {
+            // ISOLATED FIX (2026-09-22, USER-REPORTED): Division/Circle level par jab
+            // "All DC" dropdown se ek specific DC chun liya jaata tha, "normalizedRows"
+            // (jo caller pehle se hi is DC tak filter karke bhejta hai) to sahi tha,
+            // lekin neeche CIRCLE/DIVISION branch hamesha apni Division/Circle ki
+            // SAARI DC names ki list par map banata tha (isliye sirf selected DC ka
+            // data dikhta tha, baaki 23 DC "0" ke saath dikhti thin - ek single DC
+            // row, HQ-wise breakdown kabhi nahi) - aur download bhi isi (shared)
+            // function se banta hai, isliye wahan bhi yahi problem thi. Ab jab koi
+            // specific DC select ho (activeViewLevel DC na ho tab bhi), DC-level jaisa
+            // hi HQ-wise summary banate hain - jaisa app ke baaki reports (Category
+            // Wise/HQ-Village) me DC select karne par hota hai.
+            if (activeViewLevel === "DC" || selectedDc) {
                 const map = sumByKey(normalizedRows, (r) => normalizeHqNameLocal_(r.hqName) || "GENERAL");
                 const rows = Object.values(map).sort((a, b) => String(a.name).localeCompare(String(b.name)));
                 return { colLabel: revenueHqLabelUpper(), rows };
@@ -4589,7 +4600,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         }
 
         function renderRevenueNonPayeeGroupSummaryHtml(normalizedRows) {
-            const summary = buildRevenueNonPayeeGroupSummary(normalizedRows);
+            const summary = buildRevenueNonPayeeGroupSummary(normalizedRows, progressNonPayeeFilterState.dc);
             let html = `<div style="font-size:0.62rem; font-weight:900; color:#9f1239; text-align:center; margin-top:10px;">${escapeHtml(summary.colLabel)} WISE SUMMARY</div>
                 <div class="summary-wrapper" style="margin-top:6px;"><div class="summary-table-header" style="grid-template-columns: 1.5fr 0.75fr 1fr;"><div>${escapeHtml(summary.colLabel)}</div><div>COUNT</div><div>PENDING</div></div>`;
             if (!summary.rows.length) {
@@ -6271,7 +6282,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 const { mode, filterValue } = lastRevenueProgressBoxData;
                 const { rows } = getProgressNonPayeeFilteredRows(mode || "DAILY", filterValue || "", bucket);
                 if (!rows.length) { setProgressCategoryDownloadState(false, "Download ke liye data nahi hai"); return; }
-                const summary = buildRevenueNonPayeeGroupSummary(rows);
+                const summary = buildRevenueNonPayeeGroupSummary(rows, progressNonPayeeFilterState.dc);
                 const headers = [summary.colLabel, "TOTAL CONSUMER", "PENDING AMOUNT"];
                 const bodyRows = summary.rows.map((r) => [r.name, r.count, formatProgressReportAmount(r.pendingTotal)]);
                 const rowTypeFlags = summary.rows.map((r) => (r.type === "GRAND_TOTAL" ? 2 : (r.type === "SUB_TOTAL" ? 1 : 0)));
