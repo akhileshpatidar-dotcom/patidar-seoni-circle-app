@@ -2817,7 +2817,24 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         async function ensureRevenueCategoryMasterDataLoadedStrict_(dcNames) {
             const list = Array.from(new Set((dcNames || []).map((name) => normalizeDcName(name)).filter(Boolean)));
             await ensureRevenueCategoryMasterDataLoaded(list);
-            const failedDcs = list.filter((dcName) => !getConsumerRows(dcName).length);
+            // ISOLATED FIX (2026-09-22, USER-REPORTED): kuch DC (jinka Master
+            // Consumer Data Google Sheet link app.js me abhi set hi nahi hai -
+            // naya DC, data abhi taiyar ho raha hai) permanently is strict check
+            // me fail hote the - baar-baar Retry karne par bhi kabhi load nahi
+            // hote (yeh network/transient issue nahi, config hi missing hai). Ab
+            // aisi DC ko is error me shaamil NAHI karte - report un DC ko
+            // zero/incomplete data ke saath dikha degi (jaisa consumer-master
+            // wali baaki DC ke liye csvUrl khaali hone par pehle se hota tha),
+            // poori report block nahi hogi. SIRF un DC ko ab bhi strict error me
+            // rakhte hain jinka csvUrl SET hai lekin fetch fir bhi fail hua (asli
+            // network/transient failure) - unke liye 2026-09-17 wala original
+            // strict-error behavior bilkul waisa hi rehta hai, kyunki wahi is
+            // check ka asli maqsad tha (chuppe se galat/adhura total na dikhe).
+            const failedDcs = list.filter((dcName) => {
+                if (getConsumerRows(dcName).length) return false;
+                const config = getDcConfigByName(dcName);
+                return !!(config && config.csvUrl);
+            });
             if (failedDcs.length) {
                 const error = new Error(`Master consumer data load nahi ho paya in DC ke liye: ${failedDcs.join(", ")}`);
                 error.failedDcs = failedDcs;
@@ -2900,7 +2917,24 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 }
                 return;
             }
-            if (!revenueCategoryList.includes(category)) return;
+            // ISOLATED FIX (2026-09-22, USER-REPORTED): legacy (non-reconciled)
+            // path me pehle "category revenueCategoryList (LV1-LV5) me nahi hai to
+            // consumer ko bilkul chhod do (return)" tha - is wajah se aisa consumer
+            // group.__uniqueMasterCount me gin liya jaata tha (upar hamesha count
+            // hota hai) lekin paidTotal/unpaidTotal me kabhi nahi - isliye download
+            // ke waqt "Paid+Unpaid Unique Master Consumer se match nahi kar raha"
+            // wala invariant-mismatch error aata tha un DC ke liye jinke Master
+            // Consumer list me kisi consumer ki tariff category khaali/anjaani ho.
+            // Fix: reconciled path (upar) jaisa hi - anjaani/khaali category ko
+            // "OTHER" bucket me daalte hain (LV1-LV5 column layout bilkul unchanged
+            // rehta hai, sirf internal totals me consumer count hota hai) - ab
+            // consumer kabhi silently drop nahi hota, invariant hamesha match
+            // karega. Payment-matching business rules (LV5/AG vs normal check,
+            // partial-payment remainder logic) bilkul unchanged - sirf jahan
+            // consumer ki apni category se bucket likha jaata hai wahi "OTHER"
+            // fallback use karte hain.
+            const bucketCategory = revenueCategoryList.includes(category) ? category : "OTHER";
+            if (!group.categories[bucketCategory]) group.categories[bucketCategory] = { paid: 0, unpaid: 0, paidAmount: 0, unpaidAmount: 0 };
             const paidCountKey = `${normalizeRevenueUploadedPaidInfoSourceSignature(paidInfo)}|${ivrs}`;
             if (paidInfo && paidCountedIvrsSet?.has(paidCountKey)) return;
             const sourceCategoryPaidInfos = getRevenueCategoryPaidInfosBySourceCategory(paidInfo);
@@ -2916,8 +2950,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 paidCountedIvrsSet?.add(paidCountKey);
                 const remainingAfterPaid = dueAmount - paidThisConsumer;
                 if (remainingAfterPaid > 0) {
-                    group.categories[category].unpaid += 1;
-                    group.categories[category].unpaidAmount += remainingAfterPaid;
+                    group.categories[bucketCategory].unpaid += 1;
+                    group.categories[bucketCategory].unpaidAmount += remainingAfterPaid;
                     group.unpaidTotal += 1;
                     group.unpaidAmountTotal += remainingAfterPaid;
                 }
@@ -2928,23 +2962,23 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             if (legacyPaidInfo) {
                 const paidAmount = parseRevenuePaidAmount(legacyPaidInfo.amount || 0) || dueAmount;
                 const paidCount = Math.max(1, Number(legacyPaidInfo.count || legacyPaidInfo.payment_count || legacyPaidInfo.paymentCount || 1));
-                group.categories[category].paid += paidCount;
-                group.categories[category].paidAmount += paidAmount;
+                group.categories[bucketCategory].paid += paidCount;
+                group.categories[bucketCategory].paidAmount += paidAmount;
                 group.paidTotal += paidCount;
                 group.paidAmountTotal += paidAmount;
                 paidCountedIvrsSet?.add(paidCountKey);
                 const remainingAfterPaid = dueAmount - paidAmount;
                 if (remainingAfterPaid > 0) {
-                    group.categories[category].unpaid += 1;
-                    group.categories[category].unpaidAmount += remainingAfterPaid;
+                    group.categories[bucketCategory].unpaid += 1;
+                    group.categories[bucketCategory].unpaidAmount += remainingAfterPaid;
                     group.unpaidTotal += 1;
                     group.unpaidAmountTotal += remainingAfterPaid;
                 }
                 return;
             }
 
-            group.categories[category].unpaid += 1;
-            group.categories[category].unpaidAmount += dueAmount;
+            group.categories[bucketCategory].unpaid += 1;
+            group.categories[bucketCategory].unpaidAmount += dueAmount;
             group.unpaidTotal += 1;
             group.unpaidAmountTotal += dueAmount;
         }
@@ -6578,6 +6612,22 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             // Each report gets its own IDs. Earlier, two reports loading at once
             // could both find the same global ID and update the wrong progress bar.
             const instanceId = `sync-progress-${++syncingProgressSequence_}`;
+            // ISOLATED ADDITION (2026-09-22, USER-REPORTED, AI-Studio suggestion
+            // Solution 1 + Solution 3): 99% par lambi der tak simulated progress
+            // atakne se user ko "app hang ho gaya" lagta tha aur woh Back dabakar
+            // beech me hi nikal jaata - jabki asal me sirf backend se bada data
+            // (jaise Circle-level ke 24 DC) fetch/calculate hone me kuch second
+            // lagte hain. Do naye, chhote, generic (kisi bhi module - Revenue/
+              // O&M/Stock/SHMS - sab me sahi lagne wale) additions:
+            // (a) live "stage" text jo % ke hisaab se badalta hai, 90%+ par saaf
+            //     bata deta hai "Back na karein, chal raha hai";
+            // (b) asli elapsed-seconds ka ticking timer (fake % ka drama nahi,
+            //     seedha real waqt) - user ko dikhta hai ki system zinda hai.
+            // Dono purane label/subLabel/fill/text elements ko bilkul nahi
+            // chhedte - sirf niche do naye <p> jodte hain, isliye koi bhi
+            // maujooda 23 call-site (jo bina in naye params ke bhi call karte
+            // hain) bilkul waise hi chalti rahengi, kuch todega nahi.
+            const startedAtMs_ = Date.now();
             cont.innerHTML = `
                 <div class="text-center py-10">
                     <p class="font-black text-slate-500" style="font-size:0.85rem;">${escapeHtml(label)}</p>
@@ -6587,6 +6637,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                         <div id="${instanceId}-fill" style="height:100%; width:2%; background:linear-gradient(90deg,#0d9488,#0f766e); border-radius:999px; transition:width 0.25s ease;"></div>
                     </div>
                     <p id="${instanceId}-text" class="font-bold text-slate-400" style="font-size:0.72rem; margin-top:6px;">2%</p>
+                    <p id="${instanceId}-stage" class="font-bold" style="font-size:0.62rem; margin-top:5px; color:#0d9488; min-height:14px;"></p>
+                    <p id="${instanceId}-timer" class="font-bold text-slate-400" style="font-size:0.6rem; margin-top:1px;"></p>
                 </div>
             `;
             let percent = 2;
@@ -6620,6 +6672,23 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 const atCeiling = displayed >= 99;
                 fill.classList.toggle("sync-progress-pulse", atCeiling);
                 text.classList.toggle("sync-progress-pulse", atCeiling);
+                // ISOLATED ADDITION (2026-09-22) - stage text + real-second timer,
+                // dono purane fill/text logic se bilkul alag/independent hain.
+                const stageEl = cont.querySelector(`#${instanceId}-stage`);
+                if (stageEl) {
+                    stageEl.innerText = displayed < 30
+                        ? "🌐 Server se connect ho raha hai..."
+                        : displayed < 65
+                        ? "📊 Data fetch ho raha hai..."
+                        : displayed < 90
+                        ? "⚡ Data process/calculate ho raha hai..."
+                        : "⏳ Data taiyar ho raha hai — kripya thodi der wait karein, Back na karein...";
+                }
+                const timerEl = cont.querySelector(`#${instanceId}-timer`);
+                if (timerEl) {
+                    const elapsedSec_ = Math.max(0, Math.floor((Date.now() - startedAtMs_) / 1000));
+                    timerEl.innerText = `⏱️ ${elapsedSec_}s`;
+                }
             }, 200);
             // Caller ko finish() call karna chahiye jab actual data/display ready ho jaaye -
             // usi waqt 100% dikhega, uske baad content swap karo. stop() error/cancel case ke liye
@@ -6637,6 +6706,12 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                         fill.style.width = "100%";
                         text.innerText = "100%";
                     }
+                    // ISOLATED ADDITION (2026-09-22): finish hote hi stage/timer text
+                    // clear - "100%" ke saath purana stage message chipka na rahe.
+                    const stageEl = cont.querySelector(`#${instanceId}-stage`);
+                    const timerEl = cont.querySelector(`#${instanceId}-timer`);
+                    if (stageEl) stageEl.innerText = "";
+                    if (timerEl) timerEl.innerText = "";
                     setTimeout(resolve, 220);
                 }),
                 stop: () => {
