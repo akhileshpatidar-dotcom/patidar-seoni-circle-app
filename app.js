@@ -38,18 +38,17 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 showSpecialActions: true,
                 subDnOrder: ["CHHAPARA", "LAKHNADON"],
                 dcs: [
-                    // ISOLATED FIX (2026-09-22, USER-REQUESTED): "ADEGAON" DC ko yahan se
-                    // hata diya gaya hai - is DC me koi staff kaam nahi karta, aur iski
-                    // master-consumer Google Sheet (jo pehle app banate waqt test/legacy
-                    // data se bhari thi) ab user ne khaali kar di hai (sirf header row,
-                    // koi consumer row nahi). Isi wajah se yeh DC "csvUrl set hai lekin
-                    // 0 rows" wali category me aa gayi thi (Fix #1 ke logic me yeh un
-                    // 11 "abhi tak live nahi" DC jaisi nahi thi, jinka csvUrl khaali
-                    // hota hai) - isliye Circle ki "Category Wise"/"Target vs
-                    // Achievement" report phir se block ho rahi thi. Yeh DC yahan se
-                    // hatne ke baad "DIVISION LAKHNADON" me 9 ki jagah 8 DC rahengi,
-                    // aur har jagah (dropdown, reports, staff panel, admin) se yeh
-                    // ab dikhna band ho jayegi - jaisa 24 se ab 23 live DC.
+                    // ISOLATED FIX (2026-09-22, USER-REQUESTED - REVISED): "ADEGAON" ko
+                    // poori tarah list se hatane ki jagah (jaisa pehle is fix me kiya
+                    // gaya tha), ab baaki 11 "abhi tak live nahi" DC (ARI, BADALPAR,
+                    // BANDOL, DHARNA, GOPALGANJ, KANHIWADA, KEOLARI, KHAIRAPALARI,
+                    // MUNGWANI, PANDIYA CHHAPARA, UGALI) jaisa hi treat kiya - DC yahan
+                    // dropdown/list/app me dikhti rahegi (jaisa baaki jagah dikhti hai),
+                    // sirf uska csvUrl khaali kar diya (user ne is DC ki master-consumer
+                    // Google Sheet khaali kar di hai - koi staff kaam nahi karta yahan).
+                    // Isse Fix #1 ka wahi logic lagu hoga: reports block nahi hongi,
+                    // is DC ka data zero dikhega, naam list me bana rahega.
+                    { name: "ADEGAON", subDn: "LAKHNADON", csvUrl: "" },
                     { name: "CHHAPARA-1", subDn: "CHHAPARA", csvUrl: "https://docs.google.com/spreadsheets/d/1ehSaUQyrV1ZzwH0lbdhLdXRYkPdapdm5hhu0Gz0vulk/export?format=csv&gid=0" },
                     { name: "CHHAPARA-2", subDn: "CHHAPARA", csvUrl: "https://docs.google.com/spreadsheets/d/1TvhGlARSxZVMq5GYDZEGAHuV6vBXRKxe_nMun4dUby0/export?format=csv&gid=0" },
                     { name: "DHANORA", subDn: "LAKHNADON", csvUrl: "https://docs.google.com/spreadsheets/d/1qNgLx9o6hp4nwLGaCwy5DRW8xmh6eaNCoysbbH5bL1o/export?format=csv&gid=0" },
