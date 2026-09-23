@@ -6686,17 +6686,31 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             // maujooda 23 call-site (jo bina in naye params ke bhi call karte
             // hain) bilkul waise hi chalti rahengi, kuch todega nahi.
             const startedAtMs_ = Date.now();
+            // BUG FIX (2026-09-23, USER-REPORTED - "syncing text left ho gaya"): yeh
+            // poora block "text-center" (Tailwind CDN, cdn.tailwindcss.com) class par
+            // depend karta tha center-alignment ke liye. Tailwind CDN ek RUNTIME JIT hai -
+            // yeh page load ke baad DOM me naye class dikhte hi on-the-fly CSS generate
+            // karta hai. Yeh progress-box har report ke liye baar-baar (kabhi-kabhi turant
+            // ek ke baad ek) innerHTML se poora naya banta/hatता hai - kai mobile/dheeme
+            // devices par Tailwind CDN itni jaldi-jaldi naye "text-center" ko process
+            // nahi kar paata (ya poori tarah miss kar deta hai), isliye text left-aligned
+            // reh jaata tha (sirf spinner/progress-bar apne khud ke inline "margin:auto"
+            // se sahi/center rehte the - isliye user ko laga "sirf spinner sahi hai, baaki
+            // sab left ho gaya"). Fix: "text-center" class hataye bina, seedha inline
+            // style="text-align:center" bhi laga diya - yeh HAMESHA turant kaam karta hai,
+            // Tailwind CDN ke generate hone ka wait nahi karna padta, kisi bhi
+            // mobile/browser/speed par bilkul reliable center dikhega.
             cont.innerHTML = `
-                <div class="text-center py-10">
-                    <p class="font-black text-slate-500" style="font-size:0.85rem;">${escapeHtml(label)}</p>
-                    ${subLabel ? `<p class="font-bold text-slate-400" style="font-size:0.66rem; margin-top:3px;">${escapeHtml(subLabel)}</p>` : ""}
+                <div class="text-center py-10" style="text-align:center;">
+                    <p class="font-black text-slate-500" style="font-size:0.85rem; text-align:center;">${escapeHtml(label)}</p>
+                    ${subLabel ? `<p class="font-bold text-slate-400" style="font-size:0.66rem; margin-top:3px; text-align:center;">${escapeHtml(subLabel)}</p>` : ""}
                     <div class="app-sync-spinner"></div>
                     <div style="max-width:220px; margin:14px auto 0; background:#e2e8f0; border-radius:999px; height:8px; overflow:hidden;">
                         <div id="${instanceId}-fill" style="height:100%; width:2%; background:linear-gradient(90deg,#0d9488,#0f766e); border-radius:999px; transition:width 0.25s ease;"></div>
                     </div>
-                    <p id="${instanceId}-text" class="font-bold text-slate-400" style="font-size:0.72rem; margin-top:6px;">2%</p>
-                    <p id="${instanceId}-stage" class="font-bold" style="font-size:0.62rem; margin-top:5px; color:#0d9488; min-height:14px;"></p>
-                    <p id="${instanceId}-timer" class="font-bold text-slate-400" style="font-size:0.6rem; margin-top:1px;"></p>
+                    <p id="${instanceId}-text" class="font-bold text-slate-400" style="font-size:0.72rem; margin-top:6px; text-align:center;">2%</p>
+                    <p id="${instanceId}-stage" class="font-bold" style="font-size:0.62rem; margin-top:5px; color:#0d9488; min-height:14px; text-align:center;"></p>
+                    <p id="${instanceId}-timer" class="font-bold text-slate-400" style="font-size:0.6rem; margin-top:1px; text-align:center;"></p>
                 </div>
             `;
             let percent = 2;
