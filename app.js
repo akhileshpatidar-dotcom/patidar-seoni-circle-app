@@ -10019,7 +10019,45 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 if (parsed.status !== "success") throw new Error(parsed.message || "Upload fail ho gaya");
                 setActionButtonState(uploadBtn, "done", "Upload Paid List");
                 showToast(parsed.message || "Paid list upload ho gayi", true);
-                if (statusBox) statusBox.innerHTML = `<div style="text-align:center; font-size:0.78rem; font-weight:900; color:#166534;">✅ ${parsed.matched} matched, ${parsed.unmatched} unmatched, ${parsed.skipped_duplicate} duplicate skip.<br><span style="font-weight:700; color:#334155;">DC tabs updated: ${(parsed.dc_tabs_updated || []).join(", ") || "-"}</span></div>`;
+                // BUG FIX (2026-09-23, USER-REPORTED - "summary samajh nahi aa raha"):
+                // pehle sirf raw "X matched, Y unmatched, Z duplicate skip" ek line me
+                // dikhta tha - na yeh bataya jaata tha "matched/unmatched" ka matlab kya
+                // hai, na "duplicate skip" (jo bilkul NORMAL/safe hai, koi problem nahi)
+                // alarming kyu nahi hai, aur "nayi entry bani" wala breakdown (kitni
+                // rows WAKAI is baar pehli baar add hui vs kitni pehle se maujood thi)
+                // yahan bilkul nahi dikhta tha (sirf upar wali "Last Upload" line me
+                // dikhta tha - do alag boxes me do alag level ka detail, isliye confusing
+                // lagta tha). Ab ek hi jagah, plain language me, poora breakdown:
+                // total rows, DC-match hui vs nahi hui, un dono me se kitni NAYI vs
+                // kitni PEHLE-SE-MAUJOOD (isiliye skip hui) - dono field already
+                // backend response (parsed.new_matched/new_unmatched) me aate hain,
+                // bas ab yahan dikhaye ja rahe hain.
+                if (statusBox) {
+                    const totalRows = (parsed.matched || 0) + (parsed.unmatched || 0);
+                    const newMatched = parsed.new_matched ?? 0;
+                    const newUnmatched = parsed.new_unmatched ?? 0;
+                    const oldMatched = Math.max(0, (parsed.matched || 0) - newMatched);
+                    const oldUnmatched = Math.max(0, (parsed.unmatched || 0) - newUnmatched);
+                    const unmatchedBlock = parsed.unmatched
+                        ? `<div style="margin-top:8px; padding:9px 11px; background:#fff7ed; border:1.2px solid #fdba74; border-radius:12px; text-align:left;">
+                                <div style="color:#9a3412; font-weight:950; font-size:0.72rem;">⚠️ ${parsed.unmatched} rows ka DC pata NAHI chala</div>
+                                <div style="font-weight:700; color:#78350f; font-size:0.66rem; margin-top:3px;">In rows ka Panchanama No "Pending List" me nahi mila. Inme se ${newUnmatched} row${newUnmatched === 1 ? "" : "s"} pehli baar "UNMATCHED" list me daali gayi${oldUnmatched ? `, baaki ${oldUnmatched} pehle se wahi thi` : ""}. Kripya Panchanama No dobara check kar lijiye.</div>
+                            </div>`
+                        : "";
+                    statusBox.innerHTML = `
+                        <div style="text-align:center; padding:10px 12px; background:#f0fdf4; border:1.2px solid #86efac; border-radius:12px;">
+                            <div style="font-size:0.85rem; font-weight:950; color:#166534;">✅ Upload Safal Raha</div>
+                            <div style="font-size:0.68rem; font-weight:700; color:#475569; margin-top:4px;">File me total ${totalRows} rows thi</div>
+                        </div>
+                        <div style="margin-top:8px; padding:9px 11px; background:#eff6ff; border:1.2px solid #93c5fd; border-radius:12px; text-align:left;">
+                            <div style="color:#1d4ed8; font-weight:950; font-size:0.72rem;">🟢 ${parsed.matched} rows ka DC sahi match hua</div>
+                            <div style="font-weight:700; color:#334155; font-size:0.66rem; margin-top:3px;">Inme se ${newMatched} row${newMatched === 1 ? "" : "s"} NAYI thi (is baar pehli baar DC list me jud gayi)${oldMatched ? `, baaki ${oldMatched} pehle se maujood thi (dobara upload hone se skip ho gayi - koi problem nahi, data surakshit hai)` : ""}.</div>
+                        </div>
+                        ${unmatchedBlock}
+                        <div style="margin-top:8px; font-size:0.62rem; font-weight:700; color:#64748b; text-align:center; line-height:1.5;">ℹ️ Total ${parsed.skipped_duplicate} rows pehle se system me maujood thi, isliye dobara count NAHI hui (yeh normal hai - dobara upload karne par purani entry dobara nahi judti, kisi bhi tarah ka data loss ya galti nahi hai).</div>
+                        <div style="margin-top:8px; font-size:0.7rem; font-weight:850; color:#334155; text-align:center;">DC tabs updated:<br><span style="font-weight:700;">${(parsed.dc_tabs_updated || []).join(", ") || "-"}</span></div>
+                    `;
+                }
                 omvigPendingCache_ = {}; omvigPaidCache_ = {}; omvigReportCache_ = null; omvigFreezeStatusCache_ = null; omvigDailyReportCache_ = null;
                 if (fileInput) fileInput.value = "";
                 const nameBox = document.getElementById("omvig-paid-file-name");
