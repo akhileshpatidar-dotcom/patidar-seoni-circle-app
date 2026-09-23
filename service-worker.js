@@ -10,7 +10,7 @@
 // no-network me bhi app khule (blank error page na aaye) — data submit/search
 // tab bhi network hi maangega, jaisa aaj hai.
 
-const CACHE_VERSION = "seoni-app-shell-v2";
+const CACHE_VERSION = "seoni-app-shell-v3";
 
 const SHELL_FILES = [
     "./index.html",
@@ -89,7 +89,14 @@ function isDataRequest(url) {
 }
 
 function isNetworkFirstFile(url) {
-    return NETWORK_FIRST_FILES.some((suffix) => url.endsWith(suffix));
+    // BUG FIX (2026-09-23, USER-REPORTED - iPhone par naya update nahi dikha):
+    // index.html app.js ko "app.js?v=..." (query ke saath) load karta hai, isliye
+    // pehle url.endsWith("/app.js") kabhi match nahi hota tha aur app.js galti se
+    // CACHE-FIRST ban jaata tha - purani cached copy hi chalti rehti thi (khaaskar
+    // iPhone/Safari par). Ab query-string hata kar sirf path match karte hain.
+    let path = url;
+    try { path = new URL(url).pathname; } catch (_) {}
+    return NETWORK_FIRST_FILES.some((suffix) => path.endsWith(suffix));
 }
 
 self.addEventListener("fetch", (event) => {
