@@ -5146,7 +5146,19 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             // List, Non-Payee 3M/6M/Since-Connection, Top Defaulters - inn sabhi
             // reports ka apna khud ka koi code yahan CHHUA nahi gaya) bilkul
             // unchanged rehte hue bhi sahi kaam karte rahein.
-            const reconciliation = revenueCategoryReconciliationCache_.get(`${mode}|${filterValue}`);
+            // BUG FIX (2026-09-23, SELF-CAUGHT during live verification): upar ka fix
+            // (ensureRevenueCategoryReconciliationLoaded ka cacheKey ab "mode|filterValue|
+            // dcList" hai, scope-blind bug thik karne ke liye) laga to diya gaya tha, lekin
+            // yeh function (buildRevenueCategoryUploadedPaidInfo) SEEDHA usi Map ko PURANE
+            // "mode|filterValue" key se read kar raha tha - jo ab kabhi match hi nahi karta
+            // (kyunki asal me store "mode|filterValue|dcList" key se hota hai). Isse
+            // reconciliation hamesha "not found" maan liya jaata, aur PAID hamesha 0 dikhta
+            // tha (Category Wise/Target vs Achievement/HQ-Village/Top-Defaulters sabhi me) -
+            // chahe backend me data ho bhi. Fix: yahan bhi wahi dcList-included key banate
+            // hain jo ensureRevenueCategoryReconciliationLoaded banata hai, taaki dono jagah
+            // EXACT SAME key ho aur cache hit ho sake.
+            const dcListForLookup_ = Array.from(new Set(getRevenueCategoryTargetDcs().map((dcName) => normalizeDcName(dcName)).filter(Boolean))).sort();
+            const reconciliation = revenueCategoryReconciliationCache_.get(`${mode}|${filterValue}|${dcListForLookup_.join(",")}`);
             if (reconciliation && reconciliation.supported) {
                 const paidInfoByDc = {};
                 reconciliation.byKey.forEach((info, key) => {
