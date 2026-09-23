@@ -3668,6 +3668,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             if (cat === "SINCE_CONNECTION") return "Non Payee From Date of Connection";
             if (cat === "TOP20") return "Top 20 Defaulters";
             if (cat === "TOP50") return "Top 50 Defaulters";
+            if (cat === "ARREARS_1L") return "Arrears Above 1 Lakh"; // ISOLATED ADDITION (2026-09-23)
             return "Non Payee From 3 Month";
         }
 
@@ -4123,6 +4124,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         }
 
         async function loadRevenueProgressFreezeData() {
+            // ISOLATED ADDITION (2026-09-23): Arrears Above 1 Lakh ka apna loader (master data se, backend snapshot nahi)
+            if (progressFreezeCategory === "ARREARS_1L") return loadArrears1LFreezeData_();
             progressFreezeLoading = true;
             const myToken = ++revenueFreezeSyncToken;
             const isStillValid = () => myToken === revenueFreezeSyncToken;
@@ -4230,7 +4233,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // value) chunne/dobara khulne par koi fetch nahi, seedha placeholder
         // par wapas.
         function setProgressFreezeCategory(value) {
-            const valid = ["NP3", "NP6", "SINCE_CONNECTION", "TOP20", "TOP50"];
+            const valid = ["NP3", "NP6", "SINCE_CONNECTION", "TOP20", "TOP50", "ARREARS_1L"];
+            resetArrears1LFreezeFilter_(); // ISOLATED ADDITION (2026-09-23): Arrears Above 1 Lakh filters
             if (!valid.includes(value)) {
                 progressFreezeCategory = "";
                 resetFreezeFilterState();
@@ -4672,6 +4676,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     <option value="SINCE_CONNECTION" ${progressFreezeCategory === "SINCE_CONNECTION" ? "selected" : ""} style="color:#0e7490; background:#ecfeff; font-weight:900;">Non Payee From Date of Connection</option>
                     <option value="TOP20" ${progressFreezeCategory === "TOP20" ? "selected" : ""} style="color:#c2410c; background:#fff7ed; font-weight:900;">Top 20 Defaulters</option>
                     <option value="TOP50" ${progressFreezeCategory === "TOP50" ? "selected" : ""} style="color:#9f1239; background:#fff1f2; font-weight:900;">Top 50 Defaulters</option>
+                    <option value="ARREARS_1L" ${progressFreezeCategory === "ARREARS_1L" ? "selected" : ""} style="color:#9f1239; background:#fff1f2; font-weight:900;">Arrears Above 1 Lakh</option>
                 </select>`;
             // USER REQUEST (2026-09-12): Jab tak is dropdown se koi report na
             // chuna jaaye, koi bhi sync/fetch nahi - seedha ek placeholder
@@ -4682,6 +4687,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             if (progressFreezeLoading || !lastRevenueProgressFreezeResult) {
                 return `${categorySelectHtml}<div style="text-align:center; font-size:0.72rem; font-weight:900; color:#1d4ed8; padding:20px 0;">SYNCING DATA... PLEASE WAIT<div class="app-sync-spinner"></div></div>`;
             }
+            // ISOLATED ADDITION (2026-09-23): Arrears Above 1 Lakh ka apna render (neeche wala NP3/NP6/Top flow untouched)
+            if (progressFreezeCategory === "ARREARS_1L") return categorySelectHtml + renderArrears1LFreezeHtml_();
             const data = computeRevenueFreezeReportData();
             if (!data || data.error) {
                 // BUG FIX (2026-09-13): Pehle yahan sirf error text tha, user ko
@@ -4882,7 +4889,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     return downloadRevenueFreezeDcWiseSummary(fmt, data, downloadTypeLabel);
                 }
                 const showDcColumn = activeViewLevel !== "DC";
-                const headers = [...(showDcColumn ? ["DC NAME"] : []), "IVRS NO", "CONSUMER NAME", "HQ", "VILLAGE", "MOBILE NO", "STATUS", "AMOUNT"];
+                const headers = [...(showDcColumn ? ["DC NAME"] : []), "IVRS NO", "CONSUMER NAME", "HQ", "VILLAGE", "MOBILE NO", "STATUS", "PAID AMOUNT", "AMOUNT"];
                 // USER REQUEST (2026-09-12): PAID row GREEN me, PART PAID row
                 // RED me dikhna chahiye (PDF me actual colour se, CSV/"Excel"
                 // me chunki plain text file hoti hai colour support nahi
@@ -4905,6 +4912,9 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                         ...(showDcColumn ? [r.dc_name || ""] : []),
                         r.ivrs_no || "", r.consumer_name || "", r.hq_name || "", r.village || "", r.mobile_no || "",
                         getFreezeRowStatusLabel(r),
+                        // USER REQUEST (2026-09-23): PAID / PART PAID row me jama rakam bhi dikhe
+                        // (PAID = frozen bill tak seemit, PART PAID = ab tak jama, PENDING = khaali).
+                        r.isPaidNow ? formatProgressReportAmount(Number(r.pending_amount || 0)) : (r.paidAmountNow > 0 ? formatProgressReportAmount(Math.min(Number(r.paidAmountNow || 0), Number(r.pending_amount || 0))) : ""),
                         // BUG FIX (2026-09-14): dekhein upar wale comments - PAID row ka
                         // AMOUNT sirf is frozen bill (pending_amount) tak seemित.
                         formatProgressReportAmount(r.isPaidNow ? Number(r.pending_amount || 0) : r.remainingPending)
@@ -6439,8 +6449,9 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         }
 
         function setProgressRevenueReportType(value) {
-            const validValues = ["STAFF", "CATEGORY", "TARGET", "DEFAULTERS", "NONPAYEE_3M", "NONPAYEE_6M", "NONPAYEE_SINCE_CONNECTION", "PAIDCOUNT"];
+            const validValues = ["STAFF", "CATEGORY", "TARGET", "DEFAULTERS", "NONPAYEE_3M", "NONPAYEE_6M", "NONPAYEE_SINCE_CONNECTION", "PAIDCOUNT", "ARREARS_1L"];
             progressRevenueReportType = validValues.includes(value) ? value : "STAFF";
+            resetArrears1LLiveFilter_(); // ISOLATED ADDITION (2026-09-23): Arrears Above 1 Lakh filters
             resetProgressNonPayeeFilterState();
             progressDefaultersGovtFilter = "";
             progressTargetGovtFilter = "";
@@ -6488,6 +6499,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             if (progressRevenueReportType === "NONPAYEE_6M") return "Non Payee From 6 Month";
             if (progressRevenueReportType === "NONPAYEE_SINCE_CONNECTION") return "Non Payee From Date of Connection";
             if (progressRevenueReportType === "PAIDCOUNT") return "Paid Count Summary";
+            if (progressRevenueReportType === "ARREARS_1L") return "Arrears Above 1 Lakh"; // ISOLATED ADDITION (2026-09-23)
             return "Category Wise";
         }
 
@@ -6586,6 +6598,449 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
 
         // Category Wise / Target vs Achievement / Top 20-50 Defaulters - teeno isi dashed
         // box me, jo bhi type dropdown me select hai usi ka content + usi ka Excel/PDF.
+        // =====================================================================
+        // ISOLATED ADDITION (2026-09-23, USER REQUEST): "Arrears Above 1 Lakh"
+        // Daily Progress (DC/Division/Circle) ke DONO reports - Live-Revenue
+        // Report aur Freeze-Revenue Report - ke dropdown me sabse aakhri option.
+        // Poora feature isi ek block me hai; purane functions me sirf 1-1 line
+        // ke hooks (dropdown option / valid list / ek branch) jode gaye hain,
+        // koi purana logic nahi badla.
+        //  - Base list (dono report me same): Master consumer data me jinka
+        //    NET BILL >= Rs 1,00,000 hai (master ~15 tarikh ko refresh hota hai,
+        //    tab list apne-aap nayi ban jaati hai - user-approved).
+        //  - LIVE: bacha bakaya (Net Bill - jama) abhi bhi >= 1 Lakh -> UNPAID
+        //    (list me dikhega); 1 Lakh se kam ho gaya -> list se hat kar PAID me
+        //    ginta hai. Paid info wahi jo baaki Live reports use karti hain.
+        //  - FREEZE: poori base list dikhegi; koi bhi payment -> PAID ginti me
+        //    (full = PAID hara, part = PART PAID laal - jaisa abhi Freeze me hai).
+        //    Paid info wahi Freeze paid-index (cash list) jo NP3/NP6 use karte hain.
+        //    Backend ke freeze snapshot ko yeh option bilkul nahi chhedta.
+        //  - Screen par amount LAKH me; download Full List me poora Rs.
+        // `var` jaan-boojh kar (let/const nahi) - taaki file load hote waqt
+        // kisi bhi order me call hone par TDZ error kabhi na aaye.
+        // =====================================================================
+        var ARREARS_1L_THRESHOLD_ = 100000;
+        var arrears1LLiveFilter_ = { dc: "", govt: "", payment: "" };
+        var arrears1LFreezeFilter_ = { dc: "", govt: "", payment: "" };
+
+        function resetArrears1LLiveFilter_() {
+            arrears1LLiveFilter_ = { dc: "", govt: "", payment: "" };
+        }
+
+        function resetArrears1LFreezeFilter_() {
+            arrears1LFreezeFilter_ = { dc: "", govt: "", payment: "" };
+        }
+
+        function getArrears1LStatus_(paidAmount, balance) {
+            if (paidAmount > 0 && balance <= 0) return "PAID";
+            if (paidAmount > 0) return "PART_PAID";
+            return "UNPAID";
+        }
+
+        // USER CLARIFICATION (2026-09-23, round 3): Live aur Freeze dono ka matching
+        // EK HI - master (Net Bill >= 1 Lakh) + poori cash list (Freeze wala paid-index,
+        // koi Daily/Monthly date-limit nahi). Farak sirf itna: LIVE me bakaya 1 Lakh se
+        // neeche aaya to PAID (fresh pending list se hat jaata hai); FREEZE me koi bhi
+        // payment = PAID ginti, aur Paid + Unpaid dono dikhte hain.
+        function buildArrears1LBaseRowsFromMaster_(targetDcs) {
+            const rows = [];
+            (targetDcs || []).forEach((dc) => {
+                const dcName = normalizeDcName(dc);
+                getRevenueMasterRowsForDc(dc).forEach((row) => {
+                    const netBill = parseRevenuePendingAmount(row.netBill || 0);
+                    if (!(netBill >= ARREARS_1L_THRESHOLD_)) return;
+                    rows.push({
+                        dcName, ivrsNo: normalizeRevenueIvrs(row.ivrsNo) || "", consumerName: row.consumerName || "",
+                        hqName: String(row.hqName || "GENERAL").trim().toUpperCase() || "GENERAL",
+                        village: String(row.village || "").trim().toUpperCase(), mobileNo: row.mobileNo || "",
+                        tariffCategory: normalizeRevenueCategory(row.tariffCategory || row.category || ""),
+                        govt: !!row.govtFlag, netBill
+                    });
+                });
+            });
+            return rows;
+        }
+
+        function applyArrears1LCashListMatch_(baseRows, isFreeze) {
+            const paidIndex = buildRevenueFreezePaidIndex("");
+            return (baseRows || []).map((r) => {
+                const info = paidIndex[r.dcName + "|" + normalizeRevenueIvrs(r.ivrsNo)];
+                const rawPaid = info ? Number(info.paidAmount || 0) : 0;
+                const paidAmount = Math.min(r.netBill, Math.max(0, Number.isFinite(rawPaid) ? rawPaid : 0));
+                const balance = Math.max(0, r.netBill - paidAmount);
+                return {
+                    ...r, paidAmount, balance, paidDate: info ? (info.lastPaidDate || "") : "",
+                    status: getArrears1LStatus_(paidAmount, balance),
+                    inPaidBucket: isFreeze ? paidAmount > 0 : balance < ARREARS_1L_THRESHOLD_
+                };
+            });
+        }
+
+        function buildArrears1LLiveRows_() {
+            return applyArrears1LCashListMatch_(buildArrears1LBaseRowsFromMaster_(getRevenueCategoryTargetDcs()), false);
+        }
+
+        function buildArrears1LFreezeRows_() {
+            const res = lastRevenueProgressFreezeResult;
+            if (!res || !res.arrears1L || !Array.isArray(res.arrears1LRows)) return [];
+            const scopeSet = new Set(getRevenueCategoryTargetDcs().map((dc) => normalizeDcName(dc)));
+            return applyArrears1LCashListMatch_(res.arrears1LRows.filter((r) => scopeSet.has(r.dcName)), true);
+        }
+
+        function applyArrears1LFilter_(rows, filter, isFreeze) {
+            const f = filter || {};
+            const dcKey = f.dc ? normalizeDcName(f.dc) : "";
+            return (rows || []).filter((r) => (
+                (!dcKey || r.dcName === dcKey)
+                && (!f.govt || (f.govt === "GOVT" ? r.govt : !r.govt))
+                && (!f.payment || (isFreeze
+                    ? r.status === f.payment
+                    : (f.payment === "PAID" ? r.inPaidBucket : true)))
+            ));
+        }
+
+        // Screen/summary grouping: DC scope (ya DC dropdown se ek DC chuni ho) ->
+        // HQ-wise; Division -> uski saari DC + Division total; Circle -> har
+        // Division ki saari DC + Division total, aur aakhri me Circle total.
+        function buildArrears1LSummary_(rows, selectedDc) {
+            const newGroup = (name, type) => ({ name, type, total: 0, paidCount: 0, paidAmount: 0, unpaidCount: 0, unpaidAmount: 0 });
+            const addRow = (g, r) => {
+                g.total += 1;
+                if (r.inPaidBucket) { g.paidCount += 1; g.paidAmount += r.paidAmount; }
+                else { g.unpaidCount += 1; g.unpaidAmount += r.balance; }
+            };
+            const addGroup = (target, g) => {
+                target.total += g.total; target.paidCount += g.paidCount; target.paidAmount += g.paidAmount;
+                target.unpaidCount += g.unpaidCount; target.unpaidAmount += g.unpaidAmount;
+            };
+            const singleDc = activeViewLevel === "DC" ? activeDC : (selectedDc || "");
+            if (singleDc) {
+                const byHq = {};
+                rows.forEach((r) => {
+                    const key = String(r.hqName || "GENERAL").toUpperCase();
+                    if (!byHq[key]) byHq[key] = newGroup(key, "ROW");
+                    addRow(byHq[key], r);
+                });
+                const list = Object.values(byHq).sort((a, b) => a.name.localeCompare(b.name));
+                const grand = newGroup(`${normalizeDcName(singleDc)} TOTAL`, "GRAND_TOTAL");
+                list.forEach((g) => addGroup(grand, g));
+                return { colLabel: revenueHqLabelUpper(singleDc), rows: [...list, grand] };
+            }
+            const byDc = {};
+            rows.forEach((r) => {
+                if (!byDc[r.dcName]) byDc[r.dcName] = newGroup(r.dcName, "ROW");
+                addRow(byDc[r.dcName], r);
+            });
+            const dcGroup = (dc) => byDc[normalizeDcName(dc)] || newGroup(normalizeDcName(dc), "ROW");
+            const out = [];
+            if (activeViewLevel === "DIVISION") {
+                const grand = newGroup(`${activeDiv} TOTAL`, "GRAND_TOTAL");
+                getDivisionDcNames(activeDiv).forEach((dc) => { const g = dcGroup(dc); out.push(g); addGroup(grand, g); });
+                out.push(grand);
+                return { colLabel: "DC NAME", rows: out };
+            }
+            const circle = newGroup("SEONI CIRCLE TOTAL", "GRAND_TOTAL");
+            Object.keys(divisionConfigs).forEach((divName) => {
+                const sub = newGroup(`${divName} TOTAL`, "SUB_TOTAL");
+                getDivisionDcNames(divName).forEach((dc) => { const g = dcGroup(dc); out.push(g); addGroup(sub, g); });
+                out.push(sub);
+                addGroup(circle, sub);
+            });
+            out.push(circle);
+            return { colLabel: "DC NAME", rows: out };
+        }
+
+        function getArrears1LScopeLabel_() {
+            if (activeViewLevel === "DC") return `DC - ${activeDC}`;
+            if (activeViewLevel === "DIVISION") return activeDiv;
+            return "SEONI CIRCLE";
+        }
+
+        function renderArrears1LBodyHtml_(isFreeze, allRows) {
+            const f = isFreeze ? arrears1LFreezeFilter_ : arrears1LLiveFilter_;
+            const setter = isFreeze ? "setArrears1LFreezeFilter" : "setArrears1LLiveFilter";
+            const rows = applyArrears1LFilter_(allRows, f, isFreeze);
+            const summary = buildArrears1LSummary_(rows, activeViewLevel === "DC" ? "" : f.dc);
+            const selectStyle = "width:100%; height:46px; margin:8px auto 0; display:block; border:1.5px solid #fb923c; border-radius:14px; padding:0 12px; font-size:0.8rem; font-weight:900; color:#0f172a; background:#fff;";
+            let html = `<div style="font-size:0.75rem; font-weight:950; color:#9f1239; text-align:center; margin-top:8px;">ARREARS ABOVE 1 LAKH (${isFreeze ? "FREEZE" : "LIVE"})</div>
+                <div style="font-size:0.58rem; font-weight:800; color:#64748b; text-align:center; margin-top:2px; line-height:1.5;">${isFreeze
+                    ? "Master data me Net Bill &ge; &#8377;1 Lakh wale sabhi consumer. Koi bhi payment hone par PAID me ginte hain (hara = poora PAID, laal = PART PAID)."
+                    : "Master data me Net Bill &ge; &#8377;1 Lakh, payment poori Cash List se match. Bakaya 1 Lakh se kam hone par consumer PAID me ginta hai aur fresh pending list se hat jaata hai."}</div>`;
+            if (activeViewLevel !== "DC") {
+                const dcOptions = getRevenueCategoryTargetDcs().map((dc) => {
+                    const name = normalizeDcName(dc);
+                    return `<option value="${escapeHtml(name)}" ${normalizeDcName(f.dc) === name && f.dc ? "selected" : ""}>${escapeHtml(name)}</option>`;
+                }).join("");
+                html += `<select onchange="${setter}('dc', this.value)" style="${selectStyle}"><option value="">All DC</option>${dcOptions}</select>`;
+            }
+            html += `<select onchange="${setter}('govt', this.value)" style="${selectStyle}">
+                    <option value="">All (Govt + Non Govt)</option>
+                    <option value="GOVT" ${f.govt === "GOVT" ? "selected" : ""}>Govt</option>
+                    <option value="NONGOVT" ${f.govt === "NONGOVT" ? "selected" : ""}>Non Govt</option>
+                </select>`;
+            if (!isFreeze) {
+                // USER REQUEST (2026-09-23, round 2): Live me bhi Govt ke neeche Paid/Unpaid dropdown
+                html += `<select onchange="${setter}('payment', this.value)" style="${selectStyle}">
+                    <option value="">Fresh Pending List (Unpaid - bakaya 1 Lakh+)</option>
+                    <option value="PAID" ${f.payment === "PAID" ? "selected" : ""}>Paid List (bakaya 1 Lakh se niche aa gaya)</option>
+                    <option value="ALL" ${f.payment === "ALL" ? "selected" : ""}>All List (Paid + Unpaid)</option>
+                </select>`;
+            }
+            if (isFreeze) {
+                html += `<select onchange="${setter}('payment', this.value)" style="${selectStyle}">
+                    <option value="">All Payment Status</option>
+                    <option value="PAID" ${f.payment === "PAID" ? "selected" : ""}>Paid (Full Payment)</option>
+                    <option value="PART_PAID" ${f.payment === "PART_PAID" ? "selected" : ""}>Part Paid</option>
+                    <option value="UNPAID" ${f.payment === "UNPAID" ? "selected" : ""}>Unpaid (Koi payment nahi)</option>
+                </select>`;
+            }
+            const grid = "grid-template-columns: 1.3fr 0.7fr 1fr 1fr;";
+            html += `<div class="summary-wrapper" style="margin-top:10px;"><div class="summary-table-header" style="${grid}"><div>${escapeHtml(summary.colLabel)}</div><div>TOTAL CONSUMER</div><div>PAID (LAKH)<br>COUNT / AMT</div><div>UNPAID (LAKH)<br>COUNT / AMT</div></div>`;
+            summary.rows.forEach((g) => {
+                const rowClass = g.type === "GRAND_TOTAL" ? " blue-bold" : (g.type === "SUB_TOTAL" ? " subdn-bold" : "");
+                html += `<div class="summary-table-row${rowClass}" style="${grid}"><div>${escapeHtml(g.name)}</div><div class="font-black">${g.total}</div><div class="font-black" style="color:#166534;">${g.paidCount} / ${formatRevenueLakhValue(g.paidAmount)}</div><div class="font-black" style="color:#9f1239;">${g.unpaidCount} / ${formatRevenueLakhValue(g.unpaidAmount)}</div></div>`;
+            });
+            html += `</div>`;
+            const kindArgs = isFreeze ? "true" : "false";
+            html += `
+                <div style="font-size:0.56rem; font-weight:850; color:#64748b; text-align:center; margin-top:10px;">SUMMARY DOWNLOAD</div>
+                <div class="btn-export-row" style="margin-top:4px;">
+                    <button class="btn-unique btn-excel-unique" onclick="downloadArrears1LReport(${kindArgs}, 'SUMMARY', 'XLS')">Summary Excel</button>
+                    <button class="btn-unique btn-pdf-unique" onclick="downloadArrears1LReport(${kindArgs}, 'SUMMARY', 'PDF')">Summary PDF</button>
+                </div>
+                <div style="font-size:0.56rem; font-weight:850; color:#64748b; text-align:center; margin-top:10px;">FULL LIST DOWNLOAD (AMOUNT RS ME)</div>
+                <div class="btn-export-row" style="margin-top:4px;">
+                    <button class="btn-unique btn-excel-unique" onclick="downloadArrears1LReport(${kindArgs}, 'LIST', 'XLS')">Full List Excel</button>
+                    <button class="btn-unique btn-pdf-unique" onclick="downloadArrears1LReport(${kindArgs}, 'LIST', 'PDF')">Full List PDF</button>
+                </div>
+                <div id="progress-category-download-status" style="display:none; text-align:center; font-weight:900; border-radius:14px; padding:8px 10px; width:100%; margin-top:8px;"></div>`;
+            // Consumer list screen par sirf DC scope par (ya DC dropdown se ek DC
+            // chuni ho tab) - Division/Circle par poori list sirf download me.
+            if (activeViewLevel === "DC" || f.dc) {
+                const listRows = getArrears1LListRows_(isFreeze, rows, f.payment);
+                const lgrid = "grid-template-columns: 1.5fr 0.9fr 0.8fr;";
+                html += `<div class="summary-wrapper" style="margin-top:10px;"><div class="summary-table-header" style="${lgrid}"><div>CONSUMER</div><div>STATUS</div><div>${isFreeze ? "NET BILL" : "BAKAYA"} (LAKH)</div></div>`;
+                if (!listRows.length) {
+                    html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div class="text-rose-600">${"Is filter/scope me koi consumer nahi mila."}</div></div>`;
+                } else {
+                    listRows.slice(0, 200).forEach((r) => {
+                        const colorKey = getArrears1LColorKey_(isFreeze, r);
+                        const color = colorKey === "G" ? "#166534" : (colorKey === "R" ? "#dc2626" : "#1e293b");
+                        const amount = isFreeze ? r.netBill : r.balance;
+                        html += `<div class="summary-table-row" style="${lgrid}"><div>${escapeHtml(r.consumerName || "-")}<br><span style="font-size:0.56rem; color:#64748b;">${escapeHtml(r.ivrsNo)} | ${escapeHtml(r.hqName)} / ${escapeHtml(r.village)}</span></div><div class="font-black" style="color:${color};">${escapeHtml(getArrears1LStatusLabel_(r, isFreeze))}</div><div class="font-black">${formatRevenueLakhValue(amount)}</div></div>`;
+                    });
+                    if (listRows.length > 200) {
+                        html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div style="text-align:center; color:#64748b; font-size:0.62rem; padding:6px;">... ${listRows.length - 200} aur consumer, poori list Excel/PDF download me hai.</div></div>`;
+                    }
+                }
+                html += `</div>`;
+            }
+            return html;
+        }
+
+        // USER REQUEST (2026-09-23, round 2): PAID / PART PAID ke saath jama rakam bhi dikhe.
+        function getArrears1LStatusLabel_(r, isFreeze = true) {
+            const dateSuffix = r.paidDate ? ` (${formatRevenueDateIndian(r.paidDate)})` : "";
+            const amt = r.paidAmount > 0 ? ` Rs ${Math.round(r.paidAmount).toLocaleString("en-IN")}` : "";
+            if (!isFreeze) {
+                if (r.inPaidBucket) return `PAID${amt}${dateSuffix}`;
+                if (r.paidAmount > 0) return `UNPAID - PART PAID${amt}${dateSuffix}`;
+                return "UNPAID";
+            }
+            if (r.status === "PAID") return `PAID${amt}${dateSuffix}`;
+            if (r.status === "PART_PAID") return `PART PAID${amt}${dateSuffix}`;
+            return "UNPAID";
+        }
+
+        // G = hara (PAID), R = laal (PART PAID / Live me part-paid par abhi bhi 1 Lakh+), "" = normal
+        function getArrears1LColorKey_(isFreeze, r) {
+            if (isFreeze) return r.status === "PAID" ? "G" : (r.status === "PART_PAID" ? "R" : "");
+            if (r.inPaidBucket) return "G";
+            return r.paidAmount > 0 ? "R" : "";
+        }
+
+        // LIVE aur FREEZE dono: list Paid/Unpaid dropdown ke hisaab se (All = dono).
+        function getArrears1LListRows_(isFreeze, filteredRows, paymentFilter = "") {
+            const list = (!isFreeze && !paymentFilter) ? filteredRows.filter((r) => !r.inPaidBucket) : filteredRows.slice();
+            return list.sort((a, b) => (a.dcName.localeCompare(b.dcName)) || ((isFreeze ? b.netBill - a.netBill : b.balance - a.balance)));
+        }
+
+        // Live view me cash-list (Freeze paid-summary) cache is scope ke liye ek baar warm
+        // karte hain; tab tak "syncing" dikhta hai, fir body apne-aap dobara render hoti hai.
+        var arrears1LLiveWarmKey_ = "";
+        var arrears1LLiveWarming_ = false;
+        function renderArrears1LLiveHtml_() {
+            const scopeKey = `${activeViewLevel}|${activeDC}|${activeDiv}`;
+            if (arrears1LLiveWarmKey_ !== scopeKey) {
+                if (!arrears1LLiveWarming_) {
+                    arrears1LLiveWarming_ = true;
+                    Promise.resolve().then(() => warmRevenueFreezePaidSummaryCache_()).catch((err) => {
+                        console.error("[Arrears1L] Live cash-list warm failed:", err);
+                    }).then(() => {
+                        arrears1LLiveWarming_ = false;
+                        arrears1LLiveWarmKey_ = scopeKey;
+                        const body = document.getElementById("progress-revenue-body");
+                        if (body && progressRevenueReportType === "ARREARS_1L") body.innerHTML = renderProgressRevenueBodyInner();
+                    });
+                }
+                return `<div style="text-align:center; font-size:0.72rem; font-weight:900; color:#1d4ed8; padding:20px 0;">CASH LIST MATCH HO RAHI HAI... PLEASE WAIT<div class="app-sync-spinner"></div></div>`;
+            }
+            return renderArrears1LBodyHtml_(false, buildArrears1LLiveRows_());
+        }
+
+        function setArrears1LLiveFilter(key, value) {
+            if (!arrears1LLiveFilter_ || !(key in arrears1LLiveFilter_)) resetArrears1LLiveFilter_();
+            if (!(key in arrears1LLiveFilter_)) return;
+            arrears1LLiveFilter_[key] = value || "";
+            const body = document.getElementById("progress-revenue-body");
+            if (body) body.innerHTML = renderProgressRevenueBodyInner();
+        }
+
+        function setArrears1LFreezeFilter(key, value) {
+            if (!arrears1LFreezeFilter_ || !(key in arrears1LFreezeFilter_)) resetArrears1LFreezeFilter_();
+            if (!(key in arrears1LFreezeFilter_)) return;
+            arrears1LFreezeFilter_[key] = value || "";
+            const body = document.getElementById("summary-content");
+            if (body) body.innerHTML = renderFreezeModuleSummaryHtml();
+        }
+
+        function renderArrears1LFreezeHtml_() {
+            const res = lastRevenueProgressFreezeResult;
+            if (!res || res.error || !res.arrears1L) {
+                return `<div style="text-align:center; color:#991b1b; font-size:0.72rem; margin-top:10px;">Master data load nahi ho paya (network slow ho sakta hai)</div><button onclick="retryFreezeModuleLoad()" style="display:block; margin:10px auto 0; padding:8px 18px; border-radius:12px; border:none; background:#0e7490; color:#fff; font-weight:900; font-size:0.75rem;">Try Again</button>`;
+            }
+            return renderArrears1LBodyHtml_(true, buildArrears1LFreezeRows_());
+        }
+
+        // Freeze tab ke liye alag loader - backend freeze snapshot nahi, seedha
+        // scope ki DC ka master data + wahi Freeze paid-summary cache (cash list).
+        // Progress-bar / stale-token / Try Again ka pattern bilkul
+        // loadRevenueProgressFreezeData() jaisa hi hai.
+        async function loadArrears1LFreezeData_() {
+            progressFreezeLoading = true;
+            const myToken = ++revenueFreezeSyncToken;
+            const isStillValid = () => myToken === revenueFreezeSyncToken;
+            const body = document.getElementById("summary-content");
+            const progress = body ? renderSyncingProgress(body, isStillValid) : null;
+            try {
+                const targetDcs = getRevenueFreezeTargetDcs();
+                await Promise.all([
+                    ensureRevenueCategoryMasterDataLoaded(targetDcs),
+                    warmRevenueFreezePaidSummaryCache_()
+                ]);
+                const rows = buildArrears1LBaseRowsFromMaster_(targetDcs);
+                lastRevenueProgressFreezeResult = {
+                    active: { freeze_id: "MASTER-ARREARS-1L", freeze_date: "", freeze_label: "Master Data (Net Bill >= 1 Lakh)" },
+                    rows: [], dcStatusMap: {}, arrears1L: true, arrears1LRows: rows
+                };
+            } catch (err) {
+                console.error("[Arrears1L] Freeze load failed:", err);
+                lastRevenueProgressFreezeResult = { active: null, rows: [], error: true, arrears1L: true };
+            }
+            progressFreezeLoading = false;
+            lastRevenueProgressFreezeScopeKey = getRevenueFreezeScopeKey();
+            if (!isStillValid()) return;
+            if (progress) await progress.finish();
+            const bodyAfter = document.getElementById("summary-content");
+            if (bodyAfter) {
+                try {
+                    bodyAfter.innerHTML = renderFreezeModuleSummaryHtml();
+                } catch (err) {
+                    console.error("[Arrears1L] Freeze render failed:", err);
+                    lastRevenueProgressFreezeResult = { active: null, rows: [], error: true, arrears1L: true };
+                    bodyAfter.innerHTML = renderFreezeModuleSummaryHtml();
+                }
+            }
+        }
+
+        function downloadArrears1LReport(isFreeze, kind, fmt) {
+            const downloadTypeLabel = fmt === "PDF" ? "PDF" : "Excel";
+            let allRows;
+            let periodLine = "";
+            if (isFreeze) {
+                allRows = buildArrears1LFreezeRows_();
+                periodLine = "Base: Master Data (Net Bill >= Rs 1,00,000) | Paid: Cash List";
+            } else {
+                const box = lastRevenueProgressBoxData;
+                if (!box) return showToast("Report ke liye data nahi hai", false);
+                allRows = buildArrears1LLiveRows_();
+                periodLine = "Base: Master Data (Net Bill >= Rs 1,00,000) | Paid: Cash List | Bakaya 1 Lakh se niche = PAID";
+            }
+            const f = isFreeze ? arrears1LFreezeFilter_ : arrears1LLiveFilter_;
+            const rows = applyArrears1LFilter_(allRows, f, isFreeze);
+            setProgressCategoryDownloadState(true, `${downloadTypeLabel} downloading... kripya wait kijiye`);
+            try {
+                const scope = getArrears1LScopeLabel_();
+                const filterParts = [];
+                if (activeViewLevel !== "DC") filterParts.push(`DC: ${f.dc || "All"}`);
+                filterParts.push(`Govt: ${f.govt === "GOVT" ? "Govt" : (f.govt === "NONGOVT" ? "Non Govt" : "All")}`);
+                filterParts.push(`Payment: ${isFreeze ? (f.payment ? f.payment.replace("_", " ") : "All") : (f.payment === "PAID" ? "Paid" : (f.payment === "ALL" ? "All" : "Fresh Pending (Unpaid)"))}`);
+                const filtersLine = `Filters - ${filterParts.join(" | ")}`;
+                const reportTitle = `${isFreeze ? "Freeze" : "Live"}-Revenue Report - Arrears Above 1 Lakh - ${scope} - ${kind === "SUMMARY" ? "Summary" : "Full List"}`;
+                const fileName = `${reportTitle}-${getTodayIsoDate()}`.replace(/[\\/:*?"<>|]+/g, "_");
+                let headers;
+                let bodyRows;
+                let rowTypes = [];
+                let statusCol = -1;
+                if (kind === "SUMMARY") {
+                    const summary = buildArrears1LSummary_(rows, activeViewLevel === "DC" ? "" : f.dc);
+                    headers = [summary.colLabel, "TOTAL CONSUMER", "PAID COUNT", "PAID AMT (LAKH)", "UNPAID COUNT", "UNPAID AMT (LAKH)"];
+                    bodyRows = summary.rows.map((g) => [g.name, g.total, g.paidCount, formatRevenueLakhValue(g.paidAmount), g.unpaidCount, formatRevenueLakhValue(g.unpaidAmount)]);
+                    rowTypes = summary.rows.map((g) => g.type);
+                } else {
+                    const listRows = getArrears1LListRows_(isFreeze, rows, f.payment);
+                    if (!listRows.length) { setProgressCategoryDownloadState(false, "Download ke liye data nahi hai"); return; }
+                    const singleDc = activeViewLevel === "DC" ? activeDC : (f.dc || "");
+                    const hqHeader = singleDc ? revenueHqLabelUpper(singleDc) : "HQ NAME";
+                    const villageHeader = singleDc ? revenueVillageLabelUpper(singleDc) : "VILLAGE";
+                    const rs = (v) => fmt === "PDF" ? Math.round(v).toLocaleString("en-IN") : Math.round(v);
+                    headers = ["S.NO", "DC NAME", hqHeader, villageHeader, "IVRS NO", "CONSUMER NAME", "MOBILE NO", "CATEGORY", "GOVT/NON GOVT", "NET BILL (RS)", "PAID AMOUNT (RS)", "BALANCE (RS)", "STATUS"];
+                    statusCol = headers.length - 1;
+                    bodyRows = listRows.map((r, i) => [i + 1, r.dcName, r.hqName, r.village, r.ivrsNo, r.consumerName, r.mobileNo, r.tariffCategory, r.govt ? "GOVT" : "NON GOVT", rs(r.netBill), rs(r.paidAmount), rs(r.balance), getArrears1LStatusLabel_(r, isFreeze)]);
+                    rowTypes = listRows.map((r) => getArrears1LColorKey_(isFreeze, r));
+                }
+                if (fmt === "PDF") {
+                    if (!window.jspdf?.jsPDF) { setProgressCategoryDownloadState(false, "PDF library load nahi hui"); return; }
+                    const { jsPDF } = window.jspdf;
+                    const doc = new jsPDF({ orientation: "landscape" });
+                    doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 8);
+                    doc.setFontSize(12); doc.setTextColor(0); doc.text(reportTitle, 148, 15, { align: "center" });
+                    doc.setFontSize(8); doc.setTextColor(80); doc.text(periodLine, 148, 21, { align: "center" });
+                    doc.text(filtersLine, 148, 26, { align: "center" });
+                    doc.autoTable({
+                        startY: 31, head: [headers], body: bodyRows, theme: "grid",
+                        styles: { fontSize: kind === "SUMMARY" ? 8 : 6.5, cellPadding: 1.4, overflow: "linebreak" },
+                        headStyles: { fillColor: [159, 18, 57] },
+                        didParseCell: (hook) => {
+                            if (hook.section !== "body") return;
+                            const type = rowTypes[hook.row.index];
+                            if (kind === "SUMMARY") {
+                                if (type === "GRAND_TOTAL") { hook.cell.styles.fontStyle = "bold"; hook.cell.styles.fillColor = [219, 234, 254]; }
+                                else if (type === "SUB_TOTAL") { hook.cell.styles.fontStyle = "bold"; hook.cell.styles.fillColor = [255, 237, 213]; }
+                            } else if (hook.column.index === statusCol) {
+                                if (type === "G") { hook.cell.styles.textColor = [22, 101, 52]; hook.cell.styles.fontStyle = "bold"; }
+                                else if (type === "R") { hook.cell.styles.textColor = [220, 38, 38]; hook.cell.styles.fontStyle = "bold"; }
+                            }
+                        }
+                    });
+                    savePdfDocumentForDevice(doc, `${fileName}.pdf`);
+                } else {
+                    const csvSafe = (value) => { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
+                    const csv = [[reportTitle], [`Scope: ${scope}`], [periodLine], [filtersLine], [], headers, ...bodyRows].map((row) => row.map(csvSafe).join(",")).join("\n");
+                    const link = document.createElement("a");
+                    link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+                    link.download = `${fileName}.csv`;
+                    link.click();
+                }
+                setTimeout(() => setProgressCategoryDownloadState(false, `${downloadTypeLabel} download ho chuki hai`), 500);
+            } catch (error) {
+                console.error("[Arrears1L] download failed:", error);
+                setProgressCategoryDownloadState(false, "Download nahi ho paya");
+                showToast(error?.message || "Arrears Above 1 Lakh download nahi ho payi", false);
+            }
+        }
+        // ===================== END: Arrears Above 1 Lakh =====================
+
         function renderRevenueProgressNonStaffBoxHtml() {
             const data = lastRevenueProgressBoxData || {};
             let bodyHtml;
@@ -6596,7 +7051,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             // download karne ke liye poori list scroll na karni pade. Isliye yahan (list ke baad)
             // dobara buttons nahi jodte, warna do baar dikhte. Baaki Category/Target/Defaulters
             // pehle jaisे hi (bodyHtml ke NEECHE) buttons rakhte hain - wahan list chhoti hoti hai.
-            const isNonPayeeType = ["NONPAYEE_3M", "NONPAYEE_6M", "NONPAYEE_SINCE_CONNECTION"].includes(progressRevenueReportType);
+            const isNonPayeeType = ["NONPAYEE_3M", "NONPAYEE_6M", "NONPAYEE_SINCE_CONNECTION", "ARREARS_1L"].includes(progressRevenueReportType); // ARREARS_1L (2026-09-23): apne download buttons khud render karta hai
             if (progressRevenueReportType === "TARGET") {
                 // USER REQUEST (2026-08-13): Govt/Non-Govt filter - jab select ho, tab
                 // hi tree ko us filter ke saath dobara (local, bina naye fetch ke)
@@ -6615,6 +7070,9 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 bodyHtml = renderRevenueProgressNonPayeeSummaryHtml(data.mode || "DAILY", data.filterValue || "", "6M");
             } else if (progressRevenueReportType === "NONPAYEE_SINCE_CONNECTION") {
                 bodyHtml = renderRevenueProgressNonPayeeSummaryHtml(data.mode || "DAILY", data.filterValue || "", "SINCE_CONNECTION");
+            } else if (progressRevenueReportType === "ARREARS_1L") {
+                // ISOLATED ADDITION (2026-09-23): Arrears Above 1 Lakh (Live)
+                bodyHtml = renderArrears1LLiveHtml_();
             } else if (progressRevenueReportType === "PAIDCOUNT") {
                 bodyHtml = renderRevenueProgressPaidCountSummaryHtml(buildProgressPaidCountSummaryData(
                     data.mode || "DAILY",
@@ -6640,7 +7098,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         }
 
         function renderProgressRevenueBodyInner() {
-            if (["CATEGORY", "TARGET", "DEFAULTERS", "NONPAYEE_3M", "NONPAYEE_6M", "NONPAYEE_SINCE_CONNECTION", "PAIDCOUNT"].includes(progressRevenueReportType)) {
+            if (["CATEGORY", "TARGET", "DEFAULTERS", "NONPAYEE_3M", "NONPAYEE_6M", "NONPAYEE_SINCE_CONNECTION", "PAIDCOUNT", "ARREARS_1L"].includes(progressRevenueReportType)) {
                 return renderRevenueProgressNonStaffBoxHtml();
             }
             const staffData = lastRevenueProgressStaffData || { rows: [], label: "" };
@@ -6660,6 +7118,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     <option value="NONPAYEE_6M" ${progressRevenueReportType === "NONPAYEE_6M" ? "selected" : ""}>Non Payee From 6 Month</option>
                     <option value="NONPAYEE_SINCE_CONNECTION" ${progressRevenueReportType === "NONPAYEE_SINCE_CONNECTION" ? "selected" : ""}>Non Payee From Date of Connection</option>
                     <option value="PAIDCOUNT" ${progressRevenueReportType === "PAIDCOUNT" ? "selected" : ""}>Paid Count Summary</option>
+                    <option value="ARREARS_1L" ${progressRevenueReportType === "ARREARS_1L" ? "selected" : ""}>Arrears Above 1 Lakh</option>
                 </select>
             `;
             return `${selectHtml}<div id="progress-revenue-body">${renderProgressRevenueBodyInner()}</div>`;
