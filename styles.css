@@ -418,6 +418,21 @@
         .option-item:last-child { border-bottom: none; }
         .option-item:hover { background-color: #f8fafc; }
         .search-panel { background: white; padding: 10px 20px; text-align: center; width: 100%; display: flex; flex-direction: column; align-items: center; }
+        /* BUG FIX (2026-09-23, USER-REPORTED - iPhone par search icon apni jagah se
+           hat kar bahar/neeche dikhta tha): .input-wrapper (IVRS search box ke
+           andar wala magnifying-glass <svg> jo "position:absolute" se icon ko
+           input ke andar left side fix karta hai) ka "position:relative" sirf
+           Tailwind CDN ke JIT-generated "relative" class se aata tha - bilkul
+           usi tarah jaise syncing-text center-align "text-center" class par
+           depend karta tha. Tailwind CDN runtime JIT hai, kabhi-kabhi (khaaskar
+           dheeme/mobile Safari par) naya class turant generate nahi kar pata -
+           tab .input-wrapper "position:relative" na milne se andar ka absolute
+           SVG apne nearest positioned ancestor (ya poori page) ke hisaab se
+           positioned ho jaata, aur bada/galat jagah floating icon dikhta tha.
+           Fix: "position:relative" ab yahan real stylesheet (styles.css) me
+           seedha define hai - Tailwind CDN ke generate hone ka wait nahi karna
+           padta, hamesha turant/reliable kaam karega. */
+        .input-wrapper { position: relative; }
         .ivrs-input { width: 100%; height: 52px; padding: 0 10px; border-radius: 12px; border: 2.5px solid var(--theme-color); font-size: 1rem; font-weight: 900; color: #000000; text-align: center; outline: none; }
         .search-btn-custom { width: auto; min-width: 200px; padding: 0 30px; height: 48px; background: var(--theme-grad); color: white !important; border-radius: 99px; font-weight: 800; margin-top: 25px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); text-transform: uppercase; transition: background 0.3s; }
         .result-card-custom { width: 100%; background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 16px; padding: 16px; text-align: left; margin-top: 20px; display: none; }

@@ -22664,18 +22664,22 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             const rows = buildRevenueTargetFlatRows(level);
             const colLabel = level === "HQ" ? (activeViewLevel === "DC" ? revenueHqLabelUpper() : "HQ NAME") : (activeViewLevel === "DC" ? revenueVillageLabelUpper() : "VILLAGE");
             const colLabelFriendly = level === "HQ" ? (activeViewLevel === "DC" ? revenueHqLabel() : "HQ") : (activeViewLevel === "DC" ? revenueVillageLabel() : "Village");
-            let html = `<div class="summary-wrapper"><div style="padding:9px 10px; margin-bottom:6px; background:#eff6ff; border:1.2px solid #93c5fd; border-radius:10px; font-size:0.64rem; font-weight:900; color:#1d4ed8; text-align:center;">Sabhi ${colLabelFriendly} - Achievement % ke hisab se sorted (best se worst)</div><div class="summary-table-header" style="grid-template-columns: 1.5fr 0.9fr 0.9fr 0.6fr;"><div>${colLabel}</div><div>TARGET</div><div>ACHIEVED</div><div>%</div></div>`;
+            // USER REQUEST (2026-09-23): screen + download dono me amount ab poore Rs
+            // ki jagah LAKH me (jaise 50000 -> "0.50") - DC/Division/Circle teeno scope,
+            // isi "Target vs Achievement %" (header 3-dot menu wale) screen ke saare
+            // views (flat/sorted table, drill-down tree, summary cards, download) me.
+            let html = `<div class="summary-wrapper"><div style="padding:9px 10px; margin-bottom:6px; background:#eff6ff; border:1.2px solid #93c5fd; border-radius:10px; font-size:0.64rem; font-weight:900; color:#1d4ed8; text-align:center;">Sabhi ${colLabelFriendly} - Achievement % ke hisab se sorted (best se worst)</div><div class="summary-table-header" style="grid-template-columns: 1.5fr 0.9fr 0.9fr 0.6fr;"><div>${colLabel}</div><div>TARGET (LAKH)</div><div>ACHIEVED (LAKH)</div><div>%</div></div>`;
             if (!rows.length) {
                 html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div class="text-rose-600">Is scope me data nahi mila.</div></div>`;
             } else {
                 rows.forEach((row, index) => {
                     const pctColor = row.pct >= 75 ? "#166534" : (row.pct >= 40 ? "#b45309" : "#9f1239");
-                    html += `<div class="summary-table-row" style="grid-template-columns: 1.5fr 0.9fr 0.9fr 0.6fr;"><div><span style="color:#94a3b8; font-weight:900;">${index + 1}.</span> ${escapeHtml(row.name)}</div><div class="font-black">${formatProgressReportAmount(row.target)}</div><div class="text-emerald-700 font-black">${formatProgressReportAmount(row.paidAmountTotal)}</div><div style="color:${pctColor}; font-weight:950;">${row.pct}%</div></div>`;
+                    html += `<div class="summary-table-row" style="grid-template-columns: 1.5fr 0.9fr 0.9fr 0.6fr;"><div><span style="color:#94a3b8; font-weight:900;">${index + 1}.</span> ${escapeHtml(row.name)}</div><div class="font-black">${formatRevenueLakhValue(row.target)}</div><div class="text-emerald-700 font-black">${formatRevenueLakhValue(row.paidAmountTotal)}</div><div style="color:${pctColor}; font-weight:950;">${row.pct}%</div></div>`;
                 });
             }
             const totals = rows.reduce((acc, row) => { acc.paidAmountTotal += row.paidAmountTotal; acc.target += row.target; return acc; }, { paidAmountTotal: 0, target: 0 });
             const grandPct = getRevenueAchievementPct(totals.paidAmountTotal, totals.target);
-            html += `</div><div class="summary-footer"><div class="font-black text-slate-800 text-center">TOTAL (${colLabel} SCOPE)</div><div class="mt-2 grid grid-cols-3 gap-2 text-center text-[11px] font-black"><div class="rounded-xl bg-slate-100 border border-slate-200 p-2">Target<br>${formatProgressReportAmount(totals.target)}</div><div class="rounded-xl bg-emerald-50 border border-emerald-200 p-2">Achieved<br>${formatProgressReportAmount(totals.paidAmountTotal)}</div><div class="rounded-xl bg-blue-50 border border-blue-200 p-2">%<br>${grandPct}%</div></div></div>`;
+            html += `</div><div class="summary-footer"><div class="font-black text-slate-800 text-center">TOTAL (${colLabel} SCOPE)</div><div class="mt-2 grid grid-cols-3 gap-2 text-center text-[11px] font-black"><div class="rounded-xl bg-slate-100 border border-slate-200 p-2">Target (Lakh)<br>${formatRevenueLakhValue(totals.target)}</div><div class="rounded-xl bg-emerald-50 border border-emerald-200 p-2">Achieved (Lakh)<br>${formatRevenueLakhValue(totals.paidAmountTotal)}</div><div class="rounded-xl bg-blue-50 border border-blue-200 p-2">%<br>${grandPct}%</div></div></div>`;
             return html;
         }
 
@@ -22694,7 +22698,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 breadcrumbHtml = `<div onclick="popRevenueTargetDrill()" style="display:flex; align-items:center; gap:6px; padding:9px 10px; margin-bottom:6px; background:#eff6ff; border:1.2px solid #93c5fd; border-radius:10px; font-size:0.68rem; font-weight:900; color:#1d4ed8; cursor:pointer;">⬅ ${escapeHtml(crumbLabel)} - Back</div>`;
             }
 
-            let html = `<div class="summary-wrapper">${breadcrumbHtml}<div class="summary-table-header" style="grid-template-columns: 1.2fr 0.95fr 0.95fr 0.7fr;"><div>${colLabel}</div><div>TARGET</div><div>ACHIEVED</div><div>%</div></div>`;
+            let html = `<div class="summary-wrapper">${breadcrumbHtml}<div class="summary-table-header" style="grid-template-columns: 1.2fr 0.95fr 0.95fr 0.7fr;"><div>${colLabel}</div><div>TARGET (LAKH)</div><div>ACHIEVED (LAKH)</div><div>%</div></div>`;
 
             if (!rows || !rows.length) {
                 html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div class="text-rose-600">Is scope me data nahi mila.</div></div>`;
@@ -22707,7 +22711,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     const target = Number(row.paidAmountTotal || 0) + Number(row.unpaidAmountTotal || 0);
                     const pct = getRevenueAchievementPct(row.paidAmountTotal, target);
                     const pctColor = pct >= 75 ? "#166534" : (pct >= 40 ? "#b45309" : "#9f1239");
-                    html += `<div class="summary-table-row${rowClass}" style="grid-template-columns: 1.2fr 0.95fr 0.95fr 0.7fr;"${attrs}><div>${nameCell}</div><div class="font-black">${formatProgressReportAmount(target)}</div><div class="text-emerald-700 font-black">${formatProgressReportAmount(row.paidAmountTotal)}</div><div style="color:${pctColor}; font-weight:950;">${pct}%</div></div>`;
+                    html += `<div class="summary-table-row${rowClass}" style="grid-template-columns: 1.2fr 0.95fr 0.95fr 0.7fr;"${attrs}><div>${nameCell}</div><div class="font-black">${formatRevenueLakhValue(target)}</div><div class="text-emerald-700 font-black">${formatRevenueLakhValue(row.paidAmountTotal)}</div><div style="color:${pctColor}; font-weight:950;">${pct}%</div></div>`;
                 });
             }
 
@@ -22719,7 +22723,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             const grandTarget = totals.paidAmountTotal + totals.unpaidAmountTotal;
             const grandPct = getRevenueAchievementPct(totals.paidAmountTotal, grandTarget);
 
-            html += `</div><div class="summary-footer"><div class="font-black text-slate-800 text-center">TOTAL (${colLabel} SCOPE)</div><div class="mt-2 grid grid-cols-3 gap-2 text-center text-[11px] font-black"><div class="rounded-xl bg-slate-100 border border-slate-200 p-2">Target<br>${formatProgressReportAmount(grandTarget)}</div><div class="rounded-xl bg-emerald-50 border border-emerald-200 p-2">Achieved<br>${formatProgressReportAmount(totals.paidAmountTotal)}</div><div class="rounded-xl bg-blue-50 border border-blue-200 p-2">%<br>${grandPct}%</div></div></div>`;
+            html += `</div><div class="summary-footer"><div class="font-black text-slate-800 text-center">TOTAL (${colLabel} SCOPE)</div><div class="mt-2 grid grid-cols-3 gap-2 text-center text-[11px] font-black"><div class="rounded-xl bg-slate-100 border border-slate-200 p-2">Target (Lakh)<br>${formatRevenueLakhValue(grandTarget)}</div><div class="rounded-xl bg-emerald-50 border border-emerald-200 p-2">Achieved (Lakh)<br>${formatRevenueLakhValue(totals.paidAmountTotal)}</div><div class="rounded-xl bg-blue-50 border border-blue-200 p-2">%<br>${grandPct}%</div></div></div>`;
             return html;
         }
 
@@ -22729,8 +22733,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             const pctColor = pct >= 75 ? "#166534" : (pct >= 40 ? "#b45309" : "#9f1239");
             return `
                 <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:8px; width:100%; max-width:360px; margin:12px auto 0;">
-                    <div style="background:#f1f5f9; border-radius:14px; padding:10px 6px; text-align:center;"><div style="font-size:0.56rem; font-weight:850; color:#64748b; text-transform:uppercase;">Target (Net Bill)</div><div style="font-size:0.9rem; font-weight:950; color:#0f172a; margin-top:3px;">${formatProgressReportAmount(target)}</div></div>
-                    <div style="background:#ecfdf5; border-radius:14px; padding:10px 6px; text-align:center;"><div style="font-size:0.56rem; font-weight:850; color:#166534; text-transform:uppercase;">Achieved</div><div style="font-size:0.9rem; font-weight:950; color:#166534; margin-top:3px;">${formatProgressReportAmount(totals.paidAmountTotal)}</div></div>
+                    <div style="background:#f1f5f9; border-radius:14px; padding:10px 6px; text-align:center;"><div style="font-size:0.56rem; font-weight:850; color:#64748b; text-transform:uppercase;">Target (Net Bill, Lakh)</div><div style="font-size:0.9rem; font-weight:950; color:#0f172a; margin-top:3px;">${formatRevenueLakhValue(target)}</div></div>
+                    <div style="background:#ecfdf5; border-radius:14px; padding:10px 6px; text-align:center;"><div style="font-size:0.56rem; font-weight:850; color:#166534; text-transform:uppercase;">Achieved (Lakh)</div><div style="font-size:0.9rem; font-weight:950; color:#166534; margin-top:3px;">${formatRevenueLakhValue(totals.paidAmountTotal)}</div></div>
                     <div style="background:#eff6ff; border-radius:14px; padding:10px 6px; text-align:center;"><div style="font-size:0.56rem; font-weight:850; color:#1d4ed8; text-transform:uppercase;">Achievement</div><div style="font-size:1.05rem; font-weight:950; color:${pctColor}; margin-top:3px;">${pct}%</div></div>
                 </div>
                 <div style="font-size:0.6rem; font-weight:950; color:#1d4ed8; text-align:center; margin:14px auto 0; max-width:360px; text-transform:uppercase;">${activeViewLevel === "DC" ? "HQ Wise" : "DC Wise"} (tap karke aage drill down karein)</div>
@@ -22842,11 +22846,11 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             setRevenueTargetDownloadState(true, `${type === "PDF" ? "PDF" : "Excel"} download ho raha hai... kripya wait kijiye`, true);
             try {
                 const colLabel = revenueTargetViewBy === "DC" ? "DC NAME" : (revenueTargetViewBy === "HQ" ? (activeViewLevel === "DC" ? revenueHqLabelUpper() : "HQ NAME") : (activeViewLevel === "DC" ? revenueVillageLabelUpper() : "VILLAGE"));
-                const headers = [colLabel, "TARGET", "ACHIEVED", "%"];
-                const rows = flatRows.map((r) => [r.name, formatProgressReportAmount(r.target), formatProgressReportAmount(r.paidAmountTotal), `${r.pct}%`]);
+                const headers = [colLabel, "TARGET (LAKH)", "ACHIEVED (LAKH)", "%"];
+                const rows = flatRows.map((r) => [r.name, formatRevenueLakhValue(r.target), formatRevenueLakhValue(r.paidAmountTotal), `${r.pct}%`]);
                 const grandTarget = flatRows.reduce((sum, r) => sum + Number(r.target || 0), 0);
                 const grandAchieved = flatRows.reduce((sum, r) => sum + Number(r.paidAmountTotal || 0), 0);
-                rows.push(["GRAND TOTAL", formatProgressReportAmount(grandTarget), formatProgressReportAmount(grandAchieved), `${getRevenueAchievementPct(grandAchieved, grandTarget)}%`]);
+                rows.push(["GRAND TOTAL", formatRevenueLakhValue(grandTarget), formatRevenueLakhValue(grandAchieved), `${getRevenueAchievementPct(grandAchieved, grandTarget)}%`]);
                 const reportTitle = getRevenueTargetReportTitle();
                 const govtFilterValue = document.getElementById("revenue-target-govt")?.value || "";
                 const govtFilterLabel = govtFilterValue === "GOVT" ? "Govt Only" : (govtFilterValue === "NONGOVT" ? "Non Govt Only" : "All (Govt + Non Govt)");
