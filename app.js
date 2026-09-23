@@ -3019,9 +3019,11 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
 
         function getRevenueCategoryPaidInfoForCategory(paidInfo, category) {
             if (!paidInfo) return null;
-            const isLv5 = category === "LV5";
-            const amount = isLv5 ? Number(paidInfo.agAmount || 0) : Number(paidInfo.normalAmount || 0);
-            const count = isLv5 ? Number(paidInfo.agCount || 0) : Number(paidInfo.normalCount || 0);
+            // USER REQUEST (2026-09-23): pehle LV5 sirf AG file se aur baaki sirf NORMAL
+            // file se paid maane jaate the - ab cash list (NORMAL + AG dono) me jo bhi
+            // consumer ho, category chahe jo ho, PAID maana jaata hai.
+            const amount = Number(paidInfo.normalAmount || 0) + Number(paidInfo.agAmount || 0) + Number(paidInfo.mixedAmount || 0) + Number(paidInfo.unknownAmount || 0);
+            const count = Number(paidInfo.normalCount || 0) + Number(paidInfo.agCount || 0) + Number(paidInfo.mixedCount || 0) + Number(paidInfo.unknownCount || 0);
             return count > 0 ? { amount, count } : null;
         }
 
@@ -5217,7 +5219,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 existing[`${sourceBucket}Amount`] = Number(existing[`${sourceBucket}Amount`] || 0) + rowAmount;
                 existing[`${sourceBucket}Count`] = Number(existing[`${sourceBucket}Count`] || 0) + 1;
                 const rowCategory = getRevenueUploadedPaidRowCategory(paymentRow, sourceType);
-                if (revenueCategoryList.includes(rowCategory) && !(sourceBucket === "normal" && rowCategory === "LV5")) {
+                if (revenueCategoryList.includes(rowCategory)) { // USER REQUEST (2026-09-23): NORMAL cash list ke LV5 bhi ab count
                     const categoryEntry = existing.categoryTotals[rowCategory] || { amount: 0, count: 0 };
                     categoryEntry.amount += rowAmount;
                     categoryEntry.count += 1;
@@ -20137,7 +20139,11 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 // Kabhi-kabhi NORMAL export me galti se LV5 row aa jaati hai, use yahin
                 // skip kar dete hain taaki AG-specific merge logic (neeche) ke saath
                 // conflict na ho.
-                if (!paidFileType.includes("AG") && tariffCategory === "LV5") return null;
+                // USER REQUEST (2026-09-23): NORMAL cash list ke LV5 (metered agriculture)
+                // consumer bhi ab PAID maane jaate hain - "cash list ke sabhi consumer paid
+                // dikhne chahiye". Isliye yeh skip hata diya (pehle yahan
+                // `if (!AG && LV5) return null;` tha). Backend NORMAL/AG ko source_type se
+                // alag karta hai (category se nahi), isliye koi conflict nahi.
                 return {
                     ivrsNo,
                     amount,
