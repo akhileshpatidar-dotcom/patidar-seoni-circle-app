@@ -5713,10 +5713,12 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             try {
                 const tree = summaryData.tree || [];
                 const colLabel = activeViewLevel === "DC" ? revenueHqLabelUpper() : "DC NAME";
-                const headers = [colLabel, "TARGET", "ACHIEVED", "%"];
+                // USER REQUEST (2026-09-23): download (Excel/PDF) me bhi TARGET/ACHIEVED
+                // ab LAKH me hi jaate hain - screen wale format se match karne ke liye.
+                const headers = [colLabel, "TARGET (LAKH)", "ACHIEVED (LAKH)", "%"];
                 const rows = tree.map((row) => {
                     const target = Number(row.paidAmountTotal || 0) + Number(row.unpaidAmountTotal || 0);
-                    return [row.name, formatProgressReportAmount(target), formatProgressReportAmount(row.paidAmountTotal), `${getRevenueAchievementPct(row.paidAmountTotal, target)}%`];
+                    return [row.name, formatRevenueLakhValue(target), formatRevenueLakhValue(row.paidAmountTotal), `${getRevenueAchievementPct(row.paidAmountTotal, target)}%`];
                 });
                 const scope = activeViewLevel === "DC" ? `DC - ${activeDC}` : (activeViewLevel === "DIVISION" ? activeDiv : "SEONI CIRCLE");
                 const reportTitle = `Target vs Achievement Summary - ${scope}`;
@@ -5920,7 +5922,11 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 const pctB = getRevenueAchievementPct(b.paidAmountTotal, targetB);
                 return pctB - pctA;
             });
-            let html = `<div class="summary-wrapper" style="margin-top:6px;"><div class="summary-table-header" style="grid-template-columns: 1.4fr 0.85fr 0.85fr 0.7fr;"><div>${colLabel}</div><div>TARGET</div><div>ACHIEVED</div><div>%</div></div>`;
+            // USER REQUEST (2026-09-23): Target/Achieved amount ab poore Rs ki jagah
+            // LAKH me dikhta hai (jaise 50000 -> "0.50") - DC/Division/Circle teeno scope
+            // me, kyunki asal amount kaafi bada hota hai aur poore Rs me padhna mushkil
+            // tha. Baaki columns (%, sorting, row-type styling) bilkul unchanged.
+            let html = `<div class="summary-wrapper" style="margin-top:6px;"><div class="summary-table-header" style="grid-template-columns: 1.4fr 0.85fr 0.85fr 0.7fr;"><div>${colLabel}</div><div>TARGET (LAKH)</div><div>ACHIEVED (LAKH)</div><div>%</div></div>`;
             if (!rows.length) {
                 html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div class="text-rose-600">Data nahi mila.</div></div>`;
             } else {
@@ -5929,7 +5935,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     const target = Number(row.paidAmountTotal || 0) + Number(row.unpaidAmountTotal || 0);
                     const pct = getRevenueAchievementPct(row.paidAmountTotal, target);
                     const pctColor = pct >= 75 ? "#166534" : (pct >= 40 ? "#b45309" : "#9f1239");
-                    html += `<div class="summary-table-row${rowClass}" style="grid-template-columns: 1.4fr 0.85fr 0.85fr 0.7fr;"><div>${escapeHtml(row.name)}</div><div class="font-black">${formatProgressReportAmount(target)}</div><div class="text-emerald-700 font-black">${formatProgressReportAmount(row.paidAmountTotal)}</div><div style="color:${pctColor}; font-weight:950;">${pct}%</div></div>`;
+                    html += `<div class="summary-table-row${rowClass}" style="grid-template-columns: 1.4fr 0.85fr 0.85fr 0.7fr;"><div>${escapeHtml(row.name)}</div><div class="font-black">${formatRevenueLakhValue(target)}</div><div class="text-emerald-700 font-black">${formatRevenueLakhValue(row.paidAmountTotal)}</div><div style="color:${pctColor}; font-weight:950;">${pct}%</div></div>`;
                 });
             }
             html += `</div>`;
@@ -5953,8 +5959,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     <option value="NONGOVT" ${progressTargetGovtFilter === "NONGOVT" ? "selected" : ""}>Non Govt</option>
                 </select>
                 <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:8px; width:100%; margin:10px auto 0;">
-                    <div style="background:#f1f5f9; border-radius:12px; padding:8px 4px; text-align:center;"><div style="font-size:0.54rem; font-weight:850; color:#64748b; text-transform:uppercase;">Target</div><div style="font-size:0.82rem; font-weight:950; color:#0f172a; margin-top:2px;">${formatProgressReportAmount(target)}</div></div>
-                    <div style="background:#ecfdf5; border-radius:12px; padding:8px 4px; text-align:center;"><div style="font-size:0.54rem; font-weight:850; color:#166534; text-transform:uppercase;">Achieved</div><div style="font-size:0.82rem; font-weight:950; color:#166534; margin-top:2px;">${formatProgressReportAmount(data.totals.paidAmountTotal)}</div></div>
+                    <div style="background:#f1f5f9; border-radius:12px; padding:8px 4px; text-align:center;"><div style="font-size:0.54rem; font-weight:850; color:#64748b; text-transform:uppercase;">Target (Lakh)</div><div style="font-size:0.82rem; font-weight:950; color:#0f172a; margin-top:2px;">${formatRevenueLakhValue(target)}</div></div>
+                    <div style="background:#ecfdf5; border-radius:12px; padding:8px 4px; text-align:center;"><div style="font-size:0.54rem; font-weight:850; color:#166534; text-transform:uppercase;">Achieved (Lakh)</div><div style="font-size:0.82rem; font-weight:950; color:#166534; margin-top:2px;">${formatRevenueLakhValue(data.totals.paidAmountTotal)}</div></div>
                     <div style="background:#eff6ff; border-radius:12px; padding:8px 4px; text-align:center;"><div style="font-size:0.54rem; font-weight:850; color:#1d4ed8; text-transform:uppercase;">%</div><div style="font-size:0.95rem; font-weight:950; color:${pctColor}; margin-top:2px;">${pct}%</div></div>
                 </div>
                 <div style="font-size:0.62rem; font-weight:900; color:#1d4ed8; text-align:center; margin-top:10px;">${colLabel} WISE</div>
