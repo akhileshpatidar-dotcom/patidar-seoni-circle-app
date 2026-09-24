@@ -18745,6 +18745,9 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         }
 
         async function initRevenuePendingList() {
+            // USER REQUEST (2026-09-24): Pending DO List card ke upar "DC NAME - ..."
+            const dcNameBox_ = document.getElementById("revenue-pending-dc-name");
+            if (dcNameBox_) dcNameBox_.textContent = activeDC ? `DC NAME - ${activeDC}` : "";
             const statusBox = document.getElementById("revenue-pending-status");
             const listBox = document.getElementById("revenue-pending-list-box");
             const hqSelect = document.getElementById("revenue-pending-hq");
@@ -19120,9 +19123,14 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                         doc.text(title, 148, 18, { align: "center" });
                         doc.setFontSize(9);
                         doc.setTextColor(15, 23, 42);
-                        doc.text(document.getElementById("revenue-pending-status")?.innerText || "", 14, 28);
+                        // BUG FIX (2026-09-24, USER-REPORTED header overlap): status text ab kai line
+                        // ka hai (filters + TD count + diagnostic) - pehle table hamesha y=34 se
+                        // shuru hota tha aur lines uske upar chadh jaati thi. Ab text ko page
+                        // width me wrap karke, jitni lines baniin utni jagah chhod kar table shuru.
+                        const pendingHeaderLines_ = doc.splitTextToSize((document.getElementById("revenue-pending-status")?.innerText || "").replace(/\n+/g, "\n"), 268);
+                        doc.text(pendingHeaderLines_, 14, 28);
                         doc.autoTable({
-                            startY: 34,
+                            startY: 28 + pendingHeaderLines_.length * 4.2 + 2,
                             head: [headers],
                             body: exportRows,
                             theme: "grid",
