@@ -18776,7 +18776,9 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 // master rows ko yahan jaan-boojhkar use nahi karte.
                 const [_, paidSet] = await Promise.all([
                     ensureRevenueCategoryMasterDataLoadedStrict_([activeDC]),
-                    getRevenuePendingCashListPaidIvrsSet_()
+                    getRevenuePendingCashListPaidIvrsSet_(),
+                    // USER REQUEST (2026-09-24): Line TD data bhi (TD filter/column ke liye); fail ho to list phir bhi chalegi
+                    syncRevenueTdEntriesFromSheet(3, false, activeDC).catch(() => {})
                 ]);
                 if (refreshToken !== revenuePendingPaidRefreshToken) { if (pendingListProgress) pendingListProgress.stop(); return; }
                 revenuePendingPaidIvrsSet = paidSet;
@@ -18916,6 +18918,40 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             return true;
         }
 
+        // ISOLATED ADDITION (2026-09-24, USER REQUEST): Pending DO List me Line TD
+        // filter (All / Pending No Action / TD) + download me "TD DATE / TIME" column.
+        // getRevenuePendingFilteredRows() jaan-boojh kar NAHI chheda - Revenue Message
+        // Center bhi use karta hai; TD filter sirf Pending DO List screen + download par.
+        // Jama karne wala consumer pehle ki tarah list se hat hi jaata hai (TD ho chuka ho tab bhi).
+        function getRevenuePendingTdMap_() {
+            const dcKey = normalizeLookupValue(activeDC || "");
+            const map = new Map();
+            (getRevenueTdEntriesLocal() || []).forEach((entry) => {
+                if (normalizeLookupValue(entry.dcName || "") !== dcKey) return;
+                const ivrs = normalizeRevenueIvrs(entry.ivrsNo);
+                if (!ivrs) return;
+                const sortKey = `${revenueUploadDateKey_(entry.tdDate || "")} ${String(formatRevenuePaidTime(entry.tdTime || "") || "").padStart(5, "0")}`;
+                const prev = map.get(ivrs);
+                if (!prev || sortKey > prev.sortKey) map.set(ivrs, { sortKey, date: entry.tdDate || "", time: formatRevenuePaidTime(entry.tdTime || "") || "" });
+            });
+            return map;
+        }
+
+        function getRevenuePendingTdText_(tdInfo) {
+            if (!tdInfo) return "";
+            return `TD: ${String(tdInfo.date || "-").replace(/\//g, "-")}${tdInfo.time ? " " + tdInfo.time : ""}`;
+        }
+
+        function applyRevenuePendingTdFilter_(rows) {
+            const tdValue = document.getElementById("revenue-pending-td")?.value || "";
+            if (!tdValue) return rows;
+            const tdMap = getRevenuePendingTdMap_();
+            return (rows || []).filter((row) => {
+                const hasTd = tdMap.has(normalizeRevenueIvrs(row.ivrsNo));
+                return tdValue === "TD" ? hasTd : !hasTd;
+            });
+        }
+
         function getRevenuePendingFilteredRows() {
             const hqValue = document.getElementById("revenue-pending-hq")?.value || "";
             const villageValue = document.getElementById("revenue-pending-village")?.value || "";
@@ -18963,11 +18999,17 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             const ivrsSearch = normalizeRevenueIvrs(document.getElementById("revenue-pending-ivrs-search")?.value || "");
             if (!statusBox || !listBox) return;
 
-            const rows = getRevenuePendingFilteredRows();
+            const allFilteredRows_ = getRevenuePendingFilteredRows();
             if (revenueMessageSelectionMode) {
-                renderRevenueMessagePendingSelection(rows, statusBox, listBox);
+                renderRevenueMessagePendingSelection(allFilteredRows_, statusBox, listBox);
                 return;
             }
+            // USER REQUEST (2026-09-24): Line TD filter sirf is screen + download par
+            const rows = applyRevenuePendingTdFilter_(allFilteredRows_);
+            const tdMapForStatus_ = getRevenuePendingTdMap_();
+            const tdDoneCount_ = rows.filter((row) => tdMapForStatus_.has(normalizeRevenueIvrs(row.ivrsNo))).length;
+            const tdFilterValue_ = document.getElementById("revenue-pending-td")?.value || "";
+            const tdLabel_ = tdFilterValue_ === "TD" ? "TD" : (tdFilterValue_ === "NOACTION" ? "Pending (No Action)" : "ALL");
             const incompleteWarning = revenuePendingPaidDataIncomplete ? `
                 <div style="background:#fff1f2; border:1.5px solid #fda4af; border-radius:12px; padding:10px; color:#991b1b; font-size:0.74rem; font-weight:900; text-align:center; margin-bottom:8px;">
                     ⚠️ Paid (Cash List) data poora sync nahi ho paaya - yeh number galat/zyada ho sakta hai. Kripya internet check karke wapas is report par aayein taaki dobara sync ho.
@@ -18981,7 +19023,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             // poora hai lekin fir bhi Pending zyada hai to IVRS format/matching me
             // dikkat hai.
             const diagLine = `<div style="font-size:0.66rem; color:#64748b; margin-top:4px;">Diagnostic - Canonical Master: ${revenuePendingDiag.masterRows} | Cash List Paid (current month): ${revenuePendingDiag.uploadedFetched} | Paid-by-Staff: not used</div>`;
-            statusBox.innerHTML = `${incompleteWarning}Pending Consumer: <strong>${rows.length}</strong> | HQ: ${escapeHtml(hqValue || "ALL")} | Village: ${escapeHtml(villageValue || "ALL")} | Category: ${escapeHtml(categoryValue || "ALL")} | Net Bill Slab: ${escapeHtml(slabValue || "ALL")} | Type: ${escapeHtml(govtLabel)} | IVRS: ${escapeHtml(ivrsSearch || "ALL")}${diagLine}`;
+            statusBox.innerHTML = `${incompleteWarning}Pending Consumer: <strong>${rows.length}</strong> | HQ: ${escapeHtml(hqValue || "ALL")} | Village: ${escapeHtml(villageValue || "ALL")} | Category: ${escapeHtml(categoryValue || "ALL")} | Net Bill Slab: ${escapeHtml(slabValue || "ALL")} | Type: ${escapeHtml(govtLabel)} | TD Filter: ${escapeHtml(tdLabel_)} | IVRS: ${escapeHtml(ivrsSearch || "ALL")}<div style="font-size:0.72rem; font-weight:950; color:#dc2626; margin-top:4px;">Line TD ho chuka (is list me): ${tdDoneCount_} | Pending (No Action): ${rows.length - tdDoneCount_}</div>${diagLine}`;
             listBox.innerHTML = rows.length ? `
                 <div style="display:flex; gap:10px; width:100%; margin:0 auto;">
                     <button id="revenue-pending-pdf-btn" onclick="downloadRevenuePendingList('PDF')" style="flex:1; height:44px; border:none; border-radius:14px; background:#ef4444; color:#ffffff; font-size:0.78rem; font-weight:950;">PDF</button>
@@ -18995,10 +19037,11 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         }
 
         function getRevenuePendingExportHeaders() {
-            return ["IVRS NO", "CONSUMER NAME", "FATHER NAME", revenueVillageLabelUpper(), revenueHqLabelUpper(), "TARRIF CATEGORY", "GOVT/NON GOVT", "MOBILE NO", "ARREARS", "NET BILL"];
+            return ["IVRS NO", "CONSUMER NAME", "FATHER NAME", revenueVillageLabelUpper(), revenueHqLabelUpper(), "TARRIF CATEGORY", "GOVT/NON GOVT", "MOBILE NO", "ARREARS", "NET BILL", "TD DATE / TIME"];
         }
 
         function getRevenuePendingExportRows(rows) {
+            const tdMap_ = getRevenuePendingTdMap_();
             return (rows || []).map((row) => [
                 row.ivrsNo || "",
                 row.consumerName || "",
@@ -19009,7 +19052,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 row.govtFlag ? "GOVT" : "NON GOVT",
                 row.mobileNo || "",
                 row.arrears || "",
-                row.netBill || ""
+                row.netBill || "",
+                getRevenuePendingTdText_(tdMap_.get(normalizeRevenueIvrs(row.ivrsNo)))
             ]);
         }
 
@@ -19019,7 +19063,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             const categoryValue = document.getElementById("revenue-pending-category")?.value || "ALL-CATEGORIES";
             const slabValue = document.getElementById("revenue-pending-arrears-slab")?.value || "ALL-NET-BILL";
             const govtValue = document.getElementById("revenue-pending-govt")?.value || "ALL-TYPE";
-            return `pending-list-${activeDC || "DC"}-${hqValue}-${villageValue}-${categoryValue}-${slabValue}-${govtValue}`.replace(/[\\/:*?"<>|]+/g, "_");
+            const tdValue = document.getElementById("revenue-pending-td")?.value || "";
+            return `pending-list-${activeDC || "DC"}-${hqValue}-${villageValue}-${categoryValue}-${slabValue}-${govtValue}${tdValue ? "-" + tdValue : ""}`.replace(/[\\/:*?"<>|]+/g, "_");
         }
 
         function setRevenuePendingDownloadState(isLoading, message = "", ok = true) {
@@ -19044,7 +19089,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
 
         function downloadRevenuePendingList(type) {
             if (revenuePendingDownloadInProgress) return showToast("Download process chal raha hai, kripya wait kijiye", false);
-            const rows = getRevenuePendingFilteredRows();
+            const rows = applyRevenuePendingTdFilter_(getRevenuePendingFilteredRows()); // USER REQUEST (2026-09-24): TD filter bhi
             if (!rows.length) return showToast("Pending list me data nahi hai", false);
             const headers = getRevenuePendingExportHeaders();
             const exportRows = getRevenuePendingExportRows(rows);
@@ -19081,6 +19126,13 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                                 2: { halign: "left" },
                                 3: { halign: "left" },
                                 4: { halign: "left" }
+                            },
+                            // USER REQUEST (2026-09-24): TD DATE / TIME wala text laal (red)
+                            didParseCell: (hook) => {
+                                if (hook.section === "body" && hook.column.index === headers.length - 1 && String(hook.cell.raw || "")) {
+                                    hook.cell.styles.textColor = [220, 38, 38];
+                                    hook.cell.styles.fontStyle = "bold";
+                                }
                             }
                         });
             savePdfDocumentForDevice(doc, `${getRevenuePendingFileName()}.pdf`);

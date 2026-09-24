@@ -1552,6 +1552,12 @@
                     <option value="GOVT">Govt</option>
                     <option value="NONGOVT">Non Govt</option>
                 </select>
+                <!-- USER REQUEST (2026-09-24): Pending DO List - Line TD filter -->
+                <select id="revenue-pending-td" onchange="scheduleRevenuePendingRender()" style="width:100%; max-width:360px; height:52px; margin:10px auto 0; display:block; border:1.5px solid #fb923c; border-radius:15px; padding:0 14px; font-size:0.86rem; font-weight:900; color:#0f172a; background:#ffffff;">
+                    <option value="">All (Pending No Action + TD)</option>
+                    <option value="NOACTION">Pending (No Action)</option>
+                    <option value="TD">TD (Line TD ho chuka)</option>
+                </select>
                 <input id="revenue-pending-ivrs-search" type="tel" inputmode="numeric" maxlength="15" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,15); scheduleRevenuePendingRender(220)" placeholder="Search IVRS Number" style="width:100%; max-width:360px; height:52px; margin:10px auto 0; display:block; border:1.5px solid #60a5fa; border-radius:15px; padding:0 14px; text-align:center; font-size:0.9rem; font-weight:900; color:#0f172a; background:#ffffff;">
                 <div id="revenue-pending-status" style="width:100%; max-width:360px; margin:14px auto 0; border-radius:16px; padding:12px; background:#f8fafc; border:1.5px dashed #fdba74; color:#475569; font-size:0.75rem; font-weight:850; line-height:1.45; text-align:center;">
                     Pending list load ho rahi hai...
@@ -1849,6 +1855,6 @@
         </main>
     </div>
 
-    <script src="./app.js?v=20260924-keolari-kanhiwada-lv6-uploadanim-dccheck-r1"></script>
+    <script src="./app.js?v=20260924-multi-pendingtd-r1"></script>
 </body>
 </html>
