@@ -10,7 +10,7 @@
 // no-network me bhi app khule (blank error page na aaye) — data submit/search
 // tab bhi network hi maangega, jaisa aaj hai.
 
-const CACHE_VERSION = "seoni-app-shell-v3";
+const CACHE_VERSION = "seoni-app-shell-v4";
 
 const SHELL_FILES = [
     "./index.html",
@@ -110,8 +110,16 @@ self.addEventListener("fetch", (event) => {
     // App shell code (HTML/CSS/JS) / same-origin navigations: network-first, taaki latest
     // version hamesha mile; offline hone par hi cached (purani) copy dikhe.
     if (event.request.mode === "navigate" || isNetworkFirstFile(url) || url.endsWith("/")) {
+        // PERMANENT UPDATE FIX (2026-09-24, USER REQUEST - "iPhone ke liye baar-baar
+        // version badalna na pade, Android/iPhone dono ka ek hi flow ho"): app shell
+        // (index.html/styles.css/app.js) ab browser ke HTTP cache ko bhi BYPASS karke
+        // hamesha server se check hota hai (cache: "no-cache" = har baar GitHub se
+        // confirm, file same ho to turant). Isse GitHub par nayi file upload karte hi
+        // Android + iPhone dono ko agli baar app kholne par wahi nayi file milti hai -
+        // index.html me "app.js?v=..." badalne ki ab koi zaroorat NAHI hai.
+        // Offline hone par pehle jaisa hi purani cached copy chalti hai.
         event.respondWith(
-            fetch(event.request)
+            fetch(event.request, { cache: "no-cache" })
                 .then((response) => {
                     // RELIABILITY FIX (2026-09-15, USER-REQUESTED): pehle har
                     // response (chahe 404/500 transient error ho) cache ho jaata
