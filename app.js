@@ -19526,6 +19526,12 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 <div><strong>Old Data Status:</strong> ${meta.oldDataReplaced ? "Old data replaced" : "Old data not replaced"}</div>
                 <div><strong>Upload Progress:</strong> ${meta.backendSynced ? "100%" : "99%"}</div>
                 <div><strong>Backend Status:</strong> ${meta.backendSynced ? "Successfully Uploaded" : "Verification pending"}</div>
+                ${meta.backendSynced && meta.backendRowsSaved !== null && meta.backendRowsSaved !== undefined ? `
+                <div style="margin-top:6px; padding:6px 8px; border-radius:10px; background:#dcfce7; color:#166534; font-weight:800;">Backend ne confirm kiya: ${escapeHtml(meta.backendNormalRows)} Normal IVRS naye save + ${escapeHtml(meta.backendAgRowsUpdated)} AG IVRS update | Sheet me kul ${escapeHtml(meta.backendRowsSaved)} rows</div>` : ""}
+                ${meta.backendSynced && meta.backendConfirmedBy === "VERIFICATION" ? `
+                <div style="margin-top:6px; padding:6px 8px; border-radius:10px; background:#dcfce7; color:#166534; font-weight:800;">Backend me is upload ke saare ${escapeHtml(meta.uniqueCount || "0")} IVRS aaj ki upload-date ke saath mil gaye (verification se confirm)</div>` : ""}
+                ${!meta.backendSynced ? `
+                <div style="margin-top:6px; padding:6px 8px; border-radius:10px; background:#fef3c7; color:#92400e; font-weight:800;">Backend me abhi yeh upload confirm nahi hua. App background me ~5 min tak check karta rahega. Agar 10 min baad bhi yahi dikhe to dobara upload karein.</div>` : ""}
             `;
         }
 
@@ -19697,7 +19703,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             ));
             if (!localEntries.length || Number(meta.uniqueCount || 0) !== localEntries.length) return;
             setRevenuePaidUploadProgress(95, "Last upload ka backend status verify ho raha hai...");
-            const verified = await verifyRevenuePaidBackendUpload(localEntries, normalizedDc, 1);
+            const verified = await verifyRevenuePaidBackendUpload(localEntries, normalizedDc, 1, meta.uploadedAt || null);
             if (!verified) {
                 setRevenuePaidUploadProgress(95, "BACKEND VERIFICATION PENDING");
                 return;
@@ -19705,6 +19711,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             const verifiedMeta = {
                 ...meta,
                 backendSynced: true,
+                backendConfirmedBy: "VERIFICATION",
                 backendVerifiedAt: new Date().toISOString()
             };
             saveRevenuePaidUploadMeta(verifiedMeta);
@@ -20249,34 +20256,51 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // tarah ki badi DC ke liye already 150s tak wait karta hai, isliye yahan
         // bhi attempts badha kar 60 (~180 second) kar diya hai taaki badi DC ko
         // verify hone ka poora, fair mauka mile.
-        async function verifyRevenuePaidBackendUpload(entries, dcName, maxAttempts = 60) {
+        // SPEED FIX (2026-09-24, USER-REPORTED "Cash List upload me bahut samay"):
+        // Pehle har 3 sec par DO request jaati thi - (a) row-count (jo AG accumulate
+        // hone ki wajah se kabhi upload ki unique-IVRS ginti ke BARABAR hota hi nahi,
+        // isliye hamesha fail) aur (b) poori IVRS list (~300 KB) - yeh dono usi sheet
+        // par chal rahe upload-write se takraate the aur use aur dheema karte the.
+        // Aur (b) purane upload ke IVRS dekh kar bhi "verified" maan sakta tha.
+        // Ab: sirf ek request, har 10 sec, aur tabhi "verified" jab saare IVRS ka
+        // backend "UPLOADED DATE" is upload ke din (ya uske baad) ka ho.
+        function revenueUploadDateKey_(value) {
+            const raw = String(value || "").trim();
+            let m = raw.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
+            if (m) return `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+            m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+            return m ? `${m[1]}-${m[2]}-${m[3]}` : "";
+        }
+
+        async function verifyRevenuePaidBackendUpload(entries, dcName, maxAttempts = 60, minUploadedAt = null) {
             const expectedIvrs = Array.from(new Set((entries || [])
                 .map((entry) => getRevenueUploadedPaidRowIvrs(entry))
                 .filter(Boolean)));
-            const expectedCount = expectedIvrs.length;
-            if (!expectedCount) return false;
+            if (!expectedIvrs.length) return false;
+            let minDateKey = "";
+            if (minUploadedAt) {
+                const d = new Date(minUploadedAt);
+                if (!isNaN(d.getTime())) minDateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+            }
             for (let attempt = 1; attempt <= maxAttempts; attempt++) {
                 try {
-                    const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getPaidMasterRowCount&dc_name=${encodeURIComponent(dcName || "")}&t=${Date.now()}`);
-                    const parsed = await response.json();
-                    if (parsed?.status === "success" && Number(parsed.count) === expectedCount) return true;
-                } catch (_) {}
-                try {
-                    // AG rows purane uploads ke saath merge hote hain, isliye backend
-                    // ka total row-count current file se zyada hona bilkul sahi hai.
-                    // Aise case me equality ki jagah verify karte hain ki current
-                    // upload ka HAR IVRS lightweight backend list me maujood hai.
                     const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getUploadedPaidIvrsList&dc_name=${encodeURIComponent(dcName || "")}&t=${Date.now()}`);
                     const parsed = await response.json();
                     if (parsed?.status === "success" && Array.isArray(parsed.entries)) {
-                        const backendIvrs = new Set(parsed.entries.map((entry) => getRevenueUploadedPaidRowIvrs(entry)).filter(Boolean));
-                        if (expectedIvrs.every((ivrs) => backendIvrs.has(ivrs))) return true;
+                        const backendDateByIvrs = new Map();
+                        parsed.entries.forEach((entry) => {
+                            const ivrs = getRevenueUploadedPaidRowIvrs(entry);
+                            if (ivrs) backendDateByIvrs.set(ivrs, revenueUploadDateKey_(entry.uploaded_date || entry.uploadedDate || ""));
+                        });
+                        const ok = expectedIvrs.every((ivrs) => backendDateByIvrs.has(ivrs)
+                            && (!minDateKey || (backendDateByIvrs.get(ivrs) || "") >= minDateKey));
+                        if (ok) return true;
                     }
                 } catch (_) {}
                 if (attempt < maxAttempts) {
                     const verificationPercent = 70 + Math.round((attempt / maxAttempts) * 29);
                     setRevenuePaidUploadProgress(verificationPercent, `Backend verification chal rahi hai... (${attempt}/${maxAttempts})`);
-                    await new Promise((resolve) => setTimeout(resolve, 3000));
+                    await new Promise((resolve) => setTimeout(resolve, 10000));
                 }
             }
             return false;
@@ -20291,14 +20315,14 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // active ho to summary+button turant "Successfully Uploaded" me update
         // ho jaate hain, bina user ko kuch karna pade.
         async function continueRevenuePaidUploadBackgroundVerification_(entries, dcName, uploadMeta) {
-            const confirmed = await verifyRevenuePaidBackendUpload(entries, dcName, 30 /* 30 x 10s = 5 min */).catch(() => false);
+            const confirmed = await verifyRevenuePaidBackendUpload(entries, dcName, 30 /* 30 x 10s = 5 min */, uploadMeta?.uploadedAt || null).catch(() => false);
             if (!confirmed) return;
             const latestMeta = getRevenuePaidUploadMeta(dcName);
             // Beech me koi naya upload shuru ho gaya ho (uniqueCount badal gaya)
             // to yeh purana confirmation ab uss par apply nahi karna - sirf tabhi
             // update karo jab abhi bhi wahi upload (record count match) pending hai.
             if (!latestMeta || latestMeta.backendSynced || Number(latestMeta.uniqueCount) !== Number(uploadMeta.uniqueCount)) return;
-            const verifiedMeta = { ...latestMeta, backendSynced: true, backendVerifiedAt: new Date().toISOString() };
+            const verifiedMeta = { ...latestMeta, backendSynced: true, backendConfirmedBy: "VERIFICATION", backendVerifiedAt: new Date().toISOString() };
             saveRevenuePaidUploadMeta(verifiedMeta);
             if (activeDC === dcName) {
                 renderRevenuePaidUploadSummary(verifiedMeta);
@@ -20308,6 +20332,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             }
             checkRevenueUploadFreshness();
         }
+
+        var revenuePaidUploadStartedAt_ = null;
 
         async function uploadRevenuePaidFiles() {
             const normalFile = document.getElementById("revenue-paid-normal-file")?.files?.[0] || null;
@@ -20327,6 +20353,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             }
             try {
                 revenuePaidUploadInProgress = true;
+                revenuePaidUploadStartedAt_ = new Date().toISOString(); // SPEED FIX (2026-09-24): verification isi samay ke baad ka upload dhoondhta hai
                 setActionButtonState(uploadBtn, "processing", "Upload Paid Data");
                 renderRevenuePaidUploadSummary(null);
                 setRevenuePaidUploadProgress(5, "Paid files read ho rahi hain...");
@@ -20368,12 +20395,13 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
 
                 setRevenuePaidUploadProgress(70, `Backend upload chal raha hai... Unique IVRS: ${entries.length} | Payment Rows: ${paymentRowCount}`);
                 let backendSynced = false;
+                let backendUploadResult_ = null;
                 try {
                     const response = await fetchWithTimeout(revenueCollectionSubmitScriptUrl, {
                         method: "POST",
                         headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
                         body: payload.toString()
-                    }, 20000);
+                    }, 300000); // SPEED FIX (2026-09-24): 20 sec -> 5 min. Badi DC me backend ko 20 sec se zyada lagta hai; pehle 20 sec par hi abort hokar poora data DOBARA bheja jaata tha (backend par do baar kaam).
                     const responseText = await response.text();
                     let parsed = {};
                     try { parsed = JSON.parse(responseText || "{}"); } catch (_) {}
@@ -20389,6 +20417,23 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                         err.isExplicitBackendError = true;
                         throw err;
                     }
+                    // SAFETY FIX (2026-09-24, USER REQUEST "99 par galat success na
+                    // dikhe"): pehle response.ok ho aur body JSON na ho (jaise Apps
+                    // Script ka HTML error/"time limit" page, jo 200 status ke saath
+                    // aata hai) to bhi "SUCCESSFULLY UPLOADED" maan liya jaata tha.
+                    // Ab sirf backend ka saaf `status: "success"` hi success hai; warna
+                    // backend tak request pahunch chuki hai isliye dobara nahi bhejte,
+                    // seedha asli verification (upload-date ke saath) chalti hai.
+                    if (parsed.status !== "success") {
+                        const unsureErr = new Error("Backend ka saaf jawab nahi mila");
+                        unsureErr.backendReached = true;
+                        throw unsureErr;
+                    }
+                    backendUploadResult_ = {
+                        rowsSaved: Number(parsed.rows_saved || 0),
+                        normalRowsThisUpload: Number(parsed.normal_rows_this_upload || 0),
+                        agRowsUpdatedThisUpload: Number(parsed.ag_rows_updated_this_upload || 0)
+                    };
                     backendSynced = true;
                 } catch (syncError) {
                     // Explicit backend error (upar wala) ko yahin turant aage (outer
@@ -20398,7 +20443,12 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     // Sirf GENUINE network/timeout wale case me hi fallback + background
                     // verification try karte hain - ho sakta hai backend ne asal me
                     // process kar liya ho, sirf response client tak na pahuncha ho.
-                    try {
+                    // SPEED FIX (2026-09-24): timeout (AbortError) ka matlab request
+                    // backend tak pahunch chuki hai aur wahan abhi chal rahi hai - use
+                    // dobara bhejna usi kaam ko DUBARA karwata tha (lock ka intezaar +
+                    // poori sheet dobara likhna). Ab sirf asli network-failure par hi
+                    // dobara bhejte hain; timeout par seedha verification.
+                    if (syncError && syncError.name !== "AbortError" && !syncError.backendReached) try {
                         await fetch(revenueCollectionSubmitScriptUrl, {
                             method: "POST",
                             mode: "no-cors",
@@ -20411,7 +20461,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
 
                 if (!backendSynced) {
                     setRevenuePaidUploadProgress(72, "Backend sync bhej diya gaya hai. Verification chal rahi hai...");
-                    backendSynced = await verifyRevenuePaidBackendUpload(entries, activeDC || "");
+                    backendSynced = await verifyRevenuePaidBackendUpload(entries, activeDC || "", 60, revenuePaidUploadStartedAt_);
                 }
 
                 setRevenuePaidUploadProgress(
@@ -20429,7 +20479,12 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     agRows: agRows.length,
                     uploadedAt: new Date().toISOString(),
                     oldDataReplaced: true,
-                    backendSynced: backendSynced
+                    backendSynced: backendSynced,
+                    // USER REQUEST (2026-09-24): summary me backend ka ASLI hisaab bhi
+                    backendConfirmedBy: backendSynced ? (backendUploadResult_ ? "RESPONSE" : "VERIFICATION") : "",
+                    backendRowsSaved: backendUploadResult_ ? backendUploadResult_.rowsSaved : null,
+                    backendNormalRows: backendUploadResult_ ? backendUploadResult_.normalRowsThisUpload : null,
+                    backendAgRowsUpdated: backendUploadResult_ ? backendUploadResult_.agRowsUpdatedThisUpload : null
                 };
                 saveRevenuePaidUploadMeta(uploadMeta);
                 renderRevenuePaidUploadSummary(uploadMeta);
