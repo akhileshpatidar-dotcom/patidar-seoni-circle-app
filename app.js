@@ -14,21 +14,21 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 showSpecialActions: false,
                 subDnOrder: ["AE (D)", "KEOLARI", "SEONI (T)"],
                 dcs: [
-                    { name: "ARI", subDn: "AE (D)", csvUrl: "" },
-                    { name: "BADALPAR", subDn: "AE (D)", csvUrl: "" },
-                    { name: "BANDOL", subDn: "AE (D)", csvUrl: "" },
+                    { name: "ARI", subDn: "AE (D)", csvUrl: "https://docs.google.com/spreadsheets/d/1B6e_KSajmp0WkTNXxZuZgmEwXqByt2YvzjsmEvcMDjk/export?format=csv&gid=0" }, // LINKED (2026-09-24, data aana baaki)
+                    { name: "BADALPAR", subDn: "AE (D)", csvUrl: "https://docs.google.com/spreadsheets/d/1BjptmeiVPvvr1UJHcBj__XRBraKPsytWI_HDAwczZag/export?format=csv&gid=0" }, // LINKED (2026-09-24, data aana baaki)
+                    { name: "BANDOL", subDn: "AE (D)", csvUrl: "https://docs.google.com/spreadsheets/d/1a_sEPiRlNMTnSm_nMF3ZoWVu7eNu599pn0OLcpyVjbU/export?format=csv&gid=0" }, // LINKED (2026-09-24, data aana baaki)
                     { name: "BARGHAT", subDn: "AE (D)", csvUrl: "https://docs.google.com/spreadsheets/d/1b5g3VBlKjCiOX0cfE5Na-jyRY4cPCjrIJIsU3YozG_U/export?format=csv&gid=0" },
-                    { name: "DHARNA", subDn: "AE (D)", csvUrl: "" },
-                    { name: "GOPALGANJ", subDn: "AE (D)", csvUrl: "" },
+                    { name: "DHARNA", subDn: "AE (D)", csvUrl: "https://docs.google.com/spreadsheets/d/1n4L3Rhr6sJ2s0FyHTYoA2I_UyzUFw4satCjjmJU0e20/export?format=csv&gid=0" }, // LINKED (2026-09-24, data aana baaki)
+                    { name: "GOPALGANJ", subDn: "AE (D)", csvUrl: "https://docs.google.com/spreadsheets/d/1f4xkfI_NX6uQx2mDFukqhs_d-IJLKUz4CC3pPqSA534/export?format=csv&gid=0" }, // LINKED (2026-09-24, data aana baaki)
                     { name: "KANHIWADA", subDn: "KEOLARI", csvUrl: "https://docs.google.com/spreadsheets/d/1wCAiEHYz5MS9NaXcn7OS2oxKxEOEDv5shIU4R8mut88/export?format=csv&gid=0" }, // LIVE (2026-09-24)
                     { name: "KEOLARI", subDn: "KEOLARI", csvUrl: "https://docs.google.com/spreadsheets/d/1mgtXnZqR8QHefoenGOWt1WQ_DPztsU1l_KVYvdwGiQc/export?format=csv&gid=0" }, // LIVE (2026-09-24)
-                    { name: "KHAIRAPALARI", subDn: "KEOLARI", csvUrl: "" },
+                    { name: "KHAIRAPALARI", subDn: "KEOLARI", csvUrl: "https://docs.google.com/spreadsheets/d/1bF3W6BFExhxuaYG0hLV2ik0AG0dNnkWoXONPD5FLo34/export?format=csv&gid=0" }, // LINKED (2026-09-24, data aana baaki)
                     { name: "KURAI", subDn: "AE (D)", csvUrl: "https://docs.google.com/spreadsheets/d/15c2CHolan0YVYh5Hwe4akn1YNk1SUhhLVa24h9ZBQbU/export?format=csv&gid=0" },
-                    { name: "MUNGWANI", subDn: "AE (D)", csvUrl: "" },
-                    { name: "PANDIYA CHHAPARA", subDn: "KEOLARI", csvUrl: "" },
+                    { name: "MUNGWANI", subDn: "AE (D)", csvUrl: "https://docs.google.com/spreadsheets/d/1iIf0HCXFL_6BFcNfw2DPx6H6-aBnWF7QwDJxB1VI018/export?format=csv&gid=0" }, // LINKED (2026-09-24, data aana baaki)
+                    { name: "PANDIYA CHHAPARA", subDn: "KEOLARI", csvUrl: "https://docs.google.com/spreadsheets/d/1ylRwRWrwj-iqL4syJjk0uyZ9fw1lvuwI9awoRsrYT28/export?format=csv&gid=0" }, // LINKED (2026-09-24, data aana baaki)
                     { name: "SEONI (T)", subDn: "SEONI (T)", csvUrl: "https://docs.google.com/spreadsheets/d/1ugB6evAfEL0t7ffzhmv1G8vwRtdJmz3fsQrt92sWrvM/export?format=csv&gid=0" },
                     { name: "SEONI (RES)", subDn: "AE (D)", csvUrl: "https://docs.google.com/spreadsheets/d/12d4nBlUJ5MoamEZdtNteTSixTt9UdvbrPmjS9tBRUw8/export?format=csv&gid=0" },
-                    { name: "UGALI", subDn: "KEOLARI", csvUrl: "" }
+                    { name: "UGALI", subDn: "KEOLARI", csvUrl: "https://docs.google.com/spreadsheets/d/11chQJx0hPhNvpiSMK20QwOWofLzaUPouSyDXo18bV08/export?format=csv&gid=0" } // LINKED (2026-09-24, data aana baaki)
                 ]
             },
             "DIVISION LAKHNADON": {
@@ -48,13 +48,14 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     // Google Sheet khaali kar di hai - koi staff kaam nahi karta yahan).
                     // Isse Fix #1 ka wahi logic lagu hoga: reports block nahi hongi,
                     // is DC ka data zero dikhega, naam list me bana rahega.
-                    { name: "ADEGAON", subDn: "LAKHNADON", csvUrl: "" },
+                    // 2026-09-24: nayi sheet link (data aana baaki) - header-only sheet ko app zero maanta hai.
+                    { name: "ADEGAON", subDn: "LAKHNADON", csvUrl: "https://docs.google.com/spreadsheets/d/17yqqqdT2HgIDRCq1YsbsmqmjPricdd9Wv0MDRXzhqb0/export?format=csv&gid=0" }, // LINKED (2026-09-24, data aana baaki)
                     { name: "CHHAPARA-1", subDn: "CHHAPARA", csvUrl: "https://docs.google.com/spreadsheets/d/1ehSaUQyrV1ZzwH0lbdhLdXRYkPdapdm5hhu0Gz0vulk/export?format=csv&gid=0" },
                     { name: "CHHAPARA-2", subDn: "CHHAPARA", csvUrl: "https://docs.google.com/spreadsheets/d/1TvhGlARSxZVMq5GYDZEGAHuV6vBXRKxe_nMun4dUby0/export?format=csv&gid=0" },
                     { name: "DHANORA", subDn: "LAKHNADON", csvUrl: "https://docs.google.com/spreadsheets/d/1qNgLx9o6hp4nwLGaCwy5DRW8xmh6eaNCoysbbH5bL1o/export?format=csv&gid=0" },
                     { name: "DHUMA", subDn: "LAKHNADON", csvUrl: "https://docs.google.com/spreadsheets/d/1T7kw5hqmmsGQFUQGmSmV0g6_wFKxxA8UeFVJzR0WwAs/export?format=csv&gid=0" },
                     { name: "GANESHGANJ", subDn: "CHHAPARA", csvUrl: "https://docs.google.com/spreadsheets/d/1jQJPvuEn4NZZRyUf-2ye7skeD6cMdLSrzx7aBTiDmR0/export?format=csv&gid=0" },
-                    { name: "GHANSORE", subDn: "LAKHNADON", csvUrl: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRrnZZ4FhdFSpFM2NfiTGAxbkUa9OQin4VQW9t06bAzRzjHZd_F4mVc3_vv4XxXPWSF_p78YoVIJI5Y/pub?output=csv" },
+                    { name: "GHANSORE", subDn: "LAKHNADON", csvUrl: "https://docs.google.com/spreadsheets/d/1600j78zwZHNkdd2rbkuZZlrY434KGrN9nIZMkEAXZ0g/export?format=csv&gid=0" },
                     { name: "KEDARPUR", subDn: "LAKHNADON", csvUrl: "https://docs.google.com/spreadsheets/d/145bjD_AoAKWnTfzSaVAXoFpq9cZooSoM8jl0JKBfDkw/export?format=csv&gid=0" },
                     { name: "LAKHNADON", subDn: "LAKHNADON", csvUrl: "https://docs.google.com/spreadsheets/d/1_r5WgGV9bs-aed86dZLOlDKmK5g9J7qiGsmQAqDE1as/export?format=csv&gid=0" }
                 ]
@@ -157,14 +158,24 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             "GANESHGANJ": "https://docs.google.com/spreadsheets/d/1jQJPvuEn4NZZRyUf-2ye7skeD6cMdLSrzx7aBTiDmR0/export?format=csv&gid=0",
             "DHANORA": "https://docs.google.com/spreadsheets/d/1qNgLx9o6hp4nwLGaCwy5DRW8xmh6eaNCoysbbH5bL1o/export?format=csv&gid=0",
             "DHUMA": "https://docs.google.com/spreadsheets/d/1T7kw5hqmmsGQFUQGmSmV0g6_wFKxxA8UeFVJzR0WwAs/export?format=csv&gid=0",
-            "GHANSORE": "https://docs.google.com/spreadsheets/d/e/2PACX-1vRrnZZ4FhdFSpFM2NfiTGAxbkUa9OQin4VQW9t06bAzRzjHZd_F4mVc3_vv4XxXPWSF_p78YoVIJI5Y/pub?output=csv",
+            "GHANSORE": "https://docs.google.com/spreadsheets/d/1600j78zwZHNkdd2rbkuZZlrY434KGrN9nIZMkEAXZ0g/export?format=csv&gid=0",
             "LAKHNADON": "https://docs.google.com/spreadsheets/d/1_r5WgGV9bs-aed86dZLOlDKmK5g9J7qiGsmQAqDE1as/export?format=csv&gid=0",
             "KURAI": "https://docs.google.com/spreadsheets/d/15c2CHolan0YVYh5Hwe4akn1YNk1SUhhLVa24h9ZBQbU/export?format=csv&gid=0",
             "KEOLARI": "https://docs.google.com/spreadsheets/d/1mgtXnZqR8QHefoenGOWt1WQ_DPztsU1l_KVYvdwGiQc/export?format=csv&gid=0", // LIVE (2026-09-24)
             "KANHIWADA": "https://docs.google.com/spreadsheets/d/1wCAiEHYz5MS9NaXcn7OS2oxKxEOEDv5shIU4R8mut88/export?format=csv&gid=0", // LIVE (2026-09-24)
             "KEDARPUR": "https://docs.google.com/spreadsheets/d/145bjD_AoAKWnTfzSaVAXoFpq9cZooSoM8jl0JKBfDkw/export?format=csv&gid=0",
             "BARGHAT": "https://docs.google.com/spreadsheets/d/1b5g3VBlKjCiOX0cfE5Na-jyRY4cPCjrIJIsU3YozG_U/export?format=csv&gid=0",
-            "SEONIRES": "https://docs.google.com/spreadsheets/d/12d4nBlUJ5MoamEZdtNteTSixTt9UdvbrPmjS9tBRUw8/export?format=csv&gid=0"
+            "SEONIRES": "https://docs.google.com/spreadsheets/d/12d4nBlUJ5MoamEZdtNteTSixTt9UdvbrPmjS9tBRUw8/export?format=csv&gid=0",
+            "UGALI": "https://docs.google.com/spreadsheets/d/11chQJx0hPhNvpiSMK20QwOWofLzaUPouSyDXo18bV08/export?format=csv&gid=0", // LINKED (2026-09-24, data aana baaki)
+            "ARI": "https://docs.google.com/spreadsheets/d/1B6e_KSajmp0WkTNXxZuZgmEwXqByt2YvzjsmEvcMDjk/export?format=csv&gid=0", // LINKED (2026-09-24, data aana baaki)
+            "BADALPAR": "https://docs.google.com/spreadsheets/d/1BjptmeiVPvvr1UJHcBj__XRBraKPsytWI_HDAwczZag/export?format=csv&gid=0", // LINKED (2026-09-24, data aana baaki)
+            "DHARNA": "https://docs.google.com/spreadsheets/d/1n4L3Rhr6sJ2s0FyHTYoA2I_UyzUFw4satCjjmJU0e20/export?format=csv&gid=0", // LINKED (2026-09-24, data aana baaki)
+            "BANDOL": "https://docs.google.com/spreadsheets/d/1a_sEPiRlNMTnSm_nMF3ZoWVu7eNu599pn0OLcpyVjbU/export?format=csv&gid=0", // LINKED (2026-09-24, data aana baaki)
+            "GOPALGANJ": "https://docs.google.com/spreadsheets/d/1f4xkfI_NX6uQx2mDFukqhs_d-IJLKUz4CC3pPqSA534/export?format=csv&gid=0", // LINKED (2026-09-24, data aana baaki)
+            "KHAIRAPALARI": "https://docs.google.com/spreadsheets/d/1bF3W6BFExhxuaYG0hLV2ik0AG0dNnkWoXONPD5FLo34/export?format=csv&gid=0", // LINKED (2026-09-24, data aana baaki)
+            "MUNGWANI": "https://docs.google.com/spreadsheets/d/1iIf0HCXFL_6BFcNfw2DPx6H6-aBnWF7QwDJxB1VI018/export?format=csv&gid=0", // LINKED (2026-09-24, data aana baaki)
+            "PANDIYACHHAPARA": "https://docs.google.com/spreadsheets/d/1ylRwRWrwj-iqL4syJjk0uyZ9fw1lvuwI9awoRsrYT28/export?format=csv&gid=0", // LINKED (2026-09-24, data aana baaki)
+            "ADEGAON": "https://docs.google.com/spreadsheets/d/17yqqqdT2HgIDRCq1YsbsmqmjPricdd9Wv0MDRXzhqb0/export?format=csv&gid=0" // LINKED (2026-09-24, data aana baaki)
         };
         const stockMaterialsCsvUrl = "https://docs.google.com/spreadsheets/d/1OfrU7ZuN5LV9f_3hqORv66BVLYKFGIBBjDyeSXHwldA/export?format=csv&gid=641545139";
         const shmsCsvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTbq-yne90yg9Vn8eylxM3zKMfZjPLlVhca3JhsjAzMlcm6MAVl8vAA-xXVgZI_XjWQBHyjB36YO1Cz/pub?output=csv";
@@ -607,6 +618,9 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     try {
                         localStorage.setItem(`${dcCsvCacheStoragePrefix}${normalized}`, rawCsv);
                     } catch (_) {}
+                } else if (isHeaderOnlyMasterCsvText_(rawCsv)) {
+                    // 2026-09-24: sheet me sirf header -> DC zero, purana cache nahi.
+                    purgeDcMasterCache_(normalized);
                 } else {
                     const cachedRaw = localStorage.getItem(`${dcCsvCacheStoragePrefix}${normalized}`) || "";
                     const cachedRows = isLikelyCsvPayload(cachedRaw) ? parseConsumerCsv(cachedRaw) : [];
@@ -2841,6 +2855,49 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // hai - sirf un call-site par jo Revenue Category reconciliation reports
         // (Category Wise, HQ/Village Wise, Target vs Achievement, Top Defaulters)
         // use karte hain.
+        // PERMANENT RULE (2026-09-24, USER REQUEST): kisi DC ki master sheet
+        // sahi se khul jaaye lekin usme SIRF header ho (data abhi aana baaki) to
+        // us DC ko har jagah ZERO maana jaata hai - na Division/Circle report
+        // tootegi, na phone ka purana cached data dikhega.
+        function isHeaderOnlyMasterCsvText_(text) {
+            const raw = String(text || "").trim();
+            if (!raw || raw.startsWith("<")) return false;
+            const lines = raw.split(/\r?\n/).filter((line) => line.replace(/[,\s"]/g, ""));
+            return lines.length === 1 && /IVRS/i.test(lines[0]);
+        }
+
+        function purgeDcMasterCache_(dcName) {
+            const normalized = normalizeDcName(dcName);
+            const dcKey = getRevenueCollectionDcKey(dcName);
+            try {
+                if (normalized) localStorage.removeItem(`${dcCsvCacheStoragePrefix}${normalized}`);
+                if (dcKey) {
+                    localStorage.removeItem(`seoni-revenue-collection-csv-v5-${dcKey}`);
+                    localStorage.removeItem(`seoni-revenue-collection-csv-v5-${dcKey}-json`);
+                }
+            } catch (_) {}
+            if (normalized) {
+                dcCacheRaw[normalized] = "";
+                dcCacheRows[normalized] = [];
+            }
+            if (dcKey) {
+                revenueCollectionRowsByDc[dcKey] = [];
+                revenueCollectionLoadedByDc[dcKey] = false;
+            }
+        }
+
+        async function isDcMasterSheetHeaderOnly_(csvUrl) {
+            if (!csvUrl) return false;
+            try {
+                const sep = csvUrl.includes("?") ? "&" : "?";
+                const res = await fetchWithTimeout(`${csvUrl}${sep}t=${Date.now()}`, { cache: "no-store" }, 20000);
+                if (!res.ok) return false;
+                return isHeaderOnlyMasterCsvText_(await res.text());
+            } catch (_) {
+                return false;
+            }
+        }
+
         async function ensureRevenueCategoryMasterDataLoadedStrict_(dcNames) {
             const list = Array.from(new Set((dcNames || []).map((name) => normalizeDcName(name)).filter(Boolean)));
             await ensureRevenueCategoryMasterDataLoaded(list);
@@ -2857,11 +2914,20 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             // network/transient failure) - unke liye 2026-09-17 wala original
             // strict-error behavior bilkul waisa hi rehta hai, kyunki wahi is
             // check ka asli maqsad tha (chuppe se galat/adhura total na dikhe).
-            const failedDcs = list.filter((dcName) => {
+            const failedDcsRaw = list.filter((dcName) => {
                 if (getConsumerRows(dcName).length) return false;
                 const config = getDcConfigByName(dcName);
                 return !!(config && config.csvUrl);
             });
+            // ISOLATED ADDITION (2026-09-24, USER REQUEST): naye DC ki sheet link
+            // pehle se laga di gayi hai par usme abhi sirf HEADER hai (data aana
+            // baaki). Aisi sheet successfully khulti hai lekin 0 consumer deti hai -
+            // use "abhi live nahi" maante hain (report block nahi, DC zero dikhegi),
+            // bilkul khaali-csvUrl wali DC jaisa. Sirf tab jab sheet sach me khul
+            // gayi aur header ke alawa koi data line nahi hai. Network/permission
+            // failure par strict error pehle jaisa hi rehta hai.
+            const headerOnlyFlags = await Promise.all(failedDcsRaw.map((dcName) => isDcMasterSheetHeaderOnly_(getDcConfigByName(dcName)?.csvUrl)));
+            const failedDcs = failedDcsRaw.filter((dcName, i) => !headerOnlyFlags[i]);
             if (failedDcs.length) {
                 const error = new Error(`Master consumer data load nahi ho paya in DC ke liye: ${failedDcs.join(", ")}`);
                 error.failedDcs = failedDcs;
@@ -16464,7 +16530,14 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             if (!csvUrl || !cacheKey || !dcKey) return;
             try {
                 const gvizRows = await loadRevenueCollectionViaGviz(csvUrl);
-                if (!gvizRows.length) return;
+                if (!gvizRows.length) {
+                    // 2026-09-24: sheet ab sirf header wali hai -> purana cache hatao.
+                    if (await isDcMasterSheetHeaderOnly_(csvUrl)) {
+                        const cfg = getAllDcConfigs().find((c) => getRevenueCollectionDcKey(c.name) === dcKey);
+                        purgeDcMasterCache_(cfg ? cfg.name : dcKey);
+                    }
+                    return;
+                }
                 revenueCollectionRowsByDc[dcKey] = gvizRows;
                 revenueCollectionLoadedByDc[dcKey] = true;
                 try {
@@ -26409,7 +26482,9 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // Sheet me nayi DC ki rows neeche jodte hi woh DC apne-aap dikhne lagti hai
         // (har baar taaza sheet padhi jaati hai); jis DC ka data nahi - "Not Found".
         // =====================================================================
-        var staffContactCsvUrl = "https://docs.google.com/spreadsheets/d/1Iiy1_e_xTsezDWN8YYyJzCcdWZtFakY77xP2Rq3Dp-k/export?format=csv&gid=0";
+        // 2026-09-24: staff contact sheet ka link ab app.js me NAHI hai - data
+        // backend (Revenue master script, action=getStaffContacts) se sirf
+        // current DC ka aata hai.
         var staffContactRunId_ = 0;
         var staffContactGroups_ = [];
 
@@ -26451,27 +26526,22 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             if (!body) return;
             body.innerHTML = `<div style="text-align:center; font-size:0.78rem; font-weight:900; color:#5b21b6; padding:20px 0;">Staff details load ho rahi hain...<div class="app-sync-spinner"></div></div>`;
             try {
-                const res = await fetchWithTimeout(`${staffContactCsvUrl}&t=${Date.now()}`, { cache: "no-store" }, 30000);
-                const text = await res.text();
+                const url = `${revenueCollectionSubmitScriptUrl}?action=getStaffContacts&dc=${encodeURIComponent(activeDC || "")}&t=${Date.now()}`;
+                const parsed = await withAppsScriptConcurrencyGate_(revenueCollectionSubmitScriptUrl, async () => {
+                    const res = await fetchWithTimeout(url, { cache: "no-store" }, 60000);
+                    return await res.json();
+                });
                 if (runId !== staffContactRunId_) return;
-                if (!res.ok || String(text).trim().startsWith("<")) throw new Error("sheet");
-                const table = parseStaffContactCsv_(text);
-                const head = (table[0] || []).map((h) => String(h || "").replace(/\s+/g, " ").trim().toUpperCase());
-                const idx = (names) => head.findIndex((h) => names.includes(h));
-                const iDc = idx(["DC", "DC NAME"]), iHq = idx(["HQ", "HQ NAME"]), iName = idx(["STAFF NAME", "NAME"]);
-                const iDes = idx(["DESIGNATION", "POST"]), iMob = idx(["MOBILE NO", "MOBILE", "MOBILE NUMBER"]);
-                if (iDc < 0 || iHq < 0 || iName < 0 || iMob < 0) throw new Error("header");
-                const dcKey = normalizeLookupValue(activeDC || "");
+                if (!parsed || parsed.status !== "success" || !Array.isArray(parsed.rows)) throw new Error("backend");
                 const groups = new Map();
-                table.slice(1).forEach((r) => {
-                    if (normalizeLookupValue(r[iDc] || "") !== dcKey) return;
-                    const hqRaw = String(r[iHq] || "").replace(/\s+/g, " ").trim() || "GENERAL";
+                parsed.rows.forEach((r) => {
+                    const hqRaw = String(r.hq || "").replace(/\s+/g, " ").trim() || "GENERAL";
                     const hqKey = normalizeLookupValue(hqRaw) || "GENERAL";
                     if (!groups.has(hqKey)) groups.set(hqKey, { hq: hqRaw.toUpperCase(), staff: [] });
                     groups.get(hqKey).staff.push({
-                        name: String(r[iName] || "").replace(/\s+/g, " ").trim(),
-                        designation: iDes >= 0 ? String(r[iDes] || "").replace(/\s+/g, " ").trim() : "",
-                        mobile: normalizeStaffContactMobile_(r[iMob])
+                        name: String(r.name || "").replace(/\s+/g, " ").trim(),
+                        designation: String(r.designation || "").replace(/\s+/g, " ").trim(),
+                        mobile: normalizeStaffContactMobile_(r.mobile)
                     });
                 });
                 staffContactGroups_ = Array.from(groups.values());
