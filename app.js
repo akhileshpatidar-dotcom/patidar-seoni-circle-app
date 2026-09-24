@@ -18776,10 +18776,17 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 // master rows ko yahan jaan-boojhkar use nahi karte.
                 const [_, paidSet] = await Promise.all([
                     ensureRevenueCategoryMasterDataLoadedStrict_([activeDC]),
-                    getRevenuePendingCashListPaidIvrsSet_(),
-                    // USER REQUEST (2026-09-24): Line TD data bhi (TD filter/column ke liye); fail ho to list phir bhi chalegi
-                    syncRevenueTdEntriesFromSheet(3, false, activeDC).catch(() => {})
+                    getRevenuePendingCashListPaidIvrsSet_()
                 ]);
+                // BUG FIX (2026-09-24, USER-REPORTED "15 sec ki jagah 1 min+ aur GANESHGANJ
+                // master load error"): Line TD sync (80s+ lag sakta hai) ko upar Promise.all
+                // me INTEZAAR me daal diya gaya tha - list ruk jaati thi aur saath chalte
+                // requests timeout ho jaate the. Ab TD sync sirf BACKGROUND me chalta hai
+                // (list pehle jaisi turant khulti hai, local TD data se); sync poora hone par
+                // agar user abhi bhi isi screen par hai to list chup-chaap dobara render hoti hai.
+                syncRevenueTdEntriesFromSheet(3, false, activeDC).then(() => {
+                    if (refreshToken === revenuePendingPaidRefreshToken && document.getElementById("revenue-pending-list-view")?.classList.contains("active")) scheduleRevenuePendingRender(0);
+                }).catch(() => {});
                 if (refreshToken !== revenuePendingPaidRefreshToken) { if (pendingListProgress) pendingListProgress.stop(); return; }
                 revenuePendingPaidIvrsSet = paidSet;
                 // Bade DC (SEONI (T) jaise) me kabhi-kabhi backend se poori "paid" list
