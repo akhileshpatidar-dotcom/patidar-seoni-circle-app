@@ -20,8 +20,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     { name: "BARGHAT", subDn: "AE (D)", csvUrl: "https://docs.google.com/spreadsheets/d/1b5g3VBlKjCiOX0cfE5Na-jyRY4cPCjrIJIsU3YozG_U/export?format=csv&gid=0" },
                     { name: "DHARNA", subDn: "AE (D)", csvUrl: "" },
                     { name: "GOPALGANJ", subDn: "AE (D)", csvUrl: "" },
-                    { name: "KANHIWADA", subDn: "KEOLARI", csvUrl: "" },
-                    { name: "KEOLARI", subDn: "KEOLARI", csvUrl: "" },
+                    { name: "KANHIWADA", subDn: "KEOLARI", csvUrl: "https://docs.google.com/spreadsheets/d/1wCAiEHYz5MS9NaXcn7OS2oxKxEOEDv5shIU4R8mut88/export?format=csv&gid=0" }, // LIVE (2026-09-24)
+                    { name: "KEOLARI", subDn: "KEOLARI", csvUrl: "https://docs.google.com/spreadsheets/d/1mgtXnZqR8QHefoenGOWt1WQ_DPztsU1l_KVYvdwGiQc/export?format=csv&gid=0" }, // LIVE (2026-09-24)
                     { name: "KHAIRAPALARI", subDn: "KEOLARI", csvUrl: "" },
                     { name: "KURAI", subDn: "AE (D)", csvUrl: "https://docs.google.com/spreadsheets/d/15c2CHolan0YVYh5Hwe4akn1YNk1SUhhLVa24h9ZBQbU/export?format=csv&gid=0" },
                     { name: "MUNGWANI", subDn: "AE (D)", csvUrl: "" },
@@ -160,6 +160,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             "GHANSORE": "https://docs.google.com/spreadsheets/d/e/2PACX-1vRrnZZ4FhdFSpFM2NfiTGAxbkUa9OQin4VQW9t06bAzRzjHZd_F4mVc3_vv4XxXPWSF_p78YoVIJI5Y/pub?output=csv",
             "LAKHNADON": "https://docs.google.com/spreadsheets/d/1_r5WgGV9bs-aed86dZLOlDKmK5g9J7qiGsmQAqDE1as/export?format=csv&gid=0",
             "KURAI": "https://docs.google.com/spreadsheets/d/15c2CHolan0YVYh5Hwe4akn1YNk1SUhhLVa24h9ZBQbU/export?format=csv&gid=0",
+            "KEOLARI": "https://docs.google.com/spreadsheets/d/1mgtXnZqR8QHefoenGOWt1WQ_DPztsU1l_KVYvdwGiQc/export?format=csv&gid=0", // LIVE (2026-09-24)
+            "KANHIWADA": "https://docs.google.com/spreadsheets/d/1wCAiEHYz5MS9NaXcn7OS2oxKxEOEDv5shIU4R8mut88/export?format=csv&gid=0", // LIVE (2026-09-24)
             "KEDARPUR": "https://docs.google.com/spreadsheets/d/145bjD_AoAKWnTfzSaVAXoFpq9cZooSoM8jl0JKBfDkw/export?format=csv&gid=0",
             "BARGHAT": "https://docs.google.com/spreadsheets/d/1b5g3VBlKjCiOX0cfE5Na-jyRY4cPCjrIJIsU3YozG_U/export?format=csv&gid=0",
             "SEONIRES": "https://docs.google.com/spreadsheets/d/12d4nBlUJ5MoamEZdtNteTSixTt9UdvbrPmjS9tBRUw8/export?format=csv&gid=0"
@@ -2744,13 +2746,15 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             return String(Math.round(amount));
         }
 
-        const revenueCategoryList = ["LV1", "LV2", "LV3", "LV4", "LV5"];
+        // USER REQUEST (2026-09-24): LV6 bhi apni category - screen/download par sirf tab dikhta hai jab us scope me LV6 consumer ho (0 wali category screen par pehle se chhup jaati hai).
+        const revenueCategoryList = ["LV1", "LV2", "LV3", "LV4", "LV5", "LV6"];
         const revenueCategoryDisplayLabels = {
             "LV1": "DOMESTIC",
             "LV2": "NON DOMESTIC",
             "LV3": "PUBLIC WATER WORKS AND STREET LIGHTS",
             "LV4": "LT INDUSTRIAL",
-            "LV5": "AGRICULTURE AND ALLIED ACTIVITIES"
+            "LV5": "AGRICULTURE AND ALLIED ACTIVITIES",
+            "LV6": "LV6"
         };
         function getRevenueCategoryDisplayLabel(category) {
             return revenueCategoryDisplayLabels[category] || category;
@@ -2758,7 +2762,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
 
         function normalizeRevenueCategory(value) {
             const raw = normalizeLookupValue(value || "");
-            const match = raw.match(/LV\s*([1-5])/);
+            const match = raw.match(/LV\s*([1-6])/);
             return match ? `LV${match[1]}` : raw;
         }
 
@@ -5451,7 +5455,12 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             // column ke block" wala flow bana rehta hai, sirf columns kam (3 category
             // per table) hone se har block wide/bada text me dikhta hai.
             const groupACategories = revenueCategoryList.slice(0, 3);
-            const groupBCategories = revenueCategoryList.slice(3, 5);
+            // USER REQUEST (2026-09-24): LV6 column sirf tab jab is report (scope) me
+            // koi LV6 consumer ho - warna Table 2 pehle jaisa hi (LT INDUSTRIAL /
+            // AGRICULTURE / TOTAL), bilkul unchanged.
+            const lv6Grand_ = getRevenueCategoryGrandTotals(rows).categories?.LV6 || {};
+            const hasLv6_ = (Number(lv6Grand_.paid || 0) + Number(lv6Grand_.unpaid || 0)) > 0;
+            const groupBCategories = hasLv6_ ? revenueCategoryList.slice(3, 6) : revenueCategoryList.slice(3, 5);
             const metricSubHeaders = ["PAID", "PAID %", "PAID AMT (LAKH)", "PAID AMT %", "UNPAID", "UNPAID AMT (LAKH)"];
             const metricColsFor = (categories) => categories.flatMap((category) => {
                 const catLabel = getRevenueCategoryDisplayLabel(category);
@@ -5519,7 +5528,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     ...(rows || []).map(rowToArrayA),
                     grandRowA,
                     [],
-                    ["TABLE 2: LT INDUSTRIAL / AGRICULTURE AND ALLIED ACTIVITIES / TOTAL"],
+                    [hasLv6_ ? "TABLE 2: LT INDUSTRIAL / AGRICULTURE AND ALLIED ACTIVITIES / LV6 / TOTAL" : "TABLE 2: LT INDUSTRIAL / AGRICULTURE AND ALLIED ACTIVITIES / TOTAL"],
                     headerB,
                     ...(rows || []).map(rowToArrayB),
                     grandRowB
@@ -5641,15 +5650,15 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 }
                 doc.setFontSize(8.5);
                 doc.setTextColor(29, 78, 216);
-                doc.text("TABLE 2: LT INDUSTRIAL / AGRICULTURE AND ALLIED ACTIVITIES / TOTAL", 14, table2StartY);
+                doc.text(hasLv6_ ? "TABLE 2: LT INDUSTRIAL / AGRICULTURE AND ALLIED ACTIVITIES / LV6 / TOTAL" : "TABLE 2: LT INDUSTRIAL / AGRICULTURE AND ALLIED ACTIVITIES / TOTAL", 14, table2StartY);
                 doc.autoTable({
                     startY: table2StartY + 3,
                     head: groupedHeadFor([...groupBCategories.map(getRevenueCategoryDisplayLabel), "TOTAL"]),
                     body: chunk.chunkRows.map(rowToArrayB),
                     foot: isLastChunk ? [grandRowB] : undefined,
                     theme: "grid",
-                    styles: { fontSize: 6, cellPadding: 0.9, overflow: "linebreak", halign: "center", lineWidth: 0.12 },
-                    headStyles: { fillColor: [37, 99, 235], halign: "center", fontSize: 6, lineColor: [15, 23, 42], lineWidth: 0.25 },
+                    styles: { fontSize: hasLv6_ ? 5.2 : 6, cellPadding: hasLv6_ ? 0.7 : 0.9, overflow: "linebreak", halign: "center", lineWidth: 0.12 },
+                    headStyles: { fillColor: [37, 99, 235], halign: "center", fontSize: hasLv6_ ? 5.2 : 6, lineColor: [15, 23, 42], lineWidth: 0.25 },
                     columnStyles: categoryLeadingColumnStyles,
                     footStyles: { fillColor: [241, 245, 249], textColor: [190, 18, 60], fontStyle: "bold", halign: "center" },
                     margin: { left: 8, right: 8, bottom: 8 },
