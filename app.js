@@ -281,7 +281,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // (HQ/Village/Category/Net Bill Slab/Govt-NonGovt) aur Top Defaulters
         // (Govt-NonGovt) wali SAME filter dropdowns honi chahiye - jo category
         // active hai usi ke hisaab se sahi filter set dikhta hai.
-        let freezeNonPayeeFilterState = { dc: "", hq: "", village: "", category: "", slab: "", govt: "", payment: "" };
+        let freezeNonPayeeFilterState = { division: "", dc: "", hq: "", village: "", category: "", slab: "", govt: "", payment: "" };
         let freezeDefaultersGovtFilter = "";
         let freezeDefaultersPaymentFilter = "";
 
@@ -3881,7 +3881,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // jaisi hi filter dropdown use kare - "revenue ki same format" jaisa
         // pehle bhi kaha gaya tha.
         function resetFreezeFilterState() {
-            freezeNonPayeeFilterState = { dc: "", hq: "", village: "", category: "", slab: "", govt: "", payment: "" };
+            freezeNonPayeeFilterState = { division: "", dc: "", hq: "", village: "", category: "", slab: "", govt: "", payment: "" };
             freezeDefaultersGovtFilter = "";
             freezeDefaultersPaymentFilter = "";
         }
@@ -3890,9 +3890,27 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             return progressFreezeCategory === "TOP20" || progressFreezeCategory === "TOP50";
         }
 
+        // USER REQUEST (2026-09-24): Freeze NP3/NP6/Since Connection - filter ke hisaab se
+        // screen summary + download: Division/Circle par DC chuni ho to us DC ka HQ-wise
+        // (DC level jaisa), Circle par Division chuna ho to us Division ki DC-wise.
+        function isFreezeSingleDcView_() {
+            if (activeViewLevel === "DC") return true;
+            return !isFreezeCategoryDefaultersType() && !!freezeNonPayeeFilterState.dc;
+        }
+
+        function getFreezeSingleDcName_() {
+            return activeViewLevel === "DC" ? activeDC : (freezeNonPayeeFilterState.dc || "");
+        }
+
+        function getFreezeSelectedDivisionDcSet_() {
+            const div = activeViewLevel === "CIRCLE" && !isFreezeCategoryDefaultersType() ? (freezeNonPayeeFilterState.division || "") : "";
+            return div ? new Set(getDivisionDcNames(div).map((dc) => normalizeDcName(dc))) : null;
+        }
+
         function setFreezeNonPayeeFilter(key, value) {
             if (!(key in freezeNonPayeeFilterState)) return;
             freezeNonPayeeFilterState[key] = value || "";
+            if (key === "division") { freezeNonPayeeFilterState.dc = ""; freezeNonPayeeFilterState.hq = ""; freezeNonPayeeFilterState.village = ""; }
             if (key === "dc") { freezeNonPayeeFilterState.hq = ""; freezeNonPayeeFilterState.village = ""; }
             if (key === "hq") freezeNonPayeeFilterState.village = "";
             const body = document.getElementById("summary-content");
@@ -3950,8 +3968,10 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 ));
             }
             const f = freezeNonPayeeFilterState;
+            const divDcSet_ = getFreezeSelectedDivisionDcSet_();
             return rowsWithStatus.filter((row) => (
-                (!f.dc || normalizeDcName(row.dc_name) === normalizeDcName(f.dc))
+                (!divDcSet_ || divDcSet_.has(normalizeDcName(row.dc_name)))
+                && (!f.dc || normalizeDcName(row.dc_name) === normalizeDcName(f.dc))
                 && (!f.hq || normalizeLookupValue(row.hq_name) === normalizeLookupValue(f.hq))
                 && (!f.village || normalizeLookupValue(row.village) === normalizeLookupValue(f.village))
                 && (!f.category || normalizeLookupValue(row.tariff_category) === normalizeLookupValue(f.category))
@@ -4400,6 +4420,21 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 });
             }
 
+            // USER REQUEST (2026-09-24): Circle par Division chuna ho to sirf us Division ki DC + total
+            const selDiv_ = activeViewLevel === "CIRCLE" && !isFreezeCategoryDefaultersType() ? (freezeNonPayeeFilterState.division || "") : "";
+            if (selDiv_) {
+                const dcRowsSel = getDivisionDcNames(selDiv_).map((dcName) => {
+                    const key = normalizeDcName(dcName);
+                    return withPercents(map[key] || emptyGroup(key));
+                });
+                const selTotal = emptyGroup(getDivisionTotalLabel(selDiv_));
+                dcRowsSel.forEach((r) => {
+                    selTotal.totalCount += r.totalCount; selTotal.paidCount += r.paidCount; selTotal.paidAmount += r.paidAmount;
+                    selTotal.pendingCount += r.pendingCount; selTotal.pendingAmount += r.pendingAmount;
+                });
+                return [...dcRowsSel, { ...withPercents(selTotal), type: "GRAND_TOTAL" }];
+            }
+
             // CIRCLE: DC-wise, har Division ka SUB_TOTAL, aakhir me GRAND_TOTAL.
             const rows = [];
             const grand = emptyGroup("GRAND TOTAL");
@@ -4513,7 +4548,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         }
 
         function renderFreezeHqWiseSummaryHtml(rowsWithStatus) {
-            return renderFreezeGroupSummaryTableHtml(revenueHqLabelUpper(), buildFreezeHqWiseSummaryRows(rowsWithStatus), "HQ WISE SUMMARY (AMOUNT IN LAKH)");
+            return renderFreezeGroupSummaryTableHtml(revenueHqLabelUpper(getFreezeSingleDcName_() || activeDC), buildFreezeHqWiseSummaryRows(rowsWithStatus), `${activeViewLevel !== "DC" && getFreezeSingleDcName_() ? getFreezeSingleDcName_() + " - " : ""}HQ WISE SUMMARY (AMOUNT IN LAKH)`);
         }
 
         // USER REQUEST (2026-09-14): Freeze Report (NP3/NP6/Since Connection/Top20/50)
@@ -4531,6 +4566,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             }
             const f = freezeNonPayeeFilterState;
             const parts = [];
+            if (activeViewLevel === "CIRCLE") parts.push(`Division: ${f.division || "All"}`);
             if (activeViewLevel !== "DC") parts.push(`DC: ${f.dc || "All"}`);
             parts.push(`HQ: ${f.hq || "All"}`);
             parts.push(`Village: ${f.village || "All"}`);
@@ -4556,7 +4592,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 r.pendingCount, formatRevenueLakhValue(r.pendingAmount), `${r.paidPercent}%`, `${r.pendingPercent}%`
             ]);
             const rowTypeFlags = summaryRows.map((r) => (r.type === "GRAND_TOTAL" ? 2 : (r.type === "SUB_TOTAL" ? 1 : 0)));
-            const scope = activeViewLevel === "DIVISION" ? activeDiv : "SEONI CIRCLE";
+            const scope = activeViewLevel === "DIVISION" ? activeDiv : (freezeNonPayeeFilterState.division || "SEONI CIRCLE");
             const reportTitle = `Freeze-Revenue Report - ${getRevenueFreezeCategoryLabel(progressFreezeCategory)} - ${scope} - Summary`;
             const freezeLine = `Freeze Date: ${data.active.freeze_label || data.active.freeze_date || ""}`;
             const filtersLine = buildFreezeActiveFiltersLabel_();
@@ -4603,14 +4639,14 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             setProgressCategoryDownloadState(true, `${downloadTypeLabel} downloading... kripya wait kijiye`);
             try {
             const summaryRows = buildFreezeHqWiseSummaryRows(data.rowsWithStatus);
-            const nameColLabel = revenueHqLabelUpper();
+            const nameColLabel = revenueHqLabelUpper(getFreezeSingleDcName_() || activeDC);
             const headers = [nameColLabel, "TOTAL CONSUMER", "PAID COUNT", "PAID AMT (LAKH)", "PENDING COUNT", "PENDING AMT (LAKH)", "PAID %", "PENDING %"];
             const bodyRows = summaryRows.map((r) => {
                 const paidPercent = r.totalCount ? ((r.paidCount / r.totalCount) * 100).toFixed(1) : "0.0";
                 const pendingPercent = r.totalCount ? ((r.pendingCount / r.totalCount) * 100).toFixed(1) : "0.0";
                 return [r.name, r.totalCount, r.paidCount, formatRevenueLakhValue(r.paidAmount), r.pendingCount, formatRevenueLakhValue(r.pendingAmount), `${paidPercent}%`, `${pendingPercent}%`];
             });
-            const scope = `DC - ${activeDC}`;
+            const scope = `DC - ${getFreezeSingleDcName_() || activeDC}`;
             const reportTitle = `Freeze-Revenue Report - ${getRevenueFreezeCategoryLabel(progressFreezeCategory)} - ${scope} - Summary`;
             const freezeLine = `Freeze Date: ${data.active.freeze_label || data.active.freeze_date || ""}`;
             const filtersLine = buildFreezeActiveFiltersLabel_();
@@ -4745,14 +4781,18 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     </select>`;
             } else {
                 const f = freezeNonPayeeFilterState;
-                const dcScoped = allScoped.filter((row) => !f.dc || normalizeDcName(row.dc_name) === normalizeDcName(f.dc));
+                const divDcSetForUi_ = getFreezeSelectedDivisionDcSet_();
+                const divScoped_ = divDcSetForUi_ ? allScoped.filter((row) => divDcSetForUi_.has(normalizeDcName(row.dc_name))) : allScoped;
+                const dcScoped = divScoped_.filter((row) => !f.dc || normalizeDcName(row.dc_name) === normalizeDcName(f.dc));
                 const villageScoped = dcScoped.filter((row) => !f.hq || normalizeLookupValue(row.hq_name) === normalizeLookupValue(f.hq));
-                const dcOptionsHtml = buildFreezeOptionsHtml(getRevenueUniqueValues(allScoped, "dc_name"), f.dc, "All DC");
+                const dcOptionsHtml = buildFreezeOptionsHtml(getRevenueUniqueValues(divScoped_, "dc_name"), f.dc, "All DC");
+                const divisionOptionsHtml_ = buildFreezeOptionsHtml(Object.keys(divisionConfigs), f.division, "All Division");
                 const hqOptionsHtml = buildFreezeOptionsHtml(getRevenueUniqueValues(dcScoped, "hq_name"), f.hq, revenueHqAllLabel(f.dc || activeDC));
                 const villageOptionsHtml = buildFreezeOptionsHtml(getRevenueUniqueValues(villageScoped, "village"), f.village, revenueVillageAllLabel(f.dc || activeDC));
                 const categoryOptionsHtml = buildFreezeOptionsHtml(getRevenueUniqueValues(allScoped, "tariff_category"), f.category, "All Categories");
                 const freezeSelectStyle = "width:100%; height:46px; margin:8px auto 0; display:block; border:1.5px solid #fb923c; border-radius:14px; padding:0 12px; font-size:0.8rem; font-weight:900; color:#0f172a; background:#ffffff;";
                 filterBlockHtml = `
+                    ${activeViewLevel === "CIRCLE" ? `<select onchange="setFreezeNonPayeeFilter('division', this.value)" style="${freezeSelectStyle}">${divisionOptionsHtml_}</select>` : ""}
                     ${showDcColumn ? `<select onchange="setFreezeNonPayeeFilter('dc', this.value)" style="${freezeSelectStyle}">${dcOptionsHtml}</select>` : ""}
                     <select onchange="setFreezeNonPayeeFilter('hq', this.value)" style="${freezeSelectStyle}">${hqOptionsHtml}</select>
                     <select onchange="setFreezeNonPayeeFilter('village', this.value)" style="${freezeSelectStyle}">${villageOptionsHtml}</select>
@@ -4793,11 +4833,11 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     <div style="background:#f0fdfa; border-radius:12px; padding:8px 4px; text-align:center;"><div style="font-size:0.54rem; font-weight:850; color:#0e7490; text-transform:uppercase;">Frozen Total Amount</div><div style="font-size:0.85rem; font-weight:950; color:#0e7490; margin-top:2px;">${formatProgressReportAmount(t.totalFrozenAmount)}</div></div>
                 </div>
                 ${!isFreezeCategoryDefaultersType() ? (
-                    activeViewLevel === "DC"
+                    isFreezeSingleDcView_()
                         ? renderFreezeHqWiseSummaryHtml(data.rowsWithStatus)
                         : renderFreezeDcWiseSummaryHtml(data.rowsWithStatus)
                 ) : ""}
-                ${(activeViewLevel === "DC" && !isFreezeCategoryDefaultersType()) ? `
+                ${(isFreezeSingleDcView_() && !isFreezeCategoryDefaultersType()) ? `
                 <div style="font-size:0.56rem; font-weight:850; color:#64748b; text-align:center; margin-top:10px;">SUMMARY DOWNLOAD (${escapeHtml(revenueHqLabelUpper())} WISE)</div>
                 <div class="btn-export-row" style="margin-top:4px;">
                     <button class="btn-unique btn-excel-unique" onclick="downloadRevenueFreezeHqWiseSummary('XLS', computeRevenueFreezeReportData(), 'Excel')">Summary Excel</button>
@@ -4822,7 +4862,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             // level par hi dikhegi (jaisa pehle se thi, bilkul untouched). Top
             // 20/50 Defaulters (isFreezeCategoryDefaultersType()) is change se
             // bahar hai - wo har scope par pehle jaisi list hi dikhati rahegi.
-            const showFreezeConsumerList = activeViewLevel === "DC" || isFreezeCategoryDefaultersType();
+            const showFreezeConsumerList = isFreezeSingleDcView_() || isFreezeCategoryDefaultersType();
             if (showFreezeConsumerList) {
                 html += `<div class="summary-wrapper" style="margin-top:10px;"><div class="summary-table-header" style="grid-template-columns: ${showDcColumn ? "0.8fr 1.2fr 0.8fr 1fr" : "1.4fr 0.8fr 1fr"};">${showDcColumn ? "<div>DC</div>" : ""}<div>CONSUMER</div><div>STATUS</div><div>AMOUNT</div></div>`;
                 if (!data.rowsWithStatus.length) {
@@ -4891,7 +4931,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 // hai) aur Top 20/50 Defaulters (jo har scope par apni list hi
                 // dikhata/download karta hai) is change se bahar hain, bilkul
                 // untouched.
-                if (activeViewLevel !== "DC" && !isFreezeCategoryDefaultersType()) {
+                if (!isFreezeSingleDcView_() && !isFreezeCategoryDefaultersType()) {
                     return downloadRevenueFreezeDcWiseSummary(fmt, data, downloadTypeLabel);
                 }
                 const showDcColumn = activeViewLevel !== "DC";
@@ -4939,7 +4979,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 } else {
                     data.rowsWithStatus.forEach(pushFreezeRow);
                 }
-                const scope = activeViewLevel === "DC" ? `DC - ${activeDC}` : (activeViewLevel === "DIVISION" ? activeDiv : "SEONI CIRCLE");
+                const scope = isFreezeSingleDcView_() ? `DC - ${getFreezeSingleDcName_()}` : (activeViewLevel === "DIVISION" ? activeDiv : "SEONI CIRCLE");
                 const reportTitle = `Freeze-Revenue Report - ${getRevenueFreezeCategoryLabel(progressFreezeCategory)} - ${scope}`;
                 const freezeLine = `Freeze Date: ${data.active.freeze_label || data.active.freeze_date || ""}`;
                 const filtersLine = buildFreezeActiveFiltersLabel_();
