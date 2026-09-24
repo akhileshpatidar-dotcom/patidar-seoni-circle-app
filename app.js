@@ -19457,15 +19457,68 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             statusBox.innerHTML = message;
         }
 
+        // USER REQUEST (2026-09-24): Cash List upload ka % ab baaki "SYNCING" reports
+        // jaisa DHEERE-DHEERE badhta hai (seedha 70 par nahi kudta), neeche
+        // "CASH LIST UPLOADING... PLEASE WAIT" aur chalta hua seconds-timer dikhta hai.
+        // SIRF DISPLAY badla hai - upload/verification ka koi logic nahi chhua:
+        // asli milestone (5/18/32/45/60/70/72/.../99/100) wahi hain, dikhne wala %
+        // unki taraf dheere chalta hai aur beech me intezaar ke waqt thoda-thoda
+        // aage creep karta hai (kabhi peeche nahi jaata, 99 se upar nahi jaata jab
+        // tak asli 100 na aaye). Upload khatam (100 / PENDING / error) hote hi ruk jaata hai.
+        var revenuePaidUploadAnim_ = null;
+
+        function stopRevenuePaidUploadAnim_() {
+            if (revenuePaidUploadAnim_ && revenuePaidUploadAnim_.timer) clearInterval(revenuePaidUploadAnim_.timer);
+            revenuePaidUploadAnim_ = null;
+        }
+
         function setRevenuePaidUploadProgress(percent, message, ok = true) {
             const safePercent = Math.max(0, Math.min(100, Math.round(Number(percent) || 0)));
+            const msgText = String(message || "Uploading...");
+            const isFinal = safePercent >= 100 || /PENDING|SUCCESSFULLY/i.test(msgText) || !revenuePaidUploadInProgress;
+            let anim = revenuePaidUploadAnim_;
+            if (!anim || !document.getElementById(anim.id)) {
+                stopRevenuePaidUploadAnim_();
+                anim = revenuePaidUploadAnim_ = { id: `rpu-anim-${Date.now()}`, startedAt: Date.now(), shown: 0, target: 0, timer: null };
+            }
+            anim.target = safePercent;
+            if (isFinal) anim.shown = safePercent;
+            const shownNow = Math.floor(isFinal ? safePercent : Math.max(anim.shown, 0));
+            const secs = Math.round((Date.now() - anim.startedAt) / 1000);
+            const barColor = safePercent === 100 ? "#16a34a" : "#2563eb";
             setRevenuePaidUploadStatus(`
-                <div style="font-size:0.82rem; font-weight:950; margin-bottom:8px;">${escapeHtml(message || "Uploading...")}</div>
+                <div id="${anim.id}" style="text-align:center;">
+                <div style="font-size:0.82rem; font-weight:950; margin-bottom:8px; text-align:center;">${escapeHtml(msgText)}</div>
                 <div style="height:14px; border-radius:999px; overflow:hidden; background:#dbeafe; border:1px solid #93c5fd;">
-                    <div style="height:100%; width:${safePercent}%; background:${safePercent === 100 ? "#16a34a" : "#2563eb"}; transition:width 0.35s ease;"></div>
+                    <div id="${anim.id}-bar" style="height:100%; width:${shownNow}%; background:${barColor}; transition:width 0.35s ease;"></div>
                 </div>
-                <div style="font-size:1rem; font-weight:1000; margin-top:6px;">${safePercent}%</div>
+                <div id="${anim.id}-pct" style="font-size:1rem; font-weight:1000; margin-top:6px; text-align:center;">${shownNow}%</div>
+                ${isFinal ? (revenuePaidUploadInProgress ? `<div style="font-size:0.7rem; font-weight:850; color:#64748b; margin-top:4px; text-align:center;">⏱️ Kul samay: ${secs}s</div>` : "") : `
+                <div style="font-size:0.74rem; font-weight:950; color:#1d4ed8; margin-top:6px; text-align:center;">CASH LIST UPLOADING... PLEASE WAIT</div>
+                <div id="${anim.id}-sec" style="font-size:0.7rem; font-weight:850; color:#64748b; margin-top:2px; text-align:center;">⏱️ ${secs}s</div>`}
+                </div>
             `, ok, true);
+            if (isFinal) { stopRevenuePaidUploadAnim_(); return; }
+            if (!anim.timer) {
+                anim.timer = setInterval(() => {
+                    const a = revenuePaidUploadAnim_;
+                    if (!a || !document.getElementById(a.id)) { stopRevenuePaidUploadAnim_(); return; }
+                    if (a.shown < a.target) {
+                        a.shown = Math.min(a.target, a.shown + Math.max(0.6, (a.target - a.shown) * 0.12));
+                    } else {
+                        // Intezaar ke dauraan dheere creep: agle milestone se pehle ruk jaata hai
+                        const cap = a.target >= 70 ? 98 : Math.min(98, a.target + 9);
+                        if (a.shown < cap) a.shown = Math.min(cap, a.shown + Math.max(0.03, (cap - a.shown) * 0.004));
+                    }
+                    const val = Math.floor(a.shown);
+                    const bar = document.getElementById(`${a.id}-bar`);
+                    const pct = document.getElementById(`${a.id}-pct`);
+                    const sec = document.getElementById(`${a.id}-sec`);
+                    if (bar) bar.style.width = `${val}%`;
+                    if (pct) pct.textContent = `${val}%`;
+                    if (sec) sec.textContent = `⏱️ ${Math.round((Date.now() - a.startedAt) / 1000)}s`;
+                }, 300);
+            }
         }
 
         function getRevenuePaidUploadMeta(dcName = activeDC) {
