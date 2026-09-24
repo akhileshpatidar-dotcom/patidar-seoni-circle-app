@@ -26514,6 +26514,57 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             return d;
         }
 
+        // SPEED FIX (2026-09-24, USER-REPORTED slow loading): Apps Script ka har
+        // request 3-17 sec leta hai (script ka apna startup time, data chhota
+        // hone par bhi). Isliye: (1) har DC ki staff list phone me save rehti hai
+        // - dobara kholne par TURANT dikhti hai, peeche se backend se taaza list
+        // aati hai aur badlav ho to screen khud update ho jaati hai; (2) DC
+        // dashboard khulte hi (list 6 ghante se purani/na ho to) peeche se list
+        // pehle hi mangwa lete hain; (3) yeh chhota request doosre bhaari
+        // requests ki line (concurrency gate) me nahi lagta.
+        var STAFF_CONTACT_CACHE_PREFIX_ = "seoni-staff-contact-v1-";
+        var staffContactFetchPromises_ = {};
+        function readStaffContactCache_(dcName) {
+            try {
+                const obj = JSON.parse(localStorage.getItem(STAFF_CONTACT_CACHE_PREFIX_ + normalizeLookupValue(dcName || "")) || "null");
+                return obj && Array.isArray(obj.rows) ? obj : null;
+            } catch (_) { return null; }
+        }
+        function fetchStaffContactsFresh_(dcName) {
+            const key = normalizeLookupValue(dcName || "");
+            if (!key) return Promise.reject(new Error("dc"));
+            if (staffContactFetchPromises_[key]) return staffContactFetchPromises_[key];
+            staffContactFetchPromises_[key] = (async () => {
+                const url = `${revenueCollectionSubmitScriptUrl}?action=getStaffContacts&dc=${encodeURIComponent(dcName)}&t=${Date.now()}`;
+                const res = await fetchWithTimeout(url, { cache: "no-store" }, 60000);
+                const parsed = await res.json();
+                if (!parsed || parsed.status !== "success" || !Array.isArray(parsed.rows)) throw new Error("backend");
+                try { localStorage.setItem(STAFF_CONTACT_CACHE_PREFIX_ + key, JSON.stringify({ t: Date.now(), rows: parsed.rows })); } catch (_) {}
+                return parsed.rows;
+            })().finally(() => { delete staffContactFetchPromises_[key]; });
+            return staffContactFetchPromises_[key];
+        }
+        function prefetchStaffContacts_(dcName) {
+            if (!dcName) return;
+            const cached = readStaffContactCache_(dcName);
+            if (cached && (Date.now() - Number(cached.t || 0)) < 6 * 60 * 60 * 1000) return;
+            setTimeout(() => { fetchStaffContactsFresh_(dcName).catch(() => {}); }, 3000);
+        }
+        function buildStaffContactGroups_(rows) {
+            const groups = new Map();
+            (rows || []).forEach((r) => {
+                const hqRaw = String(r.hq || "").replace(/\s+/g, " ").trim() || "GENERAL";
+                const hqKey = normalizeLookupValue(hqRaw) || "GENERAL";
+                if (!groups.has(hqKey)) groups.set(hqKey, { hq: hqRaw.toUpperCase(), staff: [] });
+                groups.get(hqKey).staff.push({
+                    name: String(r.name || "").replace(/\s+/g, " ").trim(),
+                    designation: String(r.designation || "").replace(/\s+/g, " ").trim(),
+                    mobile: normalizeStaffContactMobile_(r.mobile)
+                });
+            });
+            return Array.from(groups.values());
+        }
+
         async function initStaffContact() {
             const runId = ++staffContactRunId_;
             staffContactOpenHq_ = {}; staffContactQuery_ = "";
@@ -26524,30 +26575,23 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             const body = document.getElementById("staff-contact-body");
             if (dcBox) dcBox.textContent = activeDC ? `${activeDC}` : "";
             if (!body) return;
-            body.innerHTML = `<div style="text-align:center; font-size:0.78rem; font-weight:900; color:#5b21b6; padding:20px 0;">Staff details load ho rahi hain...<div class="app-sync-spinner"></div></div>`;
+            const dcAtStart = activeDC;
+            const cached = readStaffContactCache_(dcAtStart);
+            if (cached) {
+                staffContactGroups_ = buildStaffContactGroups_(cached.rows);
+                renderStaffContact_();
+            } else {
+                body.innerHTML = `<div style="text-align:center; font-size:0.78rem; font-weight:900; color:#5b21b6; padding:20px 0;">Staff details load ho rahi hain...<div class="app-sync-spinner"></div></div>`;
+            }
             try {
-                const url = `${revenueCollectionSubmitScriptUrl}?action=getStaffContacts&dc=${encodeURIComponent(activeDC || "")}&t=${Date.now()}`;
-                const parsed = await withAppsScriptConcurrencyGate_(revenueCollectionSubmitScriptUrl, async () => {
-                    const res = await fetchWithTimeout(url, { cache: "no-store" }, 60000);
-                    return await res.json();
-                });
+                const rows = await fetchStaffContactsFresh_(dcAtStart);
                 if (runId !== staffContactRunId_) return;
-                if (!parsed || parsed.status !== "success" || !Array.isArray(parsed.rows)) throw new Error("backend");
-                const groups = new Map();
-                parsed.rows.forEach((r) => {
-                    const hqRaw = String(r.hq || "").replace(/\s+/g, " ").trim() || "GENERAL";
-                    const hqKey = normalizeLookupValue(hqRaw) || "GENERAL";
-                    if (!groups.has(hqKey)) groups.set(hqKey, { hq: hqRaw.toUpperCase(), staff: [] });
-                    groups.get(hqKey).staff.push({
-                        name: String(r.name || "").replace(/\s+/g, " ").trim(),
-                        designation: String(r.designation || "").replace(/\s+/g, " ").trim(),
-                        mobile: normalizeStaffContactMobile_(r.mobile)
-                    });
-                });
-                staffContactGroups_ = Array.from(groups.values());
+                if (cached && JSON.stringify(cached.rows) === JSON.stringify(rows)) return;
+                staffContactGroups_ = buildStaffContactGroups_(rows);
                 renderStaffContact_();
             } catch (err) {
                 if (runId !== staffContactRunId_) return;
+                if (cached) return; // purani (saved) list dikh rahi hai - wahi rehne do
                 body.innerHTML = `<div style="text-align:center; background:#fff1f2; border:1.5px solid #fda4af; border-radius:14px; padding:14px; color:#991b1b; font-size:0.78rem; font-weight:900;">Staff details load nahi ho payi (internet check karein).<button onclick="initStaffContact()" style="display:block; margin:10px auto 0; padding:8px 18px; border-radius:12px; border:none; background:#5b21b6; color:#fff; font-weight:900; font-size:0.75rem;">Try Again</button></div>`;
             }
         }
@@ -26709,6 +26753,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     initShmsPendingDashboard();
                 }
                 if (id === "dc-dashboard") {
+                    try { prefetchStaffContacts_(activeDC); } catch (_) {} // 2026-09-24 staff contact speed
                     checkRevenueUploadFreshness();
                     updateMeterCheckingButtonVisibility();
                     if (isMeterCheckingAvailableForDc(activeDC)) {
