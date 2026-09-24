@@ -20395,6 +20395,41 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             checkRevenueUploadFreshness();
         }
 
+        // ISOLATED ADDITION (2026-09-24, USER REQUEST): "DC match check" - Cash List
+        // (NORMAL / AG) file sahi DC ki hai ya nahi. Chuni hui DC ka master data na ho
+        // (csvUrl khaali / load fail) to check skip - upload pehle jaisa chalta hai.
+        // Kam match hone par, jin DC ka master data pehle se app me load hai unse
+        // milakar andaza bhi batate hain ki file asal me kis DC ki hai.
+        async function checkRevenuePaidFileBelongsToDc_(dcName, normalRows, agRows) {
+            const dc = normalizeDcName(dcName || "");
+            if (!dc) return;
+            try { await ensureRevenueCategoryMasterDataLoaded([dc]); } catch (_) {}
+            const masterSet = new Set(getRevenueMasterRowsForDc(dc).map((r) => normalizeRevenueIvrs(r.ivrsNo)).filter(Boolean));
+            if (masterSet.size < 50) return; // master data nahi / bahut kam - check nahi kar sakte
+            const checkOne = (rows, label) => {
+                const ivrsList = Array.from(new Set((rows || []).map((r) => normalizeRevenueIvrs(r.ivrsNo)).filter(Boolean)));
+                if (ivrsList.length < 5) return;
+                const matched = ivrsList.filter((ivrs) => masterSet.has(ivrs)).length;
+                const pct = Math.round((matched / ivrsList.length) * 100);
+                if (pct >= 50) return;
+                let guess = "";
+                let best = 0;
+                getAllDcNames().forEach((other) => {
+                    const o = normalizeDcName(other);
+                    if (!o || o === dc || !getConsumerRows(other).length) return;
+                    const oSet = new Set(getRevenueMasterRowsForDc(other).map((r) => normalizeRevenueIvrs(r.ivrsNo)));
+                    const m = ivrsList.filter((ivrs) => oSet.has(ivrs)).length;
+                    if (m > best) { best = m; guess = o; }
+                });
+                const guessText = guess && best / ivrsList.length >= 0.5 ? ` Yeh file shayad ${guess} DC ki hai.` : "";
+                const err = new Error(`GALAT DC: ${label} Cash List ${dc} ki nahi lagti - file ke ${ivrsList.length} IVRS me se sirf ${matched} (${pct}%) ${dc} ke master me mile.${guessText} Upload roka gaya, koi data nahi bheja gaya. Sahi DC chun kar dobara upload karein.`);
+                err.isExplicitBackendError = true;
+                throw err;
+            };
+            checkOne(normalRows, "NORMAL");
+            checkOne(agRows, "AG");
+        }
+
         var revenuePaidUploadStartedAt_ = null;
 
         async function uploadRevenuePaidFiles() {
@@ -20438,6 +20473,10 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     true
                 );
                 await waitForUiBreath();
+                // USER REQUEST (2026-09-24): galti se DOOSRI DC chun kar Cash List upload
+                // na ho - backend par bhejne SE PEHLE file ke IVRS ko chuni hui DC ki
+                // master list se milate hain; aadhe se kam mile to upload yahin ruk jaata hai.
+                await checkRevenuePaidFileBelongsToDc_(activeDC || "", normalRows, agRows);
                 const entries = buildRevenuePaidUploadEntries([...normalRows, ...agRows], activeDC || "");
                 if (!entries.length) throw new Error("Paid data file me valid rows nahi mili");
                 const paymentRowCount = entries.reduce((total, entry) => total + getRevenueUploadedPaidPaymentRows(entry).length, 0);
