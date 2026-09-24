@@ -2431,6 +2431,19 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // Chip par tap karte hi wapas tile-list khulti hai - bilkul waisa hi jaisa
         // koi report select hone se pehle (placeholder + koi sync nahi) dikhta hai.
         function showProgressReportPicker() {
+            // USER REQUEST (2026-09-24): Freeze report (NP3/NP6/...) khuli ho to "Change"
+            // dabane par pehle Freeze ka hi "Choose Report Type" dropdown khule (Daily
+            // Progress ke tiles par nahi). Pichla loaded data cache me rehta hai, isliye
+            // wahi report dobara chunne par turant khulti hai. Freeze chooser par dobara
+            // "Change" dabane par pehle jaisa tiles (report picker) khulta hai.
+            if (summaryModule === "FREEZE" && progressFreezeCategory) {
+                progressFreezeCategory = "";
+                resetFreezeFilterState();
+                const body = document.getElementById("summary-content");
+                if (body) body.innerHTML = renderFreezeModuleSummaryHtml();
+                try { (document.getElementById("progress-report-chip") || body)?.scrollIntoView({ behavior: "smooth", block: "start" }); } catch (_) {}
+                return;
+            }
             setProgressModule("");
         }
 
