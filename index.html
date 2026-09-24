@@ -200,7 +200,27 @@
                 <button id="meter-checking-dashboard-btn" class="dashboard-btn" style="display:none; background:#8b5a2b; color:#fdf6ec;" onclick="switchView('meter-checking')">Meeter Cheking</button>
                 <button class="dashboard-btn" style="background: linear-gradient(135deg, #fbcfe8 0%, #f9a8d4 100%); color:#831843 !important;" onclick="switchView('bill-calculator')">Bijlee Bill Calculator</button>
           <button class="dashboard-btn btn-court-case" onclick="switchView('court-case')" style="display:none;">Lok Adalat Notice</button>
+                <!-- USER REQUEST (2026-09-24): Staff Contact Details (Daily Progress ke upar, alag rang) -->
+                <button class="dashboard-btn" style="background: linear-gradient(135deg, #7c3aed 0%, #4c1d95 100%); color:#ffffff !important;" onclick="switchView('staff-contact')">📞 Staff Contact Details</button>
                 <button class="dashboard-btn btn-progress-black" onclick="askPassword('DC')">DC Daily Progress</button>
+            </div>
+        </main>
+
+        <!-- USER REQUEST (2026-09-24): Staff Contact Details - sirf chuni hui DC ke HQ-wise staff + Call -->
+        <main id="staff-contact-view" class="view">
+            <div class="search-panel" style="padding-top:14px;">
+                <div style="width:100%; max-width:400px; background:linear-gradient(135deg, #6d28d9 0%, #4c1d95 100%); border-radius:16px; padding:14px 16px; text-align:left; color:#ffffff; box-shadow:0 4px 14px rgba(76,29,149,0.25);">
+                    <div style="font-size:0.6rem; font-weight:800; letter-spacing:0.12em; opacity:0.85;">STAFF CONTACT DIRECTORY</div>
+                    <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:4px;">
+                        <div id="staff-contact-dc-name" style="font-size:1.05rem; font-weight:950; text-transform:uppercase;"></div>
+                        <div id="staff-contact-stats" style="display:flex; gap:6px; font-size:0.62rem; font-weight:900; white-space:nowrap;"></div>
+                    </div>
+                    <div style="font-size:0.64rem; font-weight:700; opacity:0.85; margin-top:4px;">HQ par tap karein &rarr; staff dekhein &rarr; CALL dabayein</div>
+                </div>
+                <div id="staff-contact-search-wrap" style="width:100%; max-width:400px; margin-top:10px; display:none;">
+                    <input id="staff-contact-search" type="search" oninput="onStaffContactSearch_(this.value)" placeholder="🔍 Staff naam / HQ / Designation search" style="width:100%; height:42px; border:1px solid #cbd5e1; border-radius:12px; padding:0 12px; font-size:0.78rem; font-weight:700; color:#0f172a; background:#ffffff; box-sizing:border-box;">
+                </div>
+                <div id="staff-contact-body" style="width:100%; max-width:400px; margin:10px auto 0;"></div>
             </div>
         </main>
 

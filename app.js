@@ -26400,6 +26400,161 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         }
         // ===== End Meeter Cheking =====
 
+        // =====================================================================
+        // ISOLATED ADDITION (2026-09-24, USER REQUEST): STAFF CONTACT DETAILS
+        // Ek hi Google Sheet (sabhi 24 DC) - columns: DIVISION, DC, HQ, STAFF NAME,
+        // DESIGNATION, MOBILE NO (header naam se padhte hain; extra space/line-break
+        // chalega). Sirf chuni hui DC ki rows dikhti hain, HQ-wise; staff chunne par
+        // laal CALL button (tel: link - phone ka dial pad number ke saath khulta hai).
+        // Sheet me nayi DC ki rows neeche jodte hi woh DC apne-aap dikhne lagti hai
+        // (har baar taaza sheet padhi jaati hai); jis DC ka data nahi - "Not Found".
+        // =====================================================================
+        var staffContactCsvUrl = "https://docs.google.com/spreadsheets/d/1Iiy1_e_xTsezDWN8YYyJzCcdWZtFakY77xP2Rq3Dp-k/export?format=csv&gid=0";
+        var staffContactRunId_ = 0;
+        var staffContactGroups_ = [];
+
+        function parseStaffContactCsv_(text) {
+            const rows = []; let row = []; let cell = ""; let inQ = false;
+            const src = String(text || "");
+            for (let i = 0; i < src.length; i++) {
+                const ch = src[i];
+                if (inQ) {
+                    if (ch === '"') { if (src[i + 1] === '"') { cell += '"'; i++; } else { inQ = false; } }
+                    else cell += ch;
+                } else if (ch === '"') inQ = true;
+                else if (ch === ",") { row.push(cell); cell = ""; }
+                else if (ch === "\n" || ch === "\r") {
+                    if (ch === "\r" && src[i + 1] === "\n") i++;
+                    row.push(cell); rows.push(row); row = []; cell = "";
+                } else cell += ch;
+            }
+            if (cell !== "" || row.length) { row.push(cell); rows.push(row); }
+            return rows.filter((r) => r.some((c) => String(c).trim()));
+        }
+
+        function normalizeStaffContactMobile_(value) {
+            let d = String(value || "").replace(/\D/g, "");
+            if (d.length === 12 && d.startsWith("91")) d = d.slice(2);
+            if (d.length === 11 && d.startsWith("0")) d = d.slice(1);
+            return d;
+        }
+
+        async function initStaffContact() {
+            const runId = ++staffContactRunId_;
+            staffContactOpenHq_ = {}; staffContactQuery_ = "";
+            const searchInput = document.getElementById("staff-contact-search"); if (searchInput) searchInput.value = "";
+            const statBox0 = document.getElementById("staff-contact-stats"); if (statBox0) statBox0.innerHTML = "";
+            const searchWrap0 = document.getElementById("staff-contact-search-wrap"); if (searchWrap0) searchWrap0.style.display = "none";
+            const dcBox = document.getElementById("staff-contact-dc-name");
+            const body = document.getElementById("staff-contact-body");
+            if (dcBox) dcBox.textContent = activeDC ? `${activeDC}` : "";
+            if (!body) return;
+            body.innerHTML = `<div style="text-align:center; font-size:0.78rem; font-weight:900; color:#5b21b6; padding:20px 0;">Staff details load ho rahi hain...<div class="app-sync-spinner"></div></div>`;
+            try {
+                const res = await fetchWithTimeout(`${staffContactCsvUrl}&t=${Date.now()}`, { cache: "no-store" }, 30000);
+                const text = await res.text();
+                if (runId !== staffContactRunId_) return;
+                if (!res.ok || String(text).trim().startsWith("<")) throw new Error("sheet");
+                const table = parseStaffContactCsv_(text);
+                const head = (table[0] || []).map((h) => String(h || "").replace(/\s+/g, " ").trim().toUpperCase());
+                const idx = (names) => head.findIndex((h) => names.includes(h));
+                const iDc = idx(["DC", "DC NAME"]), iHq = idx(["HQ", "HQ NAME"]), iName = idx(["STAFF NAME", "NAME"]);
+                const iDes = idx(["DESIGNATION", "POST"]), iMob = idx(["MOBILE NO", "MOBILE", "MOBILE NUMBER"]);
+                if (iDc < 0 || iHq < 0 || iName < 0 || iMob < 0) throw new Error("header");
+                const dcKey = normalizeLookupValue(activeDC || "");
+                const groups = new Map();
+                table.slice(1).forEach((r) => {
+                    if (normalizeLookupValue(r[iDc] || "") !== dcKey) return;
+                    const hqRaw = String(r[iHq] || "").replace(/\s+/g, " ").trim() || "GENERAL";
+                    const hqKey = normalizeLookupValue(hqRaw) || "GENERAL";
+                    if (!groups.has(hqKey)) groups.set(hqKey, { hq: hqRaw.toUpperCase(), staff: [] });
+                    groups.get(hqKey).staff.push({
+                        name: String(r[iName] || "").replace(/\s+/g, " ").trim(),
+                        designation: iDes >= 0 ? String(r[iDes] || "").replace(/\s+/g, " ").trim() : "",
+                        mobile: normalizeStaffContactMobile_(r[iMob])
+                    });
+                });
+                staffContactGroups_ = Array.from(groups.values());
+                renderStaffContact_();
+            } catch (err) {
+                if (runId !== staffContactRunId_) return;
+                body.innerHTML = `<div style="text-align:center; background:#fff1f2; border:1.5px solid #fda4af; border-radius:14px; padding:14px; color:#991b1b; font-size:0.78rem; font-weight:900;">Staff details load nahi ho payi (internet check karein).<button onclick="initStaffContact()" style="display:block; margin:10px auto 0; padding:8px 18px; border-radius:12px; border:none; background:#5b21b6; color:#fff; font-weight:900; font-size:0.75rem;">Try Again</button></div>`;
+            }
+        }
+
+        var staffContactOpenHq_ = {};
+        var staffContactQuery_ = "";
+        function getStaffContactInitials_(name) {
+            const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+            return ((parts[0] || "?")[0] + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase();
+        }
+        function getStaffContactTone_(text) {
+            const tones = [["#dbeafe", "#1d4ed8"], ["#dcfce7", "#15803d"], ["#fef3c7", "#b45309"], ["#fce7f3", "#be185d"], ["#e0e7ff", "#4338ca"], ["#ccfbf1", "#0f766e"], ["#ffedd5", "#c2410c"]];
+            let h = 0;
+            String(text || "").toUpperCase().split("").forEach((c) => { h = (h * 31 + c.charCodeAt(0)) % 997; });
+            return tones[h % tones.length];
+        }
+        function renderStaffContact_() {
+            const body = document.getElementById("staff-contact-body");
+            if (!body) return;
+            const statBox = document.getElementById("staff-contact-stats");
+            const searchWrap = document.getElementById("staff-contact-search-wrap");
+            const totalStaff = staffContactGroups_.reduce((s, g) => s + g.staff.length, 0);
+            if (statBox) statBox.innerHTML = staffContactGroups_.length ? `<span style="background:rgba(255,255,255,0.18); border-radius:999px; padding:3px 10px;">${staffContactGroups_.length} HQ</span><span style="background:rgba(255,255,255,0.18); border-radius:999px; padding:3px 10px;">${totalStaff} Staff</span>` : "";
+            if (searchWrap) searchWrap.style.display = staffContactGroups_.length ? "block" : "none";
+            if (!staffContactGroups_.length) {
+                body.innerHTML = `<div style="text-align:center; background:#ffffff; border:1px dashed #c4b5fd; border-radius:14px; padding:22px 14px; box-shadow:0 1px 3px rgba(15,23,42,0.06);"><div style="font-size:1.6rem;">🗂️</div><div style="color:#5b21b6; font-size:0.9rem; font-weight:950; margin-top:4px;">NOT FOUND</div><div style="font-size:0.7rem; font-weight:700; color:#64748b; margin-top:6px;">${escapeHtml(activeDC || "Is DC")} ki staff details abhi sheet me uplabdh nahi hain.</div></div>`;
+                return;
+            }
+            const q = normalizeLookupValue(staffContactQuery_ || "");
+            let shown = 0;
+            const html = staffContactGroups_.map((g, gi) => {
+                const hqMatch = q && normalizeLookupValue(g.hq).includes(q);
+                const list = g.staff.map((st, si) => ({ st, si })).filter(({ st }) => !q || hqMatch || normalizeLookupValue(`${st.name} ${st.designation} ${st.mobile}`).includes(q));
+                if (!list.length) return "";
+                shown += list.length;
+                const open = q ? true : !!staffContactOpenHq_[gi];
+                const rows = list.map(({ st }) => {
+                    const tone = getStaffContactTone_(st.designation || st.name);
+                    const valid = /^\d{10}$/.test(st.mobile);
+                    const callBtn = valid
+                        ? `<a href="tel:+91${st.mobile}" style="flex:0 0 auto; display:flex; align-items:center; gap:4px; text-decoration:none; background:#dc2626; color:#ffffff; font-size:0.7rem; font-weight:900; border-radius:999px; padding:8px 12px; box-shadow:0 2px 6px rgba(220,38,38,0.35);">📞 CALL</a>`
+                        : `<span style="flex:0 0 auto; font-size:0.6rem; font-weight:800; color:#991b1b; background:#fee2e2; border-radius:8px; padding:5px 7px;">No valid no.</span>`;
+                    return `<div style="display:flex; align-items:center; gap:10px; padding:10px 12px; border-top:1px solid #f1f5f9;">
+                        <div style="flex:0 0 36px; width:36px; height:36px; border-radius:50%; background:${tone[0]}; color:${tone[1]}; display:flex; align-items:center; justify-content:center; font-size:0.72rem; font-weight:950;">${escapeHtml(getStaffContactInitials_(st.name))}</div>
+                        <div style="flex:1 1 auto; min-width:0; text-align:left;">
+                            <div style="font-size:0.8rem; font-weight:900; color:#0f172a; line-height:1.25; word-break:break-word;">${escapeHtml(st.name || "-")}</div>
+                            <div style="display:flex; align-items:center; gap:6px; margin-top:3px; flex-wrap:wrap;">
+                                ${st.designation ? `<span style="font-size:0.58rem; font-weight:900; color:${tone[1]}; background:${tone[0]}; border-radius:6px; padding:2px 7px; text-transform:uppercase; letter-spacing:0.02em;">${escapeHtml(st.designation)}</span>` : ""}
+                                <span style="font-size:0.66rem; font-weight:700; color:#64748b;">${escapeHtml(st.mobile || "-")}</span>
+                            </div>
+                        </div>
+                        ${callBtn}
+                    </div>`;
+                }).join("");
+                return `<div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:14px; margin-bottom:8px; overflow:hidden; box-shadow:0 1px 3px rgba(15,23,42,0.06);">
+                    <button type="button" onclick="toggleStaffContactHq_(${gi})" style="width:100%; display:flex; align-items:center; gap:10px; padding:11px 12px; background:${open ? "#f5f3ff" : "#ffffff"}; border:none; cursor:pointer; text-align:left;">
+                        <div style="flex:0 0 32px; width:32px; height:32px; border-radius:10px; background:#ede9fe; color:#6d28d9; display:flex; align-items:center; justify-content:center; font-size:0.9rem;">📍</div>
+                        <div style="flex:1 1 auto; min-width:0;">
+                            <div style="font-size:0.82rem; font-weight:950; color:#1e1b4b;">${escapeHtml(g.hq)}</div>
+                            <div style="font-size:0.62rem; font-weight:700; color:#64748b; margin-top:1px;">${list.length} Staff</div>
+                        </div>
+                        <div style="flex:0 0 auto; font-size:0.8rem; color:#7c3aed; font-weight:900; transform:rotate(${open ? 90 : 0}deg); transition:transform .2s;">›</div>
+                    </button>
+                    ${open ? rows : ""}
+                </div>`;
+            }).join("");
+            body.innerHTML = shown ? html : `<div style="text-align:center; color:#64748b; font-size:0.72rem; font-weight:800; padding:16px;">"${escapeHtml(staffContactQuery_)}" se koi staff nahi mila.</div>`;
+        }
+        function toggleStaffContactHq_(gi) {
+            staffContactOpenHq_[gi] = !staffContactOpenHq_[gi];
+            renderStaffContact_();
+        }
+        function onStaffContactSearch_(value) {
+            staffContactQuery_ = String(value || "");
+            renderStaffContact_();
+        }
+
         function switchView(id) {
             if (!suppressHistoryPush) {
                 try { history.pushState({ appView: id }, "", ""); } catch (_) {}
@@ -26440,6 +26595,9 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 }
                 if (id === "revenue-top-defaulters") {
                     initRevenueTopDefaulters();
+                }
+                if (id === "staff-contact") {
+                    initStaffContact(); // USER REQUEST (2026-09-24)
                 }
                 if (id === "revenue-pending-list") {
                     initRevenuePendingList();
@@ -26533,6 +26691,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 if (id === "revenue-target-achievement") headerTitle = "TARGET VS ACHIEVEMENT %";
                 if (id === "revenue-top-defaulters") headerTitle = "TOP 20/50 DEFAULTERS";
                 if (id === "revenue-pending-list") headerTitle = "PENDING DO LIST";
+                if (id === "staff-contact") headerTitle = "STAFF CONTACT";
                 if (id === "revenue-paid-upload") headerTitle = "ADMIN UPLOAD CASH LIST";
                 if (id === "revenue-message-login") headerTitle = "SEND MESSAGE";
                 if (id === "meter-checking") headerTitle = "MEETER CHEKING";
@@ -26687,7 +26846,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             } else if (act === "court-case-view") {
                 resetCourtCaseForm();
                 switchView("dc-dashboard");
-            } else if (act === "bill-calculator-view") {
+            } else if (act === "bill-calculator-view" || act === "staff-contact-view") {
                 switchView("dc-dashboard");
             } else if (act === "material-list-view" || act === "material-receive-view" || act === "material-issue-view" || act === "live-stock-view" || act === "low-stock-view" || act === "stock-report-view") {
                 switchView("stock-material");
