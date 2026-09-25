@@ -3682,31 +3682,68 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             const box = document.getElementById("freeze-add-dc-box");
             if (!box) return;
             box.style.display = "block";
-            box.innerHTML = `<div style="font-size:0.66rem; font-weight:850; color:#0e7490; text-align:center;">Chalu freeze me khaali DC dhoondh rahe hain...</div>`;
+            const note = (t) => { box.innerHTML = `<div style="font-size:0.66rem; font-weight:850; color:#0e7490; text-align:center;">${t}</div>`; };
+            note("Chalu freeze me har DC ki sthiti dekh rahe hain... (pehli baar 1 minute tak lag sakta hai)");
             setFreezeAddDcStatus_("", true);
             try {
                 const active = await ensureRevenueFreezeActiveInfo(true);
                 if (!active) { box.innerHTML = `<div style="font-size:0.66rem; font-weight:850; color:#9f1239; text-align:center;">Koi chalu freeze nahi hai</div>`; return; }
-                const parsed = await loadRemoteJson(`${revenueFreezeTrackingScriptUrl}?action=getFreezeDcRowCounts&freeze_id=${encodeURIComponent(active.freeze_id)}&t=${Date.now()}`, 90000);
-                if (!parsed || parsed.status !== "success") throw new Error(parsed?.message || "Backend ne counts nahi diye (backend New version deploy hua?)");
+                // USER-REPORTED (2026-09-25): "List load nahi hui: Unexpected token '<'" - backend
+                // ko sab DC tabs padhne me 40-70s lagte hain aur Google kabhi JSON ki jagah
+                // "Page not found" (HTML) de deta hai. Ab 3 baar koshish (backend result cache
+                // kar leta hai, isliye doosri koshish turant milti hai).
+                let parsed = null, lastErr = null;
+                for (let attempt = 1; attempt <= 3 && !parsed; attempt++) {
+                    if (attempt > 1) note(`Server dheema hai - dobara koshish (${attempt}/3)...`);
+                    try {
+                        const r = await loadRemoteJson(`${revenueFreezeTrackingScriptUrl}?action=getFreezeDcRowCounts&freeze_id=${encodeURIComponent(active.freeze_id)}&t=${Date.now()}`, 120000);
+                        if (r && r.status === "success") parsed = r; else lastErr = new Error(r?.message || "Backend ne counts nahi diye");
+                    } catch (err) { lastErr = err; }
+                    if (!parsed && attempt < 3) await new Promise((resolve) => setTimeout(resolve, 2000));
+                }
+                if (!parsed) throw new Error("Server se list nahi mili, thodi der baad dobara dabaiye" + (lastErr?.message ? ` (${lastErr.message.slice(0, 60)})` : ""));
                 const counts = parsed.counts || {};
                 // Jis DC ki NP3/NP6/Since Connection teeno khaali hain wahi "freeze me nahi" maani jaati hai
                 // (jaise KURAI - us din sirf Top 20/50 bana tha). Jodne par uska purana adhoora data replace hota hai.
                 const dcCats = ["NP3", "NP6", "SINCE_CONNECTION"];
-                const candidates = getAllDcNames().map(normalizeDcName).filter((dc) => {
+                const allDcs = getAllDcNames().map(normalizeDcName);
+                const candidates = allDcs.filter((dc) => {
                     const c = counts[dc] || {};
                     return dcCats.every((k) => !Number(c[k] || 0));
                 });
                 freezeAddDcState_ = { freezeId: active.freeze_id, freezeLabel: active.freeze_label || active.freeze_date, candidates };
-                if (!candidates.length) {
-                    box.innerHTML = `<div style="font-size:0.68rem; font-weight:900; color:#047857; text-align:center;">✅ Freeze ${escapeHtml(freezeAddDcState_.freezeLabel)} me sabhi DC ka data maujood hai - jodne layak koi DC nahi.</div>`;
-                    return;
-                }
-                box.innerHTML = `<div style="font-size:0.66rem; font-weight:900; color:#0e7490; text-align:center; margin-bottom:6px;">Freeze ${escapeHtml(freezeAddDcState_.freezeLabel)} me in DC ka data NAHI hai. Jinki master sheet me ab data hai, unhe chunkar jodein:</div>` +
-                    `<div style="display:grid; grid-template-columns:1fr 1fr; gap:4px 10px;">` +
-                    candidates.map((dc) => { const c = counts[dc] || {}; const partial = Number(c.TOP20 || 0) + Number(c.TOP50 || 0) > 0; return `<label style="display:flex; align-items:center; gap:6px; font-size:0.66rem; font-weight:850; color:#0f172a;"><input type="checkbox" class="freeze-add-dc-cb" value="${escapeHtml(dc)}" checked> ${escapeHtml(dc)}${partial ? ' <span style="color:#b45309; font-size:0.56rem;">(adhoora)</span>' : ""}</label>`; }).join("") +
-                    `</div><button class="dashboard-btn" style="width:100%; margin-top:10px; background:linear-gradient(135deg,#34d399 0%,#059669 100%); color:#ffffff !important;" onclick="runRevenueFreezeAddDcs()">✅ Chuni hui DC Freeze me jodein</button>` +
-                    `<div style="font-size:0.58rem; font-weight:800; color:#64748b; text-align:center; margin-top:6px;">Jis DC ki master sheet abhi bhi khaali hai, wo apne aap chhod di jaayegi.</div>`;
+                // USER REQUEST (2026-09-25): "saath me yah bhi dikha de ki kis DC ko freeze karna baaki hai" -
+                // sabhi DC ki sthiti (Division-wise): freeze me hai / baaki (sheet me data hai) / sheet khaali.
+                note("Baaki DC ki master sheet check ho rahi hai...");
+                if (candidates.length) { try { await ensureRevenueCategoryMasterDataLoaded(candidates); } catch (_) {} }
+                const hasMaster = {};
+                candidates.forEach((dc) => { try { hasMaster[dc] = getRevenueMasterRowsForDc(dc).length > 0; } catch (_) { hasMaster[dc] = false; } });
+                const pendingWithData = candidates.filter((dc) => hasMaster[dc]);
+                const rowHtml = (dc) => {
+                    const c = counts[dc] || {};
+                    const inFreeze = !candidates.includes(dc);
+                    const partial = !inFreeze && Number(c.TOP20 || 0) + Number(c.TOP50 || 0) > 0;
+                    const status = inFreeze
+                        ? `<span style="color:#15803d;">✅ Freeze me</span>`
+                        : (hasMaster[dc]
+                            ? `<label style="color:#b45309; display:inline-flex; align-items:center; gap:4px;"><input type="checkbox" class="freeze-add-dc-cb" value="${escapeHtml(dc)}" checked> ⏳ Baaki${partial ? " (adhoora)" : ""}</label>`
+                            : `<span style="color:#64748b;">⚪ Sheet khaali</span>`);
+                    return `<div style="display:grid; grid-template-columns:1.3fr 0.7fr 1.2fr; gap:4px; font-size:0.62rem; font-weight:850; color:#0f172a; padding:4px 0; border-bottom:1px solid #f1f5f9; align-items:center;"><div>${escapeHtml(dc)}</div><div>${inFreeze ? Number(c.NP3 || 0).toLocaleString("en-IN") : "-"}</div><div>${status}</div></div>`;
+                };
+                const divBlocks = Object.keys(divisionConfigs).map((div) => {
+                    const dcs = getDivisionDcNames(div).map(normalizeDcName);
+                    const doneN = dcs.filter((dc) => !candidates.includes(dc)).length;
+                    return `<div style="margin-top:8px; font-size:0.66rem; font-weight:950; color:#0e7490;">${escapeHtml(div)} - ${doneN}/${dcs.length} freeze me</div>` +
+                        `<div style="display:grid; grid-template-columns:1.3fr 0.7fr 1.2fr; gap:4px; font-size:0.58rem; font-weight:950; color:#64748b; border-bottom:1.5px solid #bbf7d0; padding:3px 0;"><div>DC</div><div>NP3</div><div>STHITI</div></div>` +
+                        dcs.map(rowHtml).join("");
+                }).join("");
+                const header = `<div style="font-size:0.7rem; font-weight:950; color:#0e7490; text-align:center;">Freeze ${escapeHtml(freezeAddDcState_.freezeLabel)} - DC sthiti</div>` +
+                    `<div style="font-size:0.62rem; font-weight:850; color:#475569; text-align:center; margin-top:3px;">✅ Freeze me: ${allDcs.length - candidates.length} &nbsp; ⏳ Baaki: ${pendingWithData.length} &nbsp; ⚪ Sheet khaali: ${candidates.length - pendingWithData.length}</div>`;
+                const action = pendingWithData.length
+                    ? `<button class="dashboard-btn" style="width:100%; margin-top:10px; background:linear-gradient(135deg,#34d399 0%,#059669 100%); color:#ffffff !important;" onclick="runRevenueFreezeAddDcs()">✅ Chuni hui DC Freeze me jodein</button>` +
+                      `<div style="font-size:0.58rem; font-weight:800; color:#64748b; text-align:center; margin-top:6px;">Sirf ⏳ Baaki wali DC jodi ja sakti hain - jinka data abhi poora nahi, unka tick hata dein.</div>`
+                    : `<div style="font-size:0.66rem; font-weight:900; color:#047857; text-align:center; margin-top:10px;">✅ Jodne layak koi DC baaki nahi hai.</div>`;
+                box.innerHTML = header + divBlocks + action;
             } catch (error) {
                 box.innerHTML = `<div style="font-size:0.66rem; font-weight:850; color:#9f1239; text-align:center;">List load nahi hui: ${escapeHtml(error?.message || "error")}</div>`;
             }
