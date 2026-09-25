@@ -20584,6 +20584,12 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             const sheetName = workbook.SheetNames[0];
             const sheet = workbook.Sheets[sheetName];
             const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+            return readRevenuePaidRowsFromSheetRows_(rows, sourceType);
+        }
+
+        // 2026-09-25: readRevenuePaidFile ka parsing hissa alag function me (logic bilkul
+        // wahi) taaki Division Cash List Upload bhi isi se har DC ke rows padh sake.
+        function readRevenuePaidRowsFromSheetRows_(rows, sourceType) {
             const headerIndex = findRevenuePaidHeaderRow(rows);
             if (headerIndex < 0) throw new Error(`${sourceType} file me Consumer No / Payment Amount header nahi mila`);
             const paidFileType = normalizeLookupValue(sourceType);
@@ -20856,6 +20862,235 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
 
         var revenuePaidUploadStartedAt_ = null;
 
+        // =====================================================================
+        // USER REQUEST (2026-09-25): DIVISION CASH LIST UPLOAD
+        // Division dashboard (DC select screen) ke ⋮ menu se ek hi compiled file
+        // (poore Division ki NORMAL + AG/Pump) upload. File ko har DC me baant kar
+        // HAR DC ka upload BILKUL DC-upload wale tarike se hota hai (same backend
+        // action uploadPaidMaster: NORMAL replace, AG accumulate) - bas
+        // upload_scope=DIVISION + Division password (backend check). Us din DC se
+        // dobara upload backend rok deta hai. DC wala alag upload pehle jaisa hi hai.
+        // DC pehchan: NORMAL - DC master IVRS se (na mile to IVRS ke pehle 4 ank
+        // se, jo us file me baaki rows se seekhe gaye); AG - "LOCATION (DC)" block.
+        // =====================================================================
+        let divisionPaidUploadPassword_ = "";
+        let divisionPaidUploadInProgress_ = false;
+
+        function initDivisionPaidUpload() {
+            const label = document.getElementById("division-paid-upload-div");
+            if (label) label.textContent = activeDiv || "";
+            const lock = document.getElementById("division-paid-lock-box");
+            const panel = document.getElementById("division-paid-upload-panel");
+            if (lock) lock.style.display = divisionPaidUploadPassword_ ? "none" : "block";
+            if (panel) panel.style.display = divisionPaidUploadPassword_ ? "block" : "none";
+        }
+        function unlockDivisionPaidUpload() {
+            const input = document.getElementById("division-paid-password");
+            const password = String(input?.value || "").trim();
+            if (!password) return showToast("Password daliye", false);
+            divisionPaidUploadPassword_ = password; // asli check backend par
+            if (input) input.value = "";
+            initDivisionPaidUpload();
+        }
+        function setDivisionPaidUploadStatus_(html, ok = true) {
+            const box = document.getElementById("division-paid-upload-status");
+            if (!box) return;
+            box.style.display = html ? "block" : "none";
+            box.style.background = ok ? "#ecfdf5" : "#fff1f2";
+            box.style.border = `1.5px solid ${ok ? "#86efac" : "#fda4af"}`;
+            box.style.color = ok ? "#14532d" : "#991b1b";
+            box.innerHTML = html || "";
+        }
+        function renderDivisionPaidUploadTable_(plan) {
+            const box = document.getElementById("division-paid-upload-table");
+            if (!box) return;
+            const colors = { WAITING: "#64748b", UPLOADING: "#b45309", DONE: "#15803d", PENDING: "#b45309", FAILED: "#b91c1c", SKIPPED: "#64748b" };
+            box.innerHTML = `<div style="display:grid; grid-template-columns:1.4fr 0.8fr 0.7fr 1.3fr; gap:4px; font-size:0.62rem; font-weight:950; color:#14532d; border-bottom:1.5px solid #bbf7d0; padding-bottom:4px;"><div>DC</div><div>NORMAL</div><div>AG</div><div>STATUS</div></div>` +
+                plan.map((p) => `<div style="display:grid; grid-template-columns:1.4fr 0.8fr 0.7fr 1.3fr; gap:4px; font-size:0.64rem; font-weight:850; color:#0f172a; padding:4px 0; border-bottom:1px solid #f1f5f9;"><div>${escapeHtml(p.dc)}</div><div>${p.normal.length}</div><div>${p.ag.length}</div><div style="color:${colors[p.status] || "#0f172a"}; font-weight:950;">${escapeHtml(p.statusText || p.status)}</div></div>`).join("");
+        }
+        function getSheetRowsFromFile_(buffer) {
+            const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+            return XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+        }
+        function matchDivisionDcFromLocationText_(text, divisionDcs) {
+            const inner = String(text || "").match(/\(([^)]+)\)/);
+            const raw = normalizeLookupValue(inner ? inner[1] : text).replace("LAKHNADAUN", "LAKHNADON");
+            return divisionDcs.find((dc) => normalizeLookupValue(dc) === raw) || "";
+        }
+        async function uploadDivisionPaidFiles() {
+            const normalFile = document.getElementById("division-paid-normal-file")?.files?.[0] || null;
+            const agFile = document.getElementById("division-paid-ag-file")?.files?.[0] || null;
+            const btn = document.getElementById("division-paid-upload-btn");
+            if (divisionPaidUploadInProgress_) return showToast("Upload chal raha hai, kripya rukiye", false);
+            if (!normalFile && !agFile) return showToast("Kam se kam ek file chuniye", false);
+            if (!window.XLSX) return showToast("Excel reader load nahi hua. Internet check karke refresh kijiye.", false);
+            const division = activeDiv || "";
+            const divisionDcs = getDivisionDcNames(division).map(normalizeDcName);
+            if (!divisionDcs.length) return showToast("Division select nahi hai", false);
+            divisionPaidUploadInProgress_ = true;
+            if (btn) { btn.disabled = true; btn.textContent = "UPLOADING... PLEASE WAIT"; }
+            const startedAt = new Date().toISOString();
+            try {
+                setDivisionPaidUploadStatus_("Files padhi ja rahi hain aur DC master load ho rahe hain...", true);
+                await ensureRevenueCategoryMasterDataLoaded(divisionDcs);
+                const ivrsToDc = {};
+                divisionDcs.forEach((dc) => {
+                    getRevenueMasterRowsForDc(dc).forEach((r) => {
+                        const iv = normalizeRevenueIvrs(r.ivrsNo);
+                        if (iv && !ivrsToDc[iv]) ivrsToDc[iv] = dc;
+                    });
+                });
+                const plan = divisionDcs.map((dc) => ({ dc, normal: [], ag: [], status: "WAITING", statusText: "" }));
+                const planByDc = Object.fromEntries(plan.map((p) => [p.dc, p]));
+                let normalUnassigned = 0;
+                let agUnassigned = 0;
+                if (normalFile) {
+                    const rows = getSheetRowsFromFile_(await normalFile.arrayBuffer());
+                    const parsed = readRevenuePaidRowsFromSheetRows_(rows, "NORMAL");
+                    const prefixVotes = {};
+                    const pending = [];
+                    parsed.forEach((row) => {
+                        const dc = ivrsToDc[row.ivrsNo];
+                        if (dc) {
+                            planByDc[dc].normal.push(row);
+                            const pre = row.ivrsNo.slice(0, 4);
+                            prefixVotes[pre] = prefixVotes[pre] || {};
+                            prefixVotes[pre][dc] = (prefixVotes[pre][dc] || 0) + 1;
+                        } else {
+                            pending.push(row);
+                        }
+                    });
+                    const prefixDc = {};
+                    Object.entries(prefixVotes).forEach(([pre, votes]) => {
+                        const sorted = Object.entries(votes).sort((a, b) => b[1] - a[1]);
+                        const total = sorted.reduce((s, x) => s + x[1], 0);
+                        if (sorted[0] && sorted[0][1] / total >= 0.98) prefixDc[pre] = sorted[0][0];
+                    });
+                    pending.forEach((row) => {
+                        const dc = prefixDc[row.ivrsNo.slice(0, 4)];
+                        if (dc) planByDc[dc].normal.push(row); else normalUnassigned++;
+                    });
+                }
+                if (agFile) {
+                    const rows = getSheetRowsFromFile_(await agFile.arrayBuffer());
+                    let currentDc = "";
+                    let blockRows = [];
+                    const flush = () => {
+                        if (!blockRows.length) return;
+                        const parsed = readRevenuePaidRowsFromSheetRows_(blockRows, "AG");
+                        parsed.forEach((row) => {
+                            const dc = currentDc || ivrsToDc[row.ivrsNo];
+                            if (dc && planByDc[dc]) planByDc[dc].ag.push(row); else agUnassigned++;
+                        });
+                        blockRows = [];
+                    };
+                    rows.forEach((r) => {
+                        if (normalizeLookupValue(r[0]) === "LOCATION") {
+                            flush();
+                            currentDc = matchDivisionDcFromLocationText_(r[1], divisionDcs);
+                            return;
+                        }
+                        blockRows.push(r);
+                    });
+                    flush();
+                }
+                plan.forEach((p) => { if (!p.normal.length && !p.ag.length) { p.status = "SKIPPED"; p.statusText = "File me data nahi"; } });
+                renderDivisionPaidUploadTable_(plan);
+                const note = (normalUnassigned || agUnassigned)
+                    ? `<br>⚠️ Kisi DC se match nahi hui (upload nahi hongi): NORMAL ${normalUnassigned}, AG ${agUnassigned}`
+                    : "";
+                setDivisionPaidUploadStatus_(`Files padh li gayi. Ab har DC ka upload ek-ek karke ho raha hai (DC upload jaisa hi)...${note}`, true);
+
+                let failed = 0;
+                let pendingCount = 0;
+                for (const p of plan) {
+                    if (p.status === "SKIPPED") continue;
+                    p.status = "UPLOADING"; p.statusText = "Upload ho raha hai..."; renderDivisionPaidUploadTable_(plan);
+                    const allRows = [...p.normal, ...p.ag];
+                    const entries = buildRevenuePaidUploadEntries(allRows, p.dc);
+                    if (!entries.length) { p.status = "SKIPPED"; p.statusText = "Valid rows nahi"; renderDivisionPaidUploadTable_(plan); continue; }
+                    saveRevenueUploadedPaidEntriesLocalBulk(entries, p.dc, true);
+                    try { await saveRevenueCategoryRawPaymentRows(allRows, p.dc); } catch (_) {}
+                    const payload = new URLSearchParams();
+                    payload.append("action", "uploadPaidMaster");
+                    payload.append("upload_scope", "DIVISION");
+                    payload.append("division_name", division);
+                    payload.append("division_password", divisionPaidUploadPassword_);
+                    payload.append("dc_name", p.dc);
+                    payload.append("uploaded_at", new Date().toISOString());
+                    payload.append("entries_json", JSON.stringify(entries));
+                    let result = null;
+                    let synced = false;
+                    try {
+                        const response = await fetchWithTimeout(revenueCollectionSubmitScriptUrl, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+                            body: payload.toString()
+                        }, 300000);
+                        const text = await response.text();
+                        let parsed = {};
+                        try { parsed = JSON.parse(text || "{}"); } catch (_) {}
+                        if (!response.ok || parsed.status === "error") {
+                            const msg = parsed.message || "Upload nahi ho paya";
+                            p.status = "FAILED"; p.statusText = msg; failed++;
+                            renderDivisionPaidUploadTable_(plan);
+                            if (/password/i.test(msg)) throw Object.assign(new Error(msg), { stopAll: true });
+                            continue;
+                        }
+                        if (parsed.status === "success") {
+                            synced = true;
+                            result = parsed;
+                        }
+                    } catch (err) {
+                        if (err && err.stopAll) throw err;
+                    }
+                    if (!synced) {
+                        p.statusText = "Verify ho raha hai..."; renderDivisionPaidUploadTable_(plan);
+                        synced = await verifyRevenuePaidBackendUpload(entries, p.dc, 30, startedAt);
+                    }
+                    const paymentRowCount = entries.reduce((t, e) => t + getRevenueUploadedPaidPaymentRows(e).length, 0);
+                    saveRevenuePaidUploadMeta({
+                        dcName: p.dc, uniqueCount: entries.length, paymentRowCount,
+                        normalRows: p.normal.length, agRows: p.ag.length,
+                        uploadedAt: new Date().toISOString(), oldDataReplaced: true,
+                        backendSynced: synced, backendConfirmedBy: synced ? (result ? "RESPONSE" : "VERIFICATION") : "",
+                        backendRowsSaved: result ? Number(result.rows_saved || 0) : null,
+                        backendNormalRows: result ? Number(result.normal_rows_this_upload || 0) : null,
+                        backendAgRowsUpdated: result ? Number(result.ag_rows_updated_this_upload || 0) : null
+                    });
+                    if (synced) {
+                        p.status = "DONE";
+                        p.statusText = result ? `✅ Normal ${result.normal_rows_this_upload || 0}, AG ${result.ag_rows_updated_this_upload || 0}` : "✅ Verified";
+                    } else {
+                        p.status = "PENDING"; p.statusText = "Bhej diya, confirm baaki"; pendingCount++;
+                    }
+                    renderDivisionPaidUploadTable_(plan);
+                }
+                const doneCount = plan.filter((p) => p.status === "DONE").length;
+                setDivisionPaidUploadStatus_(`${doneCount} DC ki cash list upload ho gayi.${failed ? ` ${failed} DC FAIL.` : ""}${pendingCount ? ` ${pendingCount} DC confirm baaki.` : ""}${note}`, !failed);
+                showToast(failed ? "Kuch DC ka upload fail hua - list dekhein" : "Division cash list upload ho gayi", !failed);
+                try { checkRevenueUploadFreshness(); } catch (_) {}
+            } catch (error) {
+                if (/password/i.test(error?.message || "")) divisionPaidUploadPassword_ = "";
+                setDivisionPaidUploadStatus_(escapeHtml(error?.message || "Upload nahi ho paya"), false);
+                showToast(error?.message || "Upload nahi ho paya", false);
+                if (!divisionPaidUploadPassword_) setTimeout(initDivisionPaidUpload, 1500);
+            } finally {
+                divisionPaidUploadInProgress_ = false;
+                if (btn) { btn.disabled = false; btn.textContent = "UPLOAD DIVISION CASH LIST"; }
+            }
+        }
+
+        // DC upload se pehle: aaj Division ne is DC ki list upload ki ho to wahi message.
+        async function getDivisionUploadMarkForDc_(dcName) {
+            try {
+                const res = await fetchWithTimeout(`${revenueCollectionSubmitScriptUrl}?action=getDivisionUploadMark&dc_name=${encodeURIComponent(dcName)}&t=${Date.now()}`, { cache: "no-store" }, 30000);
+                const j = await res.json();
+                return j && j.status === "success" ? j : null;
+            } catch (_) { return null; }
+        }
+
         async function uploadRevenuePaidFiles() {
             const normalFile = document.getElementById("revenue-paid-normal-file")?.files?.[0] || null;
             const agFile = document.getElementById("revenue-paid-ag-file")?.files?.[0] || null;
@@ -20871,6 +21106,18 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             if (!revenueCollectionSubmitScriptUrl) {
                 showToast("Revenue script URL missing hai", false);
                 return;
+            }
+            // USER REQUEST (2026-09-25): aaj Division ne upload kar di ho to DC se nahi.
+            {
+                setRevenuePaidUploadStatus("Check ho raha hai...", true, true);
+                const divMark = await getDivisionUploadMarkForDc_(activeDC || "");
+                if (divMark && divMark.marked_today) {
+                    const msg = `Cash list ${divMark.division} Division ke dwara upload kar di gayi hai (${divMark.date} ${divMark.time}). Aaj DC se dobara upload ki zaroorat nahi hai.`;
+                    setRevenuePaidUploadStatus(msg, false, true);
+                    showToast(msg, false);
+                    return;
+                }
+                setRevenuePaidUploadStatus("", true, false);
             }
             try {
                 revenuePaidUploadInProgress = true;
@@ -26941,6 +27188,9 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 if (id === "revenue-top-defaulters") {
                     initRevenueTopDefaulters();
                 }
+                if (id === "division-paid-upload") {
+                    initDivisionPaidUpload(); // USER REQUEST (2026-09-25)
+                }
                 if (id === "staff-contact") {
                     initStaffContact(); // USER REQUEST (2026-09-24)
                 }
@@ -27038,6 +27288,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 if (id === "revenue-top-defaulters") headerTitle = "TOP 20/50 DEFAULTERS";
                 if (id === "revenue-pending-list") headerTitle = "PENDING DO LIST";
                 if (id === "staff-contact") headerTitle = "STAFF CONTACT";
+                if (id === "division-paid-upload") headerTitle = "DIVISION CASH LIST";
                 if (id === "revenue-paid-upload") headerTitle = "ADMIN UPLOAD CASH LIST";
                 if (id === "revenue-message-login") headerTitle = "SEND MESSAGE";
                 if (id === "meter-checking") headerTitle = "MEETER CHEKING";
@@ -27061,8 +27312,10 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 const mobileUpdateMenuVisible = (id === "mobile-update");
                 const vrMenuVisible = (id === "vr-calculation");
                 const dcDashboardMenuVisible = (id === "dc-dashboard");
+                const divisionMenuVisible = (id === "dc-selection"); // 2026-09-25 Division Cash List Upload
                 const meterCheckingMenuVisible = (id === "meter-checking");
-                if (headerMenuWrap) headerMenuWrap.style.display = (revenueMenuVisible || mobileUpdateMenuVisible || vrMenuVisible || dcDashboardMenuVisible || meterCheckingMenuVisible || id === "subdn-chhapara") ? "block" : "none";
+                if (headerMenuWrap) headerMenuWrap.style.display = (revenueMenuVisible || mobileUpdateMenuVisible || vrMenuVisible || dcDashboardMenuVisible || divisionMenuVisible || meterCheckingMenuVisible || id === "subdn-chhapara") ? "block" : "none";
+                document.querySelectorAll(".division-header-menu-item").forEach((item) => item.style.display = divisionMenuVisible ? "block" : "none");
                 document.querySelectorAll(".revenue-header-menu-item").forEach((item) => item.style.display = revenueMenuVisible ? "block" : "none");
                 document.querySelectorAll(".mobile-update-header-menu-item").forEach((item) => item.style.display = mobileUpdateMenuVisible ? "block" : "none");
                 document.querySelectorAll(".vr-header-menu-item").forEach((item) => item.style.display = vrMenuVisible ? "block" : "none");
@@ -27192,6 +27445,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             } else if (act === "court-case-view") {
                 resetCourtCaseForm();
                 switchView("dc-dashboard");
+            } else if (act === "division-paid-upload-view") {
+                switchView("dc-selection");
             } else if (act === "bill-calculator-view" || act === "staff-contact-view") {
                 switchView("dc-dashboard");
             } else if (act === "material-list-view" || act === "material-receive-view" || act === "material-issue-view" || act === "live-stock-view" || act === "low-stock-view" || act === "stock-report-view") {

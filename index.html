@@ -117,6 +117,7 @@
             <div id="header-menu-wrap" class="header-menu-wrap">
                 <button type="button" class="header-menu-btn" onclick="toggleHeaderMenu(event)">⋮</button>
                 <div id="header-menu-list" class="header-menu-list">
+                    <button type="button" class="header-menu-item division-header-menu-item" onclick="switchView('division-paid-upload')" style="display:none; background:#15803d; color:#ffffff;">📤 Division Cash List Upload</button>
                     <button type="button" class="header-menu-item dc-dashboard-header-menu-item" onclick="switchView('vr-calculation')" style="display:none; background:#1e3a8a; color:#ffffff;">📐 VR Calculation</button>
                     <button type="button" class="header-menu-item dc-dashboard-header-menu-item" onclick="switchView('excel-automation')" style="display:none; background:#16a34a; color:#ffffff;">📊 Excel Automation</button>
                     <button type="button" class="header-menu-item dc-dashboard-header-menu-item" onclick="switchView('panchnama-tool')" style="display:none; background:#ea580c; color:#ffffff;">📝 Panchnama Template</button>
@@ -1541,6 +1542,31 @@
                             <span id="revenue-paid-upload-summary-fetch-text">Last Upload Summary backend se fetch ho rahi hai, kripya yahi rukiye...</span>
                         </div>
                     </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- USER REQUEST (2026-09-25): Division Cash List Upload (poore Division ki ek compiled file) -->
+        <main id="division-paid-upload-view" class="view">
+            <div class="search-panel" style="padding-top:20px;">
+                <div style="width:100%; max-width:360px; background:#ecfdf5; border:1.5px solid #86efac; border-radius:18px; padding:14px; text-align:center;">
+                    <div id="division-paid-upload-div" style="font-size:0.85rem; font-weight:950; color:#1d4ed8; text-transform:uppercase; margin-bottom:4px;"></div>
+                    <div style="font-size:0.95rem; font-weight:950; color:#166534; text-transform:uppercase;">Division Cash List Upload</div>
+                    <div style="font-size:0.7rem; font-weight:850; color:#475569; margin-top:4px;">Poore Division ki NORMAL aur AG (Pump) compiled file - har DC me apne aap bant kar upload</div>
+                </div>
+                <div id="division-paid-lock-box" style="width:100%; max-width:340px; margin:18px auto 0; background:#ffffff; border:1.5px solid #bbf7d0; border-radius:18px; padding:14px;">
+                    <label style="display:block; text-align:center; color:#166534; font-size:0.72rem; font-weight:950; text-transform:uppercase; margin-bottom:8px;">Division Upload Password</label>
+                    <input type="password" id="division-paid-password" class="ivrs-input" placeholder="Password" style="height:50px; border-color:#22c55e; text-align:center; font-size:1rem;" onkeydown="if(event.key==='Enter') unlockDivisionPaidUpload()">
+                    <button onclick="unlockDivisionPaidUpload()" style="width:100%; height:48px; margin-top:10px; border:none; border-radius:15px; background:#16a34a; color:#fff; font-size:0.88rem; font-weight:950; text-transform:uppercase;">Unlock</button>
+                </div>
+                <div id="division-paid-upload-panel" style="display:none; width:100%; max-width:360px; margin:16px auto 0; background:#ffffff; border:1.5px solid #bbf7d0; border-radius:18px; padding:14px;">
+                    <label style="display:block; color:#166534; font-size:0.72rem; font-weight:950; text-transform:uppercase; margin-bottom:6px;">Division NORMAL Cash List (All DC)</label>
+                    <input id="division-paid-normal-file" type="file" accept=".xlsx,.xls,.csv" style="width:100%; border:1.5px dashed #86efac; border-radius:14px; padding:10px; font-size:0.72rem; font-weight:800; color:#334155; margin-bottom:12px;">
+                    <label style="display:block; color:#166534; font-size:0.72rem; font-weight:950; text-transform:uppercase; margin-bottom:6px;">Division AG / Pump Cash List (All DC)</label>
+                    <input id="division-paid-ag-file" type="file" accept=".xlsx,.xls,.csv" style="width:100%; border:1.5px dashed #86efac; border-radius:14px; padding:10px; font-size:0.72rem; font-weight:800; color:#334155;">
+                    <button id="division-paid-upload-btn" onclick="uploadDivisionPaidFiles()" style="width:100%; height:50px; margin-top:14px; border:none; border-radius:16px; background:#000; color:#fff; font-size:0.86rem; font-weight:950; text-transform:uppercase;">UPLOAD DIVISION CASH LIST</button>
+                    <div id="division-paid-upload-status" style="display:none; margin-top:12px; border-radius:14px; padding:12px; font-size:0.72rem; font-weight:850; line-height:1.45;"></div>
+                    <div id="division-paid-upload-table" style="margin-top:10px;"></div>
                 </div>
             </div>
         </main>
