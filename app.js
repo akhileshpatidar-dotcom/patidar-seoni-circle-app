@@ -3670,19 +3670,22 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // sirf wahi DC tab update hoti hai. Freeze Now ka logic reuse (same rows).
         // =====================================================================
         let freezeAddDcState_ = null; // { freezeId, candidates: [{ dc, counts }] }
+        // USER REQUEST (2026-09-25): data load hote waqt sirf text nahi, ghoomta spinner bhi.
+        const FREEZE_SPINNER_HTML_ = '<span style="display:inline-block; width:14px; height:14px; border:2.5px solid #a5f3fc; border-top-color:#0891b2; border-radius:50%; animation:gpsSpin 0.8s linear infinite; vertical-align:middle; margin-right:6px;"></span>';
         function setFreezeAddDcStatus_(text, ok) {
             const box = document.getElementById("freeze-add-dc-status");
             if (!box) return;
             box.style.display = text ? "block" : "none";
             box.style.background = ok ? "#ecfdf5" : "#eff6ff";
             box.style.color = ok ? "#047857" : "#1d4ed8";
-            box.innerText = text || "";
+            const busy = !ok && text && !/^Nahi jud paya/.test(text);
+            box.innerHTML = (busy ? FREEZE_SPINNER_HTML_ : "") + escapeHtml(text || "");
         }
         async function loadFreezeAddDcCandidates() {
             const box = document.getElementById("freeze-add-dc-box");
             if (!box) return;
             box.style.display = "block";
-            const note = (t) => { box.innerHTML = `<div style="font-size:0.66rem; font-weight:850; color:#0e7490; text-align:center;">${t}</div>`; };
+            const note = (t) => { box.innerHTML = `<div style="font-size:0.66rem; font-weight:850; color:#0e7490; text-align:center; padding:6px 0;">${FREEZE_SPINNER_HTML_}${t}</div>`; };
             note("Chalu freeze me har DC ki sthiti dekh rahe hain... (pehli baar 1 minute tak lag sakta hai)");
             setFreezeAddDcStatus_("", true);
             try {
@@ -3950,7 +3953,11 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 await progress.finish();
 
                 const allDcs = getAllDcNames();
-                listBox.innerHTML = freezes.map((f) => {
+                // USER REQUEST (2026-09-25): neeche ki lambi history ko aasaan banaya - sirf
+                // report me chal raha freeze (sabse naya, Unfrozen nahi) khula dikhta hai; purane
+                // freeze ek band "Purane freeze" section me (unka Unfreeze/Reactivate waise hi chalta hai).
+                const reportFreeze = freezes.find((f) => f.status !== "UNFROZEN") || null;
+                const cardHtml = (f) => {
                     const overrideMap = dcStatusByFreeze[f.freeze_id] || {};
                     const selectId = `freeze-dc-select-${f.freeze_id}`.replace(/[^a-zA-Z0-9_-]/g, "_");
                     const dcOptionsHtml = allDcs.map((dc) => {
@@ -3962,7 +3969,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                         <div style="border:1.5px solid #e2e8f0; border-radius:12px; padding:10px; margin-top:8px;">
                             <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
                                 <div>
-                                    <div style="font-size:0.72rem; font-weight:900; color:#0f172a;">${escapeHtml(f.freeze_label || f.freeze_id)}</div>
+                                    <div style="font-size:0.72rem; font-weight:900; color:#0f172a;">${escapeHtml(f.freeze_label || f.freeze_id)}${reportFreeze && f.freeze_id === reportFreeze.freeze_id ? ' <span style="background:#dcfce7; color:#15803d; border-radius:6px; padding:1px 6px; font-size:0.56rem;">REPORT ME CHALU</span>' : ""}</div>
                                     <div style="font-size:0.6rem; color:${f.status === "UNFROZEN" ? "#9f1239" : "#166534"}; font-weight:800;">All DC: ${escapeHtml(f.status || "ACTIVE")}</div>
                                 </div>
                                 <button class="btn-unique" style="background:${f.status === "UNFROZEN" ? "#0d9488" : "#b91c1c"}; color:#fff; padding:6px 12px; font-size:0.62rem; border-radius:10px; border:none;" onclick="toggleFreezeStatus('${escapeHtml(f.freeze_id)}', '${f.status === "UNFROZEN" ? "ACTIVE" : "UNFROZEN"}')">${f.status === "UNFROZEN" ? "Reactivate (All DC)" : "Unfreeze (All DC)"}</button>
@@ -3989,7 +3996,12 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                             </div>
                         </div>
                     `;
-                }).join("");
+                };
+                const mainFreezes = reportFreeze ? [reportFreeze] : [freezes[0]];
+                const olderFreezes = freezes.filter((f) => !mainFreezes.includes(f));
+                listBox.innerHTML = mainFreezes.map(cardHtml).join("") + (olderFreezes.length
+                    ? `<details style="margin-top:10px; border:1.5px dashed #cbd5e1; border-radius:12px; padding:8px 10px;"><summary style="cursor:pointer; font-size:0.66rem; font-weight:900; color:#475569;">Purane freeze (${olderFreezes.length}) - report me istemal nahi hote, dekhne ke liye dabaiye</summary>${olderFreezes.map(cardHtml).join("")}</details>`
+                    : "");
             } catch (error) {
                 progress.stop();
                 listBox.innerHTML = `<div style="text-align:center; color:#991b1b; font-size:0.68rem;">List load nahi ho payi</div>`;
