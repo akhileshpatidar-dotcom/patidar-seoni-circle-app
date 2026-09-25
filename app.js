@@ -1148,7 +1148,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     // dummy/placeholder number (jaise 9999999999) tha.
                     const originallyWrong = isMobileNoConsideredWrong(rawMobile);
                     // "Duplicate" - number format se to sahi dikhta hai lekin isi DC me
-                    // 10 baar se adhik alag consumers me repeat ho raha hai (practically
+                    // 5 baar se adhik alag consumers me repeat ho raha hai (practically
                     // itne connection ek hi mobile no par sahi nahi ho sakte).
                     const isDuplicate = !originallyWrong && isMobileNoDuplicateOverThreshold(rawMobile, duplicateFreqMap);
                     if (!originallyWrong && !isDuplicate) return null;
@@ -7740,7 +7740,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     const ivrs = normalizeLookupDigits(getConsumerField(row, ["IVRS", "IVRS NO", "IVRS NUMBER", "IVRSNO"]));
                     const mobileVal = getMobileFieldFromRow(row);
                     // Ya to master sheet me hi khaali/galat-format/dummy number hai, ya
-                    // isi DC me yah number 10 baar se adhik alag consumers me repeat ho
+                    // isi DC me yah number 5 baar se adhik alag consumers me repeat ho
                     // raha hai (duplicate - practically itne connection ek number par
                     // sahi nahi ho sakte).
                     const isWrong = isMobileNoConsideredWrong(mobileVal) || isMobileNoDuplicateOverThreshold(mobileVal, freqMap);
@@ -18608,14 +18608,14 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             return false;
         }
 
-        // Ek hi mobile no yadi ek DC me 10 baar se adhik (11 ya usse zyada) alag-alag
+        // Ek hi mobile no yadi ek DC me 5 baar se adhik (6 ya usse zyada) alag-alag
         // consumers me mile to practically itne connection ek hi number par sahi nahi
         // ho sakte - is threshold se zyada baar repeat hone wale number "duplicate"
         // maane jaate hain aur unke saare consumer bhi Wrong Mobile No List me dikhaye
         // jaate hain (dobara manual verify karne ke liye). Pehle se blank/galat-format/
         // dummy-repeated-digit wale number is duplicate-check me shamil nahi kiye jaate
         // (wo already isMobileNoConsideredWrong se pakde ja chuke hain).
-        const MOBILE_WRONG_DUPLICATE_THRESHOLD = 10;
+        const MOBILE_WRONG_DUPLICATE_THRESHOLD = 5; // USER REQUEST (2026-09-25): 10 se ghata kar 5 - ab 6 ya usse zyada consumer par same no = WRONG
 
         function computeMobileDuplicateFreqMap(rows, getMobile) {
             const freq = {};
