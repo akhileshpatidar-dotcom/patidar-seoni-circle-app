@@ -16487,6 +16487,14 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                         } catch (_) {}
                         return rows;
                     }
+                    // 2026-09-25: sheet me sirf header (data aana baaki) -> DC zero.
+                    // Proxy (allorigins) fallback URLs try nahi karte - wo CORS
+                    // error dete the aur console me laal error dikhte the.
+                    if (isHeaderOnlyMasterCsvText_(rawCsv)) {
+                        const cfgHeaderOnly = getAllDcConfigs().find((c) => getRevenueCollectionDcKey(c.name) === dcKey);
+                        purgeDcMasterCache_(cfgHeaderOnly ? cfgHeaderOnly.name : dcName);
+                        return [];
+                    }
                 } catch (_) {}
 
                 for (const candidateUrl of getRevenueCsvCandidateUrls(csvUrl)) {

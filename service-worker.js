@@ -109,7 +109,13 @@ self.addEventListener("fetch", (event) => {
 
     // App shell code (HTML/CSS/JS) / same-origin navigations: network-first, taaki latest
     // version hamesha mile; offline hone par hi cached (purani) copy dikhe.
-    if (event.request.mode === "navigate" || isNetworkFirstFile(url) || url.endsWith("/")) {
+    // 2026-09-25 FIX: network-first sirf apni app ki files (same-origin) ke liye.
+    // Pehle "https://cdn.tailwindcss.com/" bhi "/" par khatam hone se is branch
+    // me aa jaata tha; network fail hone par undefined response jaata tha
+    // ("Failed to convert value to 'Response'"). Ab CDN files neeche wale
+    // cache-first branch me jaati hain (install ke waqt cache ho chuki hain).
+    const isSameOrigin = url.startsWith(self.location.origin);
+    if (event.request.mode === "navigate" || (isSameOrigin && (isNetworkFirstFile(url) || url.endsWith("/")))) {
         // PERMANENT UPDATE FIX (2026-09-24, USER REQUEST - "iPhone ke liye baar-baar
         // version badalna na pade, Android/iPhone dono ka ek hi flow ho"): app shell
         // (index.html/styles.css/app.js) ab browser ke HTTP cache ko bhi BYPASS karke
@@ -134,7 +140,9 @@ self.addEventListener("fetch", (event) => {
                     }
                     return response;
                 })
-                .catch(() => caches.match(event.request).then((cached) => cached || caches.match("./index.html")))
+                .catch(() => caches.match(event.request)
+                    .then((cached) => cached || caches.match("./index.html"))
+                    .then((res) => res || Response.error()))
         );
         return;
     }
@@ -155,7 +163,7 @@ self.addEventListener("fetch", (event) => {
                     caches.open(CACHE_VERSION).then((cache) => cache.put(event.request, clone));
                 }
                 return response;
-            }).catch(() => cached);
+            }).catch(() => cached || Response.error());
         })
     );
 });
