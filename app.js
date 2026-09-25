@@ -1697,7 +1697,9 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 // Entries DC-agnostic hain - sabhi DC ka data ek saath aata hai, isliye
                 // Circle/Division level par bhi useful hai; Uploaded Paid Master
                 // activeDC set hone par usi DC ke liye warm hota hai).
-                prefetchRevenueBackgroundDataForDc(activeDC || level);
+                // SPEED PHASE 1: Circle/Division par yeh bhaari warm-up ab Revenue report
+                // dikhne ke baad hota hai (refreshSummary) - DC level pehle jaisa.
+                if (level === "DC") prefetchRevenueBackgroundDataForDc(activeDC || level);
                 return;
             }
             pendingLevel = level;
@@ -2868,6 +2870,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
 
         function purgeDcMasterCache_(dcName) {
             const normalized = normalizeDcName(dcName);
+            try { if (normalized) mobileDcHeaderOnlyFlags_[normalized] = true; } catch (_) {} // SPEED PHASE 1
             const dcKey = getRevenueCollectionDcKey(dcName);
             try {
                 if (normalized) localStorage.removeItem(`${dcCsvCacheStoragePrefix}${normalized}`);
@@ -4238,7 +4241,15 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             // USER REQUEST (2026-09-12): Freeze report me bhi Mobile/Revenue jaisa hi
             // "SYNCING ALL DC DATA... x%" progress-bar animation dikhna chahiye (pehle
             // yahan sirf plain "Freeze data load ho raha hai..." text tha).
-            const progress = body ? renderSyncingProgress(body, isStillValid) : null;
+            const scFzKey = (activeViewLevel !== "DC" && body) ? scSnapshotKey_("FREEZE-" + progressFreezeCategory) : ""; // SPEED PHASE 1
+            const scFzHost = scFzKey ? await scShowSnapshot_(body, scFzKey) : null;
+            if (!isStillValid()) return;
+            const progress = body ? renderSyncingProgress(scFzHost || body, isStillValid) : null;
+            // SPEED PHASE 1: paid-index (cash list) warm-up ab shuru me hi, freeze
+            // list/snapshot ke SAATH chalta hai (pehle snapshot ke baad chalta tha).
+            // Dono alag backend hain, ek-doosre par nirbhar nahi - result wahi.
+            const scFreezePaidWarmPromise = warmRevenueFreezePaidSummaryCache_();
+            scFreezePaidWarmPromise.catch(() => {});
             try {
                 const active = await ensureRevenueFreezeActiveInfo();
                 console.log("[FreezeReport] step1 active =", active); // DIAGNOSTIC (2026-09-13, temp)
@@ -4247,7 +4258,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     console.log("[FreezeReport] step2 calling fetchRevenueFreezeSnapshotRowsForScope", active.freeze_id, fetchCategory); // DIAGNOSTIC (2026-09-13, temp)
                     const { rows, dcStatusMap } = await fetchRevenueFreezeSnapshotRowsForScope(active.freeze_id, fetchCategory);
                     console.log("[FreezeReport] step3 snapshot done, rows.length =", rows.length, "dcStatusMap =", dcStatusMap); // DIAGNOSTIC (2026-09-13, temp)
-                    await warmRevenueFreezePaidSummaryCache_();
+                    await scFreezePaidWarmPromise;
                     console.log("[FreezeReport] step4 warmCache done"); // DIAGNOSTIC (2026-09-13, temp)
                     lastRevenueProgressFreezeResult = { active, rows, dcStatusMap };
                 } else {
@@ -4274,6 +4285,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             if (bodyAfter) {
                 try {
                     bodyAfter.innerHTML = renderFreezeModuleSummaryHtml();
+                    if (scFzKey && lastRevenueProgressFreezeResult && !lastRevenueProgressFreezeResult.error) scSaveSnapshot_(scFzKey, bodyAfter.innerHTML); // SPEED PHASE 1
                 } catch (err) {
                     // DIAGNOSTIC (2026-09-13): render phase me exact exception log karte
                     // hain (behavior me koi badlav nahi, sirf console.error jyada hai).
@@ -7432,7 +7444,11 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 divAtStart !== activeDiv
             );
             const cont = document.getElementById("summary-content");
-            renderSyncingProgress(cont, () => refreshToken === summaryRefreshToken);
+            // SPEED PHASE 1: Circle/Division Mobile/Revenue - pichhla result turant.
+            const scSnapKey = (activeViewLevel !== "DC" && (summaryModule === "MOBILE" || summaryModule === "REVENUE")) ? scSnapshotKey_() : "";
+            const scSnapHost = scSnapKey ? await scShowSnapshot_(cont, scSnapKey) : null;
+            if (isStaleSummaryRefresh()) return;
+            renderSyncingProgress(scSnapHost || cont, () => refreshToken === summaryRefreshToken);
             const raw = document.getElementById("report-date").value;
             if (!raw) return;
             const parsedSummarySelection = parseSummarySelection(raw, summaryMode);
@@ -7591,10 +7607,25 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     // hai). DIVISION/CIRCLE scope me pehle jaisa hi (sabhi DC) fetch hota
                     // hai, kyunki wahan sach me sabhi DC ka data chahiye.
                     const revenueSummaryScopeDc = activeViewLevel === "DC" ? activeDC : null;
-                    await Promise.all([
+                    // SPEED PHASE 1: Division/Circle me reconciliation (HQ/Village widget)
+                    // ko entries-sync ke SAATH hi shuru karte hain (pehle baad me hota tha).
+                    // Dono ek-doosre par nirbhar nahi - result bilkul wahi.
+                    // (Entries-sync pehle shuru hota hai taaki backend ki 2-request line me
+                    // woh aage rahe; reconciliation uske turant baad line me lagta hai.)
+                    const scRevenueSyncPromise = Promise.all([
                         syncRevenueLiveEntriesFromSheet(3, false, revenueSummaryScopeDc),
                         syncRevenueTdEntriesFromSheet(3, false, revenueSummaryScopeDc)
                     ]);
+                    let scEarlyReconciliationPromise = null;
+                    if (activeViewLevel !== "DC") {
+                        scEarlyReconciliationPromise = prepareRevenueCategoryReportData_(
+                            getRevenueCategoryTargetDcs(),
+                            summaryMode === "MONTHLY" ? "MONTHLY" : "DAILY",
+                            getRevenueProgressFilterValue(dStr, mStr)
+                        );
+                        scEarlyReconciliationPromise.catch(() => {});
+                    }
+                    await scRevenueSyncPromise;
                     if (isStaleSummaryRefresh()) return;
 
                     const revenueMode = summaryMode === "MONTHLY" ? "MONTHLY" : "DAILY";
@@ -7614,9 +7645,9 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     // karne ki zaroorat nahi.
                     let hqVillageSummaryData = null;
                     try {
-                        const reconciliation = await prepareRevenueCategoryReportData_(
+                        const reconciliation = await (scEarlyReconciliationPromise || prepareRevenueCategoryReportData_(
                             getRevenueCategoryTargetDcs(), revenueMode, revenueFilterValue
-                        );
+                        ));
                         if (isStaleSummaryRefresh()) return;
                         // ISOLATED ADDITION (2026-09-17, USER-APPROVED condition): yeh chhoti
                         // embedded quick-glance widget hai (poora dedicated report nahi) -
@@ -7634,6 +7665,11 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     }
 
                     cont.innerHTML = renderRevenueProgressSummary(uiListSummary, label, hqVillageSummaryData, revenueMode, revenueFilterValue);
+                    if (scSnapKey) scSaveSnapshot_(scSnapKey, cont.innerHTML); // SPEED PHASE 1
+                    // SPEED PHASE 1: Circle/Division ka bhaari background warm-up ab yahan
+                    // (report dikhne ke BAAD) - pehle askPassword() par hi chal kar
+                    // Mobile/Freeze/O&M reports ki line rok deta tha.
+                    if (activeViewLevel !== "DC") prefetchRevenueBackgroundDataForDc(activeViewLevel);
                 } catch (error) {
                     cont.innerHTML = '<p class="text-center text-red-500 py-10 font-black">REVENUE REPORT LOAD NAHI HO PAYI</p>';
                 }
@@ -7644,7 +7680,23 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 const targetMobileDcs = activeViewLevel === "DC"
                     ? [activeDC]
                     : (activeViewLevel === "DIVISION" ? getDivisionDcNames(activeDiv) : getAllDcNames());
-                await ensureConsumerDataLoadedFor(targetMobileDcs);
+                // SPEED PHASE 1: Division/Circle - jin DC ka master abhi memory me
+                // nahi hai, unka compact summary (IndexedDB) ho to 27MB master ka
+                // intezaar nahi; master background me aata hai aur kuch badla ho to
+                // report khud dobara banti hai. Pehli baar (cache nahi) - pehle jaisa.
+                let mobileDcSummaryCacheMap = null;
+                if (activeViewLevel !== "DC") {
+                    mobileDcSummaryCacheMap = await loadMobileDcSummaryCacheMap_(targetMobileDcs);
+                    if (isStaleSummaryRefresh()) return;
+                    const mobileMastersMissing = targetMobileDcs.filter((dc) => !getConsumerRows(dc).length && getDcConfigByName(dc)?.csvUrl);
+                    if (mobileMastersMissing.length && mobileMastersMissing.every((dc) => mobileDcSummaryCacheMap[normalizeDcName(dc)])) {
+                        refreshMobileDcSummaryCacheInBackground_(mobileMastersMissing, mobileDcSummaryCacheMap, () => !isStaleSummaryRefresh() && summaryModule === "MOBILE");
+                    } else {
+                        await ensureConsumerDataLoadedFor(targetMobileDcs);
+                    }
+                } else {
+                    await ensureConsumerDataLoadedFor(targetMobileDcs);
+                }
                 // PERF FIX (2026-09-13): DC-level scope me sirf usi EK DC ka
                 // mobile-update data chahiye hota hai, lekin backend (getSummary)
                 // pehle hamesha SAARI (~24) DC sheets ka poora data scan karke
@@ -7756,6 +7808,13 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     const rows = getConsumerRows(normDc);
                     tc = rows.length;
                     const fixedSet = getFixedIvrsSetForDc(dcName);
+                    const scCachedDcSummary = (!rows.length && mobileDcSummaryCacheMap) ? mobileDcSummaryCacheMap[normDc] : null;
+                    if (scCachedDcSummary) {
+                        // SPEED PHASE 1: master abhi memory me nahi - compact summary se wahi ginti.
+                        const fromCache = computeMobileWrongFromDcSummary_(scCachedDcSummary, fixedSet);
+                        tc = fromCache.tc;
+                        tw = fromCache.tw;
+                    } else {
                     // Duplicate-count sirf abhi-bhi-wrong consumers se (Wrong Mobile No
                     // List screen jaisa hi) - taki dono jagah ka number match kare.
                     const stillActiveRowsForDup = rows.filter((row) => {
@@ -7766,6 +7825,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     rows.forEach((row) => {
                         if (isRowStillWrong(row, fixedSet, freqMap)) tw++;
                     });
+                    if (mobileDcSummaryCacheMap) saveMobileDcSummaryIfChanged_(normDc, rows, getMobileFieldFromRow, mobileDcSummaryCacheMap[normDc]);
+                    }
                     const aggregateUpdated = getAggregateUpdatedCount(dcName);
                     if (aggregateUpdated !== null) {
                         tu = aggregateUpdated;
@@ -7875,6 +7936,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     <div id="progress-summary-download-status" style="display:none; text-align:center; font-weight:900; border-radius:16px; padding:10px 12px; width:100%; margin-top:12px;"></div>
                 </div>`;
                 cont.innerHTML = html;
+                if (scSnapKey) scSaveSnapshot_(scSnapKey, cont.innerHTML); // SPEED PHASE 1
             } catch (e) {
                 cont.innerHTML = '<p class="text-center text-red-500 py-10 font-black">ERROR FETCHING DATA</p>';
             }
@@ -11363,7 +11425,10 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             const myToken = ++omvigProgressToken;
             const toggleHtml = renderOmvigModeToggleHtml_();
             if (omvigReportMode === "DAILY") {
-                const progress = renderSyncingProgress(body, () => myToken === omvigProgressToken, "SYNCING DATA... PLEASE WAIT");
+                const scOmKey = activeViewLevel !== "DC" ? scSnapshotKey_("OMVIG-DAILY") : ""; // SPEED PHASE 1
+                const scOmHost = scOmKey ? await scShowSnapshot_(body, scOmKey) : null;
+                if (myToken !== omvigProgressToken) return;
+                const progress = renderSyncingProgress(scOmHost || body, () => myToken === omvigProgressToken, "SYNCING DATA... PLEASE WAIT");
                 try {
                     const data = await loadOmvigDailyReportData_(forceRefresh);
                     if (myToken !== omvigProgressToken) { progress.stop(); return; }
@@ -11371,6 +11436,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     await progress.finish();
                     if (myToken !== omvigProgressToken) return;
                     body.innerHTML = html;
+                    if (scOmKey) scSaveSnapshot_(scOmKey, html);
                 } catch (error) {
                     progress.stop();
                     if (myToken !== omvigProgressToken) return;
@@ -11387,7 +11453,10 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             // DATA... PLEASE WAIT" wali upar wali line ab hamesha clean rehti hai.
             const levelLabel = activeViewLevel === "DIVISION" ? "Division" : (activeViewLevel === "CIRCLE" ? "Circle" : "DC");
             const subLabel = activeViewLevel === "DC" ? "" : `(${levelLabel} level may take 1-2 minutes)`;
-            const progress = renderSyncingProgress(body, () => myToken === omvigProgressToken, "SYNCING DATA... PLEASE WAIT", subLabel);
+            const scOmMKey = activeViewLevel !== "DC" ? scSnapshotKey_("OMVIG-MONTHLY") : ""; // SPEED PHASE 1
+            const scOmMHost = scOmMKey ? await scShowSnapshot_(body, scOmMKey) : null;
+            if (myToken !== omvigProgressToken) return;
+            const progress = renderSyncingProgress(scOmMHost || body, () => myToken === omvigProgressToken, "SYNCING DATA... PLEASE WAIT", subLabel);
             try {
                 const data = await loadOmvigReportData_(forceRefresh);
                 if (myToken !== omvigProgressToken) { progress.stop(); return; }
@@ -11401,6 +11470,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 await progress.finish();
                 if (myToken !== omvigProgressToken) return;
                 body.innerHTML = html;
+                if (scOmMKey) scSaveSnapshot_(scOmMKey, html);
             } catch (error) {
                 progress.stop();
                 if (myToken !== omvigProgressToken) return;
@@ -18634,6 +18704,142 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             const valid = normalizeRevenueMessageMobile(raw);
             if (!valid) return false;
             return (freqMap[valid] || 0) > MOBILE_WRONG_DUPLICATE_THRESHOLD;
+        }
+
+        // =====================================================================
+        // SPEED PHASE 1 (2026-09-25, USER-APPROVED): Division/Circle summary
+        // reports ko tez karna - OUTPUT BILKUL WAHI, sirf speed.
+        // (1) IndexedDB chhota cache (localStorage quota bhara ho tab bhi chale).
+        // (2) "Pichhli baar ka result" snapshot: Circle/Division report kholte hi
+        //     pichhla result (dhundhla, click band) turant dikhta hai, upar banner
+        //     "naya data aa raha hai"; asli fresh result aate hi poori screen
+        //     usi se badal jaati hai (numbers hamesha fresh hi final hote hain).
+        // (3) Mobile: har DC ka compact summary (TOTAL + sirf wrong-candidate
+        //     IVRS) - 27MB master download ka intezaar nahi; master background
+        //     me aata hai, kuch badla ho to report khud dobara ban jaati hai.
+        // =====================================================================
+        var scIdbPromise_ = null;
+        function scIdbOpen_() {
+            if (scIdbPromise_) return scIdbPromise_;
+            scIdbPromise_ = new Promise((resolve) => {
+                let done = false;
+                const finish = (db) => { if (!done) { done = true; resolve(db); } };
+                setTimeout(() => finish(null), 2000);
+                try {
+                    const req = indexedDB.open("seoni-speed-cache-v1", 1);
+                    req.onupgradeneeded = () => { try { req.result.createObjectStore("kv"); } catch (_) {} };
+                    req.onsuccess = () => finish(req.result);
+                    req.onerror = () => finish(null);
+                    req.onblocked = () => finish(null);
+                } catch (_) { finish(null); }
+            });
+            return scIdbPromise_;
+        }
+        async function scCacheGet_(key) {
+            try {
+                const db = await scIdbOpen_();
+                if (!db) return null;
+                return await new Promise((resolve) => {
+                    try {
+                        const r = db.transaction("kv", "readonly").objectStore("kv").get(key);
+                        r.onsuccess = () => resolve(r.result === undefined ? null : r.result);
+                        r.onerror = () => resolve(null);
+                    } catch (_) { resolve(null); }
+                });
+            } catch (_) { return null; }
+        }
+        async function scCacheSet_(key, value) {
+            try {
+                const db = await scIdbOpen_();
+                if (!db) return false;
+                return await new Promise((resolve) => {
+                    try {
+                        const tx = db.transaction("kv", "readwrite");
+                        tx.objectStore("kv").put(value, key);
+                        tx.oncomplete = () => resolve(true);
+                        tx.onerror = () => resolve(false);
+                        tx.onabort = () => resolve(false);
+                    } catch (_) { resolve(false); }
+                });
+            } catch (_) { return false; }
+        }
+
+        function scSnapshotKey_(extra) {
+            const dateVal = (document.getElementById("report-date") || {}).value || "";
+            return ["snap-v1", summaryModule, activeViewLevel, activeDiv || "", activeDC || "", summaryMode, dateVal, extra || ""].join("|");
+        }
+        // Pichhla result dikhata hai (agar ho) aur progress-bar ke liye ek chhota
+        // host element lautata hai; na ho to null (tab purana normal flow).
+        async function scShowSnapshot_(cont, key) {
+            if (!cont || !key) return null;
+            const snap = await scCacheGet_(key);
+            if (!snap || !snap.html) return null;
+            let when = "";
+            try {
+                const d = new Date(Number(snap.at || 0));
+                when = `${String(d.getDate()).padStart(2, "0")}-${String(d.getMonth() + 1).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+            } catch (_) {}
+            cont.innerHTML = `<div style="margin:4px 0 8px; padding:8px 10px; border:1px solid #fbbf24; background:#fffbeb; color:#92400e; border-radius:12px; font-size:0.66rem; font-weight:900; text-align:center; line-height:1.4;">🔄 Pichhli baar (${escapeHtml(when)}) ka data dikh raha hai — naya data aa raha hai, kripya rukein</div><div class="sc-swr-progress"></div><div style="pointer-events:none; opacity:0.5; filter:grayscale(0.4);">${snap.html}</div>`;
+            return cont.querySelector(".sc-swr-progress");
+        }
+        function scSaveSnapshot_(key, html) {
+            if (!key || !html || html.length > 1500000) return;
+            scCacheSet_(key, { html: String(html), at: Date.now() });
+        }
+
+        // ---- Mobile compact per-DC summary ----
+        var mobileDcHeaderOnlyFlags_ = {};
+        const MOBILE_DC_SUMMARY_KEY_PREFIX_ = "mobile-dc-summary-v1|";
+        function buildMobileDcSummary_(rows, getMobile) {
+            const freq = computeMobileDuplicateFreqMap(rows, getMobile);
+            const cand = [];
+            rows.forEach((row) => {
+                const raw = getMobile(row);
+                const ivrs = normalizeLookupDigits(getConsumerField(row, ["IVRS", "IVRS NO", "IVRS NUMBER", "IVRSNO"]));
+                if (isMobileNoConsideredWrong(raw)) { cand.push([ivrs, 1, ""]); return; }
+                const valid = normalizeRevenueMessageMobile(raw);
+                if (valid && (freq[valid] || 0) > MOBILE_WRONG_DUPLICATE_THRESHOLD) cand.push([ivrs, 0, valid]);
+            });
+            return { v: 1, th: MOBILE_WRONG_DUPLICATE_THRESHOLD, tc: rows.length, cand, at: Date.now() };
+        }
+        // Wahi ginti jo getStats() poore master se nikalta hai - sirf candidates se.
+        function computeMobileWrongFromDcSummary_(summary, fixedSet) {
+            const active = (summary.cand || []).filter((c) => !(c[0] && fixedSet.has(c[0])));
+            const freq = {};
+            active.forEach((c) => { if (!c[1] && c[2]) freq[c[2]] = (freq[c[2]] || 0) + 1; });
+            let tw = 0;
+            active.forEach((c) => { if (c[1] || (freq[c[2]] || 0) > MOBILE_WRONG_DUPLICATE_THRESHOLD) tw++; });
+            return { tc: Number(summary.tc) || 0, tw };
+        }
+        function isMobileDcSummaryUsable_(s) {
+            return !!(s && s.v === 1 && s.th === MOBILE_WRONG_DUPLICATE_THRESHOLD && Array.isArray(s.cand));
+        }
+        async function loadMobileDcSummaryCacheMap_(dcNames) {
+            const map = {};
+            await Promise.all((dcNames || []).map(async (dc) => {
+                const nd = normalizeDcName(dc);
+                const s = await scCacheGet_(MOBILE_DC_SUMMARY_KEY_PREFIX_ + nd);
+                if (isMobileDcSummaryUsable_(s)) map[nd] = s;
+            }));
+            return map;
+        }
+        function saveMobileDcSummaryIfChanged_(normDc, rows, getMobile, oldSummary) {
+            if (!rows.length && !mobileDcHeaderOnlyFlags_[normDc]) return false;
+            const fresh = buildMobileDcSummary_(rows, getMobile);
+            const changed = !oldSummary || oldSummary.tc !== fresh.tc || JSON.stringify(oldSummary.cand) !== JSON.stringify(fresh.cand);
+            if (changed) scCacheSet_(MOBILE_DC_SUMMARY_KEY_PREFIX_ + normDc, fresh);
+            return changed;
+        }
+        function refreshMobileDcSummaryCacheInBackground_(dcNames, usedMap, isStillSameScreen) {
+            ensureConsumerDataLoadedFor(dcNames).then(() => {
+                const getMobile = (row) => getConsumerField(row, ["MOBILE NO", "MOBILE NUMBER", "MOBILE"]);
+                let changed = false;
+                dcNames.forEach((dc) => {
+                    const nd = normalizeDcName(dc);
+                    if (saveMobileDcSummaryIfChanged_(nd, getConsumerRows(nd), getMobile, usedMap[nd])) changed = true;
+                });
+                if (changed && isStillSameScreen()) refreshSummary();
+            }).catch(() => {});
         }
 
         function buildRevenueConsumerMessage(row) {
