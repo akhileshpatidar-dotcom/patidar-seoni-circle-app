@@ -87,7 +87,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // yahan paste karo. Jab tak yeh khaali hai, tab tak logVrDownload() chup-chap kuch
         // nahi karega (koi error nahi aayega) - is se koi existing feature disturb nahi hoga.
         const vrDownloadLogScriptUrl = "https://script.google.com/macros/s/AKfycbzfA79ksJUQ9HGPTAZAqa56QkkrWCurWQ8HSPYdoLdOSRVA72O5UK5JPiqukese3yx6TQ/exec";
-        const courtCaseCsvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQMSrQZGqkLsMpwNO6SrRVaRf0JW3r7T5Bsj0N03ZCTgm53WqrtbXiANxplkgxhyiBaCw2A2woCrV_k/pub?output=csv";
+        const courtCaseCsvUrl = "https://docs.google.com/spreadsheets/d/1-rG53ITPkz0nu8qc258CHtzFfcpQvAIrx5CFgAQqJ9k/export?format=csv&gid=0";
         const lokAdalatScriptUrl = "https://script.google.com/macros/s/AKfycbzS1xRgKs5HyUjnCGt7l9d3D33rscPaFhtucyH63KAfFabfIu67loo1Yd-uGSIffJieIg/exec";
         const lokAdalatDistributedCsvUrl = "https://docs.google.com/spreadsheets/d/1l-IJkL7aylyjxpdYtHlwJzUhFS8OPtg4RzhXfLlJWjQ/export?format=csv&gid=0";
         const stockSubmitScriptUrl = "https://script.google.com/macros/s/AKfycbwdjxhm7IyGlV8RACo3zIIZogwyu8HNLsWgtFp-XkSzDac4SeN_rlKDgrxsbDj6pdfK/exec";
@@ -127,7 +127,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         let omvigReportMode = "DAILY"; // "DAILY" | "MONTHLY"
         const vehicleReadingStorageKey = "seoni_vehicle_reading_state_v1";
         const vehicleReadingListStorageKey = "seoni_vehicle_reading_list_v1";
-        const vehicleReadingCsvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQIv4JMsV1n8vy9cJ0o2UaS45-fh_c3n9u-rqwXjuCZWDNZNRaJlgUKnT4gtP3_kTtpCrQvrTcojWQo/pub?output=csv";
+        const vehicleReadingCsvUrl = "https://docs.google.com/spreadsheets/d/1osWQoSwAPk6XbkkdlaNNswHXAp8AJMX-k2PmxG_opU8/export?format=csv&gid=1288084519";
         const vehicleReadingSubmitScriptUrl = "https://script.google.com/macros/s/AKfycbyqG_i3xzySgBJETTnmEo5WhZV_51eaXex_0-vIWhmCqdWNF0Y2Uar6wZPdgjDPBVmi/exec";
         const vehicleReadingVehicles = ["407- MP22ZB6089", "BOLERO- MP22ZC1591", "407- MP22G4316", "CAMPER- MP22G4342"];
         const revenueCollectionSubmitScriptUrl = "https://script.google.com/macros/s/AKfycbzaimPwzUYELgmujpaBbfByy0BcjOERA8e0mslNdbH5uUw2L6L24785obmdcpcDOc53Ww/exec";
@@ -178,7 +178,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             "ADEGAON": "https://docs.google.com/spreadsheets/d/17yqqqdT2HgIDRCq1YsbsmqmjPricdd9Wv0MDRXzhqb0/export?format=csv&gid=0" // LINKED (2026-09-24, data aana baaki)
         };
         const stockMaterialsCsvUrl = "https://docs.google.com/spreadsheets/d/1OfrU7ZuN5LV9f_3hqORv66BVLYKFGIBBjDyeSXHwldA/export?format=csv&gid=641545139";
-        const shmsCsvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTbq-yne90yg9Vn8eylxM3zKMfZjPLlVhca3JhsjAzMlcm6MAVl8vAA-xXVgZI_XjWQBHyjB36YO1Cz/pub?output=csv";
+        const shmsCsvUrl = "https://docs.google.com/spreadsheets/d/1GXnTMBqq7BidUTIOdDeTXGjNgzL5UljOSJt3yeBxHxo/export?format=csv&gid=0";
         const lokAdalatFallbackTotals = {
             "ADEGAON": 752,
             "CHHAPARA-1": 564,
@@ -383,10 +383,10 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         const revenueCategoryRawPaymentDbName = "seoni-revenue-category-payment-db-v2";
         const revenueCategoryRawPaymentStoreName = "dc-payment-rows";
         const revenuePaidUploadMetaStorageKey = "seoni-revenue-paid-upload-meta-v1";
-        const feederCsvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT8bBAXJZhlwS_giGXBlS6rDXJ_auZfWZzNVPQaBnD09jB_m7jnrqeGGX5WP8V2jOD_WL90_KQ2pJa4/pub?output=csv";
+        const feederCsvUrl = "https://docs.google.com/spreadsheets/d/1EKuGRmdWfAhx-IbBStXiVe4Nst79vPlS47vrmxXLwNQ/export?format=csv&gid=0";
         const feederSubmitScriptUrl = "https://script.google.com/macros/s/AKfycbywGtC-DmGcDicwkSQv1RAILCJkviAJID-prSmIlX3PND8pvFLqmklYO6ar80OYBfpj/exec";
         const feederReportSheetCsvUrl = "https://docs.google.com/spreadsheets/d/1XnsLz_5643XqGgrcMzhIzI_cF4E4S6Zc1esNEQe554A/export?format=csv&gid=0";
-        const peakLoadCsvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTqnZksaehWGnKJq2xcy1sJsQjrddCJZKJo_ynvjkZnUqxMzdvnlQv3uARWYiiuJEsVVBdL6wTd1bhv/pub?output=csv";
+        const peakLoadCsvUrl = "https://docs.google.com/spreadsheets/d/1qjounNxBB49h-ucsoK6N8Qgx1TUTRai4aD1Suu-ilDA/export?format=csv&gid=0";
         const peakLoadSubmittedCsvUrl = "https://docs.google.com/spreadsheets/d/1dae1E0gTkwsKY3y-PgfFvBf_bHe0TS0YXAW7M3gzgEc/export?format=csv&gid=0";
         const peakLoadSubmitScriptUrl = "https://script.google.com/macros/s/AKfycbxclLoEv4GMdy9Ji-1WSXRqztNWvtfm2vaEPE3doB_7b7fjuK9rf-Mxv2nEku5FDrI9/exec";
         const feederDcDistributionConfig = {
