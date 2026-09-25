@@ -3409,7 +3409,10 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 const np3 = buildRevenueNonPayeeRows("DAILY", "", "3M");
                 const np6 = buildRevenueNonPayeeRows("DAILY", "", "6M");
                 const sinceConn = buildRevenueNonPayeeRows("DAILY", "", "SINCE_CONNECTION");
-                const allConsumerRows = buildRevenueHqVillageConsumerRows("DAILY", "");
+                // USER RULE (2026-09-25): Freeze ki Top 20/50 sirf master NET BILL se banti hai
+                // (cash list ka bhugtan ghata kar nahi) - taaki bade bakayadar sab list me rahein
+                // aur jo bhar dein wo report me green (PAID) dikhein.
+                const allConsumerRows = buildRevenueHqVillageConsumerRows("DAILY", "").map((r) => ({ ...r, pendingAmount: parseRevenuePendingAmount(r.netBill || 0) }));
                 // USER-REPORTED BUG (2026-09-12): Pehle saari 24 DC ke consumers
                 // ko EK SAATH milakar sirf EK global Top 50 list banti thi -
                 // isse chhoti/kam-defaulter DC (jinke consumer overall top-50 me
@@ -3587,6 +3590,218 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 showToast("Freeze nahi ho paya", false);
             } finally {
                 activeViewLevel = savedViewLevel; activeDC = savedDC; activeDiv = savedDiv;
+            }
+        }
+
+        // =====================================================================
+        // USER REQUEST (2026-09-25): "Baad me live hui DC" ka data Freeze Report
+        // (DC/Division/Circle) me nahi dikhta tha - kyonki chalu freeze (jaise
+        // 14/09/2026) us din bana tha jab in DC ki master sheet khaali thi. Admin
+        // panel ka "➕ Nayi DC Freeze me jodein" button SIRF un DC ka aaj ka
+        // NP3/NP6/Since Connection + DC Top 20/50 usi chalu freeze me jod deta hai
+        // (purani DC ka frozen data bilkul nahi chhuta). Division/Circle Top 20/50
+        // (user ki choice): purani frozen list + nayi DC ke consumers milakar
+        // dobara Top-N (Govt/Non Govt alag) - jo purane consumer bahar hote hain
+        // sirf wahi DC tab update hoti hai. Freeze Now ka logic reuse (same rows).
+        // =====================================================================
+        let freezeAddDcState_ = null; // { freezeId, candidates: [{ dc, counts }] }
+        function setFreezeAddDcStatus_(text, ok) {
+            const box = document.getElementById("freeze-add-dc-status");
+            if (!box) return;
+            box.style.display = text ? "block" : "none";
+            box.style.background = ok ? "#ecfdf5" : "#eff6ff";
+            box.style.color = ok ? "#047857" : "#1d4ed8";
+            box.innerText = text || "";
+        }
+        async function loadFreezeAddDcCandidates() {
+            const box = document.getElementById("freeze-add-dc-box");
+            if (!box) return;
+            box.style.display = "block";
+            box.innerHTML = `<div style="font-size:0.66rem; font-weight:850; color:#0e7490; text-align:center;">Chalu freeze me khaali DC dhoondh rahe hain...</div>`;
+            setFreezeAddDcStatus_("", true);
+            try {
+                const active = await ensureRevenueFreezeActiveInfo(true);
+                if (!active) { box.innerHTML = `<div style="font-size:0.66rem; font-weight:850; color:#9f1239; text-align:center;">Koi chalu freeze nahi hai</div>`; return; }
+                const parsed = await loadRemoteJson(`${revenueFreezeTrackingScriptUrl}?action=getFreezeDcRowCounts&freeze_id=${encodeURIComponent(active.freeze_id)}&t=${Date.now()}`, 90000);
+                if (!parsed || parsed.status !== "success") throw new Error(parsed?.message || "Backend ne counts nahi diye (backend New version deploy hua?)");
+                const counts = parsed.counts || {};
+                // Jis DC ki NP3/NP6/Since Connection teeno khaali hain wahi "freeze me nahi" maani jaati hai
+                // (jaise KURAI - us din sirf Top 20/50 bana tha). Jodne par uska purana adhoora data replace hota hai.
+                const dcCats = ["NP3", "NP6", "SINCE_CONNECTION"];
+                const candidates = getAllDcNames().map(normalizeDcName).filter((dc) => {
+                    const c = counts[dc] || {};
+                    return dcCats.every((k) => !Number(c[k] || 0));
+                });
+                freezeAddDcState_ = { freezeId: active.freeze_id, freezeLabel: active.freeze_label || active.freeze_date, candidates };
+                if (!candidates.length) {
+                    box.innerHTML = `<div style="font-size:0.68rem; font-weight:900; color:#047857; text-align:center;">✅ Freeze ${escapeHtml(freezeAddDcState_.freezeLabel)} me sabhi DC ka data maujood hai - jodne layak koi DC nahi.</div>`;
+                    return;
+                }
+                box.innerHTML = `<div style="font-size:0.66rem; font-weight:900; color:#0e7490; text-align:center; margin-bottom:6px;">Freeze ${escapeHtml(freezeAddDcState_.freezeLabel)} me in DC ka data NAHI hai. Jinki master sheet me ab data hai, unhe chunkar jodein:</div>` +
+                    `<div style="display:grid; grid-template-columns:1fr 1fr; gap:4px 10px;">` +
+                    candidates.map((dc) => { const c = counts[dc] || {}; const partial = Number(c.TOP20 || 0) + Number(c.TOP50 || 0) > 0; return `<label style="display:flex; align-items:center; gap:6px; font-size:0.66rem; font-weight:850; color:#0f172a;"><input type="checkbox" class="freeze-add-dc-cb" value="${escapeHtml(dc)}" checked> ${escapeHtml(dc)}${partial ? ' <span style="color:#b45309; font-size:0.56rem;">(adhoora)</span>' : ""}</label>`; }).join("") +
+                    `</div><button class="dashboard-btn" style="width:100%; margin-top:10px; background:linear-gradient(135deg,#34d399 0%,#059669 100%); color:#ffffff !important;" onclick="runRevenueFreezeAddDcs()">✅ Chuni hui DC Freeze me jodein</button>` +
+                    `<div style="font-size:0.58rem; font-weight:800; color:#64748b; text-align:center; margin-top:6px;">Jis DC ki master sheet abhi bhi khaali hai, wo apne aap chhod di jaayegi.</div>`;
+            } catch (error) {
+                box.innerHTML = `<div style="font-size:0.66rem; font-weight:850; color:#9f1239; text-align:center;">List load nahi hui: ${escapeHtml(error?.message || "error")}</div>`;
+            }
+        }
+        async function runRevenueFreezeAddDcs() {
+            if (!freezeAddDcState_) return showToast("Pehle list load kijiye", false);
+            const selected = Array.from(document.querySelectorAll(".freeze-add-dc-cb:checked")).map((el) => normalizeDcName(el.value));
+            if (!selected.length) return showToast("Kam se kam ek DC chuniye", false);
+            const { freezeId } = freezeAddDcState_;
+            const savedViewLevel = activeViewLevel, savedDC = activeDC, savedDiv = activeDiv;
+            const btns = document.querySelectorAll("#freeze-add-dc-box button");
+            btns.forEach((b) => { b.disabled = true; });
+            try {
+                setFreezeAddDcStatus_("SYNCING DATA... PLEASE WAIT (sabhi DC ka master + cash list load ho raha hai)", false);
+                const allDcs = getAllDcNames();
+                activeViewLevel = "CIRCLE"; activeDC = ""; activeDiv = "";
+                await Promise.all([
+                    ensureRevenueCategoryMasterDataLoaded(allDcs),
+                    ensureRevenueCategoryRawPaymentRowsLoaded(),
+                    warmRevenueCategoryUploadedPaidCache(true)
+                ]);
+                const liveDcs = selected.filter((dc) => getRevenueMasterRowsForDc(dc).length > 0);
+                const emptyDcs = selected.filter((dc) => !liveDcs.includes(dc));
+                if (!liveDcs.length) throw new Error("Chuni hui DC ki master sheet me abhi data nahi hai: " + emptyDcs.join(", "));
+                const liveSet = new Set(liveDcs);
+                const inNew = (r) => liveSet.has(normalizeDcName(r.dcName));
+
+                setFreezeAddDcStatus_("Non-Payee / Top Defaulters lists ban rahi hain...", false);
+                // Bilkul Freeze Now wala hi logic (CIRCLE scope), sirf nayi DC ki rows rakhte hain.
+                const np3 = buildRevenueNonPayeeRows("DAILY", "", "3M").filter(inNew);
+                const np6 = buildRevenueNonPayeeRows("DAILY", "", "6M").filter(inNew);
+                const sinceConn = buildRevenueNonPayeeRows("DAILY", "", "SINCE_CONNECTION").filter(inNew);
+                // Freeze Now jaisa hi: Top 20/50 sirf master NET BILL se (USER RULE 2026-09-25).
+                const newConsumerRows = buildRevenueHqVillageConsumerRows("DAILY", "").map((r) => ({ ...r, pendingAmount: parseRevenuePendingAmount(r.netBill || 0) })).filter((r) => r.pendingAmount > 0 && inNew(r));
+                const toFreezeRows = (rows) => rows.map((r) => ({
+                    dc_name: normalizeDcName(r.dcName || ""), ivrs_no: r.ivrsNo || "", consumer_name: r.consumerName || "",
+                    hq_name: r.hqName || "", village: r.village || "", mobile_no: r.mobileNo || "",
+                    tariff_category: r.tariffCategory || "", pending_amount: r.pendingAmount || 0,
+                    govt_flag: r.govtFlag ? "GOVT" : "NONGOVT"
+                }));
+                // Freeze-row format par Top-N (Govt / Non Govt alag) - Freeze Now ke buildTopNSplitByGovt jaisa.
+                const topNFreeze = (list, n) => {
+                    const sortDesc = (l) => l.slice().sort((a, b) => Number(b.pending_amount || 0) - Number(a.pending_amount || 0));
+                    const isGovt = (r) => String(r.govt_flag || "").toUpperCase() === "GOVT";
+                    return [...sortDesc(list.filter((r) => !isGovt(r))).slice(0, n), ...sortDesc(list.filter(isGovt)).slice(0, n)];
+                };
+                const newAll = toFreezeRows(newConsumerRows);
+                const top50 = [], top20 = [];
+                liveDcs.forEach((dc) => {
+                    const dcRows = newAll.filter((r) => r.dc_name === dc);
+                    top50.push(...topNFreeze(dcRows, 50));
+                    top20.push(...topNFreeze(dcRows, 20));
+                });
+
+                // Division/Circle Top 20/50: purani frozen list + nayi DC ke candidates -> dobara Top-N.
+                setFreezeAddDcStatus_("Division/Circle Top 20/50 ki purani frozen list padh rahe hain...", false);
+                const allNorm = allDcs.map(normalizeDcName);
+                // Freeze Report jaisa hi 6-DC batches (badi DC tab padhne me 60-70s tak lagte hain,
+                // isliye ek hi badi request nahi) - batches parallel (gate khud 2 tak rokta hai).
+                const fetchCategoryAll = async (category) => {
+                    const batches = [];
+                    for (let i = 0; i < allNorm.length; i += FREEZE_SNAPSHOT_BATCH_SIZE) batches.push(allNorm.slice(i, i + FREEZE_SNAPSHOT_BATCH_SIZE));
+                    const results = await Promise.all(batches.map((batch) => fetchRevenueFreezeSnapshotBatch_(freezeId, category, batch)));
+                    const out = [];
+                    results.forEach((dcData, bi) => {
+                        if (!dcData) throw new Error(`${category} ki purani list load nahi hui - dobara try karein`);
+                        batches[bi].forEach((dc) => (dcData[dc]?.rows || []).forEach((r) => out.push({ ...r, dc_name: dc })));
+                    });
+                    return out;
+                };
+                const rowKey = (r) => normalizeDcName(r.dc_name) + "|" + normalizeRevenueIvrs(r.ivrs_no) + "|" + String(r.govt_flag || "").toUpperCase();
+                const sigByDc = (rows) => {
+                    const m = {};
+                    rows.forEach((r) => { const dc = normalizeDcName(r.dc_name); (m[dc] = m[dc] || []).push(rowKey(r) + "|" + Number(r.pending_amount || 0)); });
+                    Object.keys(m).forEach((dc) => { m[dc] = m[dc].sort().join(","); });
+                    return m;
+                };
+                const buildScopeCategory = async (category, n, scopeOf) => {
+                    const oldRows = await fetchCategoryAll(category);
+                    const newRows = [];
+                    const groups = {};
+                    oldRows.forEach((r) => { const g = scopeOf(r.dc_name); if (g) (groups[g] = groups[g] || { old: [], add: [] }).old.push(r); });
+                    newAll.forEach((r) => { const g = scopeOf(r.dc_name); if (g) (groups[g] = groups[g] || { old: [], add: [] }).add.push(r); });
+                    Object.values(groups).forEach((g) => {
+                        if (!g.add.length) { newRows.push(...g.old); return; } // is scope me nayi DC nahi - purani list jaisi ki taisi
+                        const cleanOld = g.old.filter((r) => !liveSet.has(normalizeDcName(r.dc_name)));
+                        newRows.push(...topNFreeze([...cleanOld, ...topNFreeze(g.add, n)], n));
+                    });
+                    const oldSig = sigByDc(oldRows), newSig = sigByDc(newRows);
+                    const changed = new Set(liveDcs);
+                    new Set([...Object.keys(oldSig), ...Object.keys(newSig)]).forEach((dc) => { if ((oldSig[dc] || "") !== (newSig[dc] || "")) changed.add(dc); });
+                    const scope = Array.from(changed);
+                    return { rows: newRows.filter((r) => changed.has(normalizeDcName(r.dc_name))), scope };
+                };
+                const divisionOf = (dc) => {
+                    const d = normalizeDcName(dc);
+                    return Object.keys(divisionConfigs).find((div) => getDivisionDcNames(div).map(normalizeDcName).includes(d)) || "";
+                };
+                const circleOf = () => "CIRCLE";
+                const [div50, div20, cir50, cir20] = await Promise.all([
+                    buildScopeCategory("TOP50_DIVISION", 50, divisionOf),
+                    buildScopeCategory("TOP20_DIVISION", 20, divisionOf),
+                    buildScopeCategory("TOP50_CIRCLE", 50, circleOf),
+                    buildScopeCategory("TOP20_CIRCLE", 20, circleOf)
+                ]);
+
+                const categories = [
+                    { key: "NP3", label: "Non Payee 3M", rows: toFreezeRows(np3), scope: liveDcs },
+                    { key: "NP6", label: "Non Payee 6M", rows: toFreezeRows(np6), scope: liveDcs },
+                    { key: "SINCE_CONNECTION", label: "Since Connection", rows: toFreezeRows(sinceConn), scope: liveDcs },
+                    { key: "TOP20", label: "Top 20 (DC)", rows: top20, scope: liveDcs },
+                    { key: "TOP50", label: "Top 50 (DC)", rows: top50, scope: liveDcs },
+                    { key: "TOP20_DIVISION", label: "Top 20 (Division)", rows: div20.rows, scope: div20.scope },
+                    { key: "TOP50_DIVISION", label: "Top 50 (Division)", rows: div50.rows, scope: div50.scope },
+                    { key: "TOP20_CIRCLE", label: "Top 20 (Circle)", rows: cir20.rows, scope: cir20.scope },
+                    { key: "TOP50_CIRCLE", label: "Top 50 (Circle)", rows: cir50.rows, scope: cir50.scope }
+                ];
+                let done = 0;
+                const summary = [];
+                for (const cat of categories) {
+                    let saved = false, lastErr = null;
+                    for (let attempt = 1; attempt <= 2 && !saved; attempt++) {
+                        setFreezeAddDcStatus_(`${Math.round((done / categories.length) * 100)}% - "${cat.label}" (${cat.rows.length} consumer) save ho raha hai${attempt > 1 ? " (dobara try)" : ""}...`, false);
+                        try {
+                            const response = await fetchWithTimeout(revenueFreezeTrackingScriptUrl, {
+                                method: "POST",
+                                headers: { "Content-Type": "text/plain;charset=UTF-8" },
+                                body: JSON.stringify({ action: "addFreezeDcRows", admin_password: freezeAdminPasswordEntered, freeze_id: freezeId, category: cat.key, dc_names: cat.scope, rows: cat.rows })
+                            }, 330000);
+                            const text = await response.text();
+                            let parsed = {};
+                            try { parsed = JSON.parse(text || "{}"); } catch (_) {}
+                            if (!response.ok || parsed.status !== "success") {
+                                throw new Error(parsed.message || `Save fail (${cat.label}) - HTTP ${response.status}: ${String(text || "").replace(/\s+/g, " ").slice(0, 160)}`);
+                            }
+                            saved = true;
+                        } catch (err) {
+                            lastErr = err;
+                            if (/password/i.test(err?.message || "")) break;
+                            if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 1500));
+                        }
+                    }
+                    if (!saved) throw lastErr;
+                    done += 1;
+                    summary.push(`${cat.label}: ${cat.rows.length}`);
+                }
+                progressFreezeActiveFreeze = null;
+                revenueFreezeSnapshotCache = {};
+                lastRevenueProgressFreezeResult = null;
+                lastRevenueProgressFreezeScopeKey = null;
+                setFreezeAddDcStatus_(`✅ 100% - ${liveDcs.join(", ")} freeze ${freezeAddDcState_.freezeLabel} me jud gayi. NP3: ${np3.length}, NP6: ${np6.length}, Since Connection: ${sinceConn.length}, Top 20: ${top20.length}, Top 50: ${top50.length}` + (emptyDcs.length ? `\n(Master sheet khaali hone se chhodi gayi: ${emptyDcs.join(", ")})` : ""), true);
+                showToast("Nayi DC freeze me jud gayi", true);
+                await loadFreezeAdminList();
+                await loadFreezeAddDcCandidates();
+            } catch (error) {
+                setFreezeAddDcStatus_("Nahi jud paya: " + (error?.message || "error") + " (dobara chalana safe hai - duplicate nahi banega)", false);
+                showToast("Nayi DC freeze me nahi jud payi", false);
+            } finally {
+                activeViewLevel = savedViewLevel; activeDC = savedDC; activeDiv = savedDiv;
+                btns.forEach((b) => { b.disabled = false; });
             }
         }
 
@@ -24519,13 +24734,34 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // Net Bill zero ya negative wale consumers hamesha ignore honge (koi bhi
         // bucket ho) - unke paas asal me koi bakaya hi nahi hai.
         // =====================================================================
-        function getRevenueMonthsSincePaymentDate(dateStr) {
+        // USER RULE (2026-09-25): NP3/NP6 ke mahine AAJ ki tareekh se nahi, balki us DC ke
+        // MASTER DATA ki tareekh se gine jaate hain - master jitni tareekh tak ka hai (us DC
+        // ke master ki sabse nayi LAST PAYMENT DATE, aaj se aage ki galat tareekh chhod kar).
+        // Isse naya master aane tak NP3/NP6 list poore mahine ek jaisi rehti hai (Live + Freeze).
+        // refIso na mile to purana behaviour (aaj ki tareekh).
+        function getRevenueMasterReferenceDateByDc_(consumerRows) {
+            const now = new Date();
+            const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+            const refByDc = {};
+            (consumerRows || []).forEach((row) => {
+                const m = String(row.lastPaymentDate || "").trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+                if (!m) return;
+                const key = `${m[1]}-${m[2]}-${m[3]}`;
+                if (key > todayKey) return;
+                const dc = normalizeDcName(row.dcName);
+                if (!refByDc[dc] || key > refByDc[dc]) refByDc[dc] = key;
+            });
+            return refByDc;
+        }
+
+        function getRevenueMonthsSincePaymentDate(dateStr, refIso) {
             const raw = String(dateStr || "").trim();
             const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
             if (!match) return null;
             const paymentDate = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
             if (isNaN(paymentDate.getTime())) return null;
-            const today = new Date();
+            const refMatch = String(refIso || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+            const today = refMatch ? new Date(Number(refMatch[1]), Number(refMatch[2]) - 1, Number(refMatch[3])) : new Date();
             let months = (today.getFullYear() - paymentDate.getFullYear()) * 12 + (today.getMonth() - paymentDate.getMonth());
             if (today.getDate() < paymentDate.getDate()) months -= 1;
             return Math.max(0, months);
@@ -24542,9 +24778,10 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     .sort((a, b) => b.pendingAmount - a.pendingAmount);
             }
             const monthThreshold = bucket === "6M" ? 6 : 3;
+            const masterRefByDc = getRevenueMasterReferenceDateByDc_(consumerRows); // USER RULE 2026-09-25
             return consumerRows
                 .filter((row) => row.hasPaymentDateData && !row.neverPaid && row.lastPaymentDate)
-                .map((row) => ({ ...withPendingAmount(row), monthsSincePayment: getRevenueMonthsSincePaymentDate(row.lastPaymentDate) }))
+                .map((row) => ({ ...withPendingAmount(row), monthsSincePayment: getRevenueMonthsSincePaymentDate(row.lastPaymentDate, masterRefByDc[normalizeDcName(row.dcName)]) }))
                 .filter((row) => row.monthsSincePayment !== null && row.monthsSincePayment >= monthThreshold)
                 .filter((row) => row.pendingAmount > 0)
                 .sort((a, b) => (b.monthsSincePayment - a.monthsSincePayment) || (b.pendingAmount - a.pendingAmount));
