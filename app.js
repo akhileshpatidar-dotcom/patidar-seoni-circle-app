@@ -2835,7 +2835,72 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 merged.dcName = normalizedDc;
                 mergedByIvrs.set(ivrs, merged);
             });
-            return Array.from(mergedByIvrs.values());
+            return scNormalizeMasterLastPaymentDates_(Array.from(mergedByIvrs.values())); // USER RULE 2026-09-25
+        }
+
+        // USER RULE (2026-09-25): master sheet me LAST PAYMENT DATE kisi bhi format me ho
+        // (YYYY-MM-DD, DD/MM/YYYY, MM/DD/YYYY jaise "10/31/2025", 2-digit saal, YYYY/MM/DD,
+        // Excel serial number) - app use hamesha YYYY-MM-DD bana kar hi use karta hai, taaki
+        // NP3/NP6, master tareekh aur PAID DATE RULE sab sahi chalein. DD/MM ya MM/DD ka
+        // faisla poori DC ke column se hota hai (jis value me 12 se bada din pehle aaye =
+        // DD/MM, doosre number me aaye = MM/DD; jyada saboot wala tareeka baaki ambiguous
+        // values par; koi saboot na ho to DD/MM). Aaj se aage ki tareekh bane to doosra
+        // tareeka try hota hai. Jo samajh na aaye (jaise "NOT FOUND") wo waisa hi rehta hai.
+        function scNormalizeMasterLastPaymentDates_(rows) {
+            const slashRe = /^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2}|\d{4})(?:\s.*)?$/;
+            let dmy = 0, mdy = 0, needs = false;
+            rows.forEach((row) => {
+                const v = String(row.lastPaymentDate || "").trim();
+                if (!v || /^\d{4}-\d{2}-\d{2}/.test(v)) return;
+                needs = true;
+                const m = v.match(slashRe);
+                if (!m) return;
+                const a = Number(m[1]), b = Number(m[2]);
+                if (a > 12 && b <= 12) dmy++;
+                else if (b > 12 && a <= 12) mdy++;
+            });
+            if (!needs) return rows;
+            const preferMdy = mdy > dmy;
+            const now = new Date();
+            const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+            const mk = (y, mo, d) => {
+                if (mo < 1 || mo > 12 || d < 1 || d > 31) return "";
+                const dt = new Date(y, mo - 1, d);
+                if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return "";
+                return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+            };
+            rows.forEach((row) => {
+                const v = String(row.lastPaymentDate || "").trim();
+                if (!v || /^\d{4}-\d{2}-\d{2}/.test(v)) return;
+                let iso = "";
+                let m = v.match(/^(\d{4})[\/.](\d{1,2})[\/.](\d{1,2})/);
+                if (m) iso = mk(Number(m[1]), Number(m[2]), Number(m[3]));
+                if (!iso && /^\d{5}(\.\d+)?$/.test(v)) {
+                    const serial = Number(v);
+                    if (serial > 20000 && serial < 80000) {
+                        const d = new Date(Math.round((serial - 25569) * 86400000));
+                        iso = mk(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate());
+                    }
+                }
+                if (!iso) {
+                    m = v.match(slashRe);
+                    if (m) {
+                        const a = Number(m[1]), b = Number(m[2]);
+                        let y = Number(m[3]);
+                        if (y < 100) y += 2000;
+                        const asDmy = mk(y, b, a), asMdy = mk(y, a, b);
+                        let first, second;
+                        if (a > 12) { first = asDmy; second = ""; }
+                        else if (b > 12) { first = asMdy; second = ""; }
+                        else if (preferMdy) { first = asMdy; second = asDmy; }
+                        else { first = asDmy; second = asMdy; }
+                        iso = first;
+                        if (iso && iso > todayKey && second && second <= todayKey) iso = second;
+                    }
+                }
+                if (iso) row.lastPaymentDate = iso;
+            });
+            return rows;
         }
 
         async function ensureRevenueCategoryMasterDataLoaded(dcNames) {
