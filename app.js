@@ -491,7 +491,14 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             }
             const today = getTodayIsoDate();
             document.getElementById("report-date").value = today;
-            getAllDcConfigs().forEach(async ({ name, csvUrl }) => {
+            // SPEED PHASE 2 (2026-09-25, USER-APPROVED): pehle app khulte hi SABHI 24 DC
+            // ki poori master sheets (~27MB) + revenue copies download hoti thi, har
+            // staff ke liye, chahe woh sirf apni DC dekhe. Ab yeh startup preload band
+            // hai - har screen apna data khud (on-demand) load karti hai (DC chunte hi
+            // usi DC ka master: showDivision -> ensureDcDataLoaded; Circle/Division
+            // reports -> ensureConsumerDataLoadedFor / ensureRevenueCategoryMasterDataLoaded).
+            const SC_STARTUP_PRELOAD_ALL_DCS = false;
+            if (SC_STARTUP_PRELOAD_ALL_DCS) getAllDcConfigs().forEach(async ({ name, csvUrl }) => {
                 if (!csvUrl) return;
                 try {
                     const rawCsv = await loadRemoteText(csvUrl);
@@ -506,7 +513,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     }
                 } catch (e) {}
             });
-            Object.keys(revenueCollectionCsvUrls).forEach((dcKey) => {
+            if (SC_STARTUP_PRELOAD_ALL_DCS) Object.keys(revenueCollectionCsvUrls).forEach((dcKey) => {
                 loadRevenueCollectionData(dcKey).catch(() => {});
             });
             // AUTO-RETRY (2026-08-21): app open hote hi bhi pending offline submit
@@ -20813,6 +20820,16 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             try { await ensureRevenueCategoryMasterDataLoaded([dc]); } catch (_) {}
             const masterSet = new Set(getRevenueMasterRowsForDc(dc).map((r) => normalizeRevenueIvrs(r.ivrsNo)).filter(Boolean));
             if (masterSet.size < 50) return; // master data nahi / bahut kam - check nahi kar sakte
+            // SPEED PHASE 2: file galat DC ki lage tabhi (bahut kam) baaki DC ke master
+            // laate hain taaki "shayad X DC ki hai" guess pehle jaisa hi bane.
+            const scQuickMismatch = [normalRows, agRows].some((rows) => {
+                const list = Array.from(new Set((rows || []).map((r) => normalizeRevenueIvrs(r.ivrsNo)).filter(Boolean)));
+                if (list.length < 5) return false;
+                return (list.filter((ivrs) => masterSet.has(ivrs)).length / list.length) < 0.5;
+            });
+            if (scQuickMismatch) {
+                try { await ensureConsumerDataLoadedFor(getAllDcNames()); } catch (_) {}
+            }
             const checkOne = (rows, label) => {
                 const ivrsList = Array.from(new Set((rows || []).map((r) => normalizeRevenueIvrs(r.ivrsNo)).filter(Boolean)));
                 if (ivrsList.length < 5) return;
