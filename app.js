@@ -4321,7 +4321,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             const rawRef = getRevenueCategoryRawPaymentRows();
             const uploadedRef = getRevenueUploadedPaidCache();
             const cached = revenueFreezePaidIndexCache_;
-            if (cached.index && cached.rawRef === rawRef && cached.uploadedRef === uploadedRef) {
+            const masterSig = scMasterLpdSignature_(); // PAID DATE RULE - master badle to index dobara
+            if (cached.index && cached.rawRef === rawRef && cached.uploadedRef === uploadedRef && cached.masterSig === masterSig) {
                 return cached.index;
             }
             const idx = {};
@@ -4339,7 +4340,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     if (newKey && (!oldKey || newKey > oldKey)) idx[key].lastPaidDate = rowDate;
                 }
             });
-            revenueFreezePaidIndexCache_ = { rawRef, uploadedRef, index: idx };
+            revenueFreezePaidIndexCache_ = { rawRef, uploadedRef, masterSig, index: idx };
             return idx;
         }
 
@@ -4472,6 +4473,9 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             // Dono alag backend hain, ek-doosre par nirbhar nahi - result wahi.
             const scFreezePaidWarmPromise = warmRevenueFreezePaidSummaryCache_();
             scFreezePaidWarmPromise.catch(() => {});
+            // PAID DATE RULE: bhugtan ko master ki LAST PAYMENT DATE se milane ke liye scope ki
+            // DC ka master bhi saath me (parallel) load; fail ho to purana behaviour.
+            const scFreezeMasterPromise = ensureRevenueCategoryMasterDataLoaded(getRevenueFreezeTargetDcs()).catch(() => {});
             try {
                 const active = await ensureRevenueFreezeActiveInfo();
                 console.log("[FreezeReport] step1 active =", active); // DIAGNOSTIC (2026-09-13, temp)
@@ -4481,6 +4485,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     const { rows, dcStatusMap } = await fetchRevenueFreezeSnapshotRowsForScope(active.freeze_id, fetchCategory);
                     console.log("[FreezeReport] step3 snapshot done, rows.length =", rows.length, "dcStatusMap =", dcStatusMap); // DIAGNOSTIC (2026-09-13, temp)
                     await scFreezePaidWarmPromise;
+                    await scFreezeMasterPromise;
                     console.log("[FreezeReport] step4 warmCache done"); // DIAGNOSTIC (2026-09-13, temp)
                     lastRevenueProgressFreezeResult = { active, rows, dcStatusMap };
                 } else {
@@ -5537,7 +5542,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     const ivrs = key.slice(sepIdx + 1);
                     if (!dcName || !ivrs) return;
                     if (!paidInfoByDc[dcName]) paidInfoByDc[dcName] = {};
-                    const amount = Number(info.amount || 0);
+                    const amount = scCountableReconAmount_(dcName, ivrs, info); // PAID DATE RULE
                     paidInfoByDc[dcName][ivrs] = {
                         reconciled: true,
                         amount,
@@ -17012,7 +17017,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     `).join("")}
                 </div>
             ` : "";
-            const uploadedPaidEntry = getRevenueUploadedPaidEntryLocal(record.ivrsNo || searchedIvrs);
+            const uploadedPaidEntry = scFilterUploadedEntryByMaster_(getRevenueUploadedPaidEntryLocal(record.ivrsNo || searchedIvrs), record.ivrsNo || searchedIvrs, activeDC); // PAID DATE RULE
             const uploadedPaidHtml = uploadedPaidEntry ? `
                 <div class="revenue-status-blink" style="margin-top:7px; background:#f0fdf4; border:1.5px solid #16a34a; border-radius:12px; padding:7px; text-align:center;">
                     <div style="font-size:0.76rem; font-weight:950; color:#15803d;">NGB CASHLIST: PAID</div>
@@ -17624,7 +17629,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     return;
                 }
                 const alreadyPaid = getRevenuePaidEntries(currentRevenueRecord.ivrsNo).length > 0
-                    || !!getRevenueUploadedPaidEntryLocal(currentRevenueRecord.ivrsNo);
+                    || !!scFilterUploadedEntryByMaster_(getRevenueUploadedPaidEntryLocal(currentRevenueRecord.ivrsNo), currentRevenueRecord.ivrsNo, activeDC); // PAID DATE RULE
                 if (alreadyPaid) {
                     const confirmed = await showCustomConfirmBox("Please Confirm", "Consumer paid दिख रहा है, Line Disconnection confirm करें?");
                     if (!confirmed) {
@@ -19755,7 +19760,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 const ivrsNo = key.slice(separator + 1);
                 // Partial ho ya full: HQ/Village monthly report ki tarah ek
                 // valid positive Cash List payment consumer ko PAID banati hai.
-                if (rowDc === dcName && Number(info?.amount || 0) > 0 && ivrsNo) paidSet.add(ivrsNo);
+                if (rowDc === dcName && ivrsNo && scCountableReconAmount_(rowDc, ivrsNo, info) > 0) paidSet.add(ivrsNo); // PAID DATE RULE
             });
             revenuePendingDiag.liveTotal = 0;
             revenuePendingDiag.liveDcMatched = 0;
@@ -20528,6 +20533,88 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // hain, taaki woh DC apne aap sahi-tagged serverList (backend se, jismein
         // ab uploaded_date hamesha hoga) par fallback ho jaaye - kisi DC ki cash
         // list dobara upload karne ki zaroorat nahi padegi.
+        // =====================================================================
+        // USER RULE (2026-09-25) - "PAID DATE RULE": cash list ka koi bhugtan tabhi PAID
+        // gina jaata hai jab uski tareekh us consumer ki MASTER "LAST PAYMENT DATE" ke
+        // BARABAR ya BAAD ki ho (jaise master me last payment 05/09 aur cash list me 05/09
+        // = PAID; purani cash list ka 20/08 wala bhugtan = PAID nahi). Sab reports (Live,
+        // Freeze, Non-Payee, Top 20/50, Above 1 Lakh, Category Wise, Target, Pending DO,
+        // search badge) isi ek helper se chalti hain. Master tareekh na mile / padhi na ja
+        // sake, ya bhugtan ki tareekh samajh na aaye -> purana behaviour (bhugtan gina jaata hai).
+        // =====================================================================
+        function scPayDateKey_(value) {
+            if (value === null || value === undefined || value === "") return "";
+            if (value instanceof Date) {
+                return isNaN(value.getTime()) ? "" : `${value.getFullYear()}${String(value.getMonth() + 1).padStart(2, "0")}${String(value.getDate()).padStart(2, "0")}`;
+            }
+            if (typeof value === "number" && value > 20000 && value < 80000) {
+                const d = new Date(Math.round((value - 25569) * 86400000));
+                return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}`;
+            }
+            const raw = String(value).trim();
+            let m = raw.match(/^(\d{8})$/);
+            if (m) return m[1];
+            m = raw.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})/);
+            if (m) return `${m[1]}${m[2].padStart(2, "0")}${m[3].padStart(2, "0")}`;
+            m = raw.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})/); // cash list DD/MM/YYYY
+            if (m) return `${m[3]}${m[2].padStart(2, "0")}${m[1].padStart(2, "0")}`;
+            return "";
+        }
+        function scRowPayDateKey_(row) {
+            return scPayDateKey_(row?.paymentDate || row?.payment_date) || scPayDateKey_(getRevenueUploadedPaidRowDate(row));
+        }
+        const scMasterLpdCache_ = new Map();
+        function getMasterLastPayMapForDc_(dcName) {
+            const dc = normalizeDcName(dcName || "");
+            if (!dc) return new Map();
+            const a = dcCacheRows[dc];
+            const b = revenueCollectionRowsByDc[getRevenueCollectionDcKey(dc)];
+            const cached = scMasterLpdCache_.get(dc);
+            if (cached && cached.a === a && cached.b === b) return cached.map;
+            const map = new Map();
+            if ((a && a.length) || (b && b.length)) {
+                const now = new Date();
+                const todayKey = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+                getRevenueMasterRowsForDc(dc).forEach((row) => {
+                    const mm = String(row.lastPaymentDate || "").trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+                    const key = mm ? `${mm[1]}${mm[2]}${mm[3]}` : "";
+                    if (key && key <= todayKey) map.set(normalizeRevenueIvrs(row.ivrsNo), key); // aaj se aage ki (galat) master tareekh anadekhi
+                });
+            }
+            scMasterLpdCache_.set(dc, { a, b, map });
+            return map;
+        }
+        function scMasterLpdSignature_() {
+            return Object.keys(dcCacheRows || {}).sort().map((k) => `${k}:${(dcCacheRows[k] || []).length}`).join(",");
+        }
+        function isCashPaymentCountable_(dcName, ivrsNo, payKey) {
+            if (!payKey) return true;
+            const lpd = getMasterLastPayMapForDc_(dcName).get(normalizeRevenueIvrs(ivrsNo));
+            return !lpd || payKey >= lpd;
+        }
+        function scCountableReconAmount_(dcName, ivrsNo, info) {
+            const amount = Number(info?.amount || 0);
+            const list = Array.isArray(info?.payments) ? info.payments : null;
+            if (!(amount > 0) || !list || !list.length) return amount;
+            const lpd = getMasterLastPayMapForDc_(dcName).get(normalizeRevenueIvrs(ivrsNo));
+            if (!lpd) return amount;
+            let dropped = 0;
+            list.forEach((p) => {
+                const k = scPayDateKey_(Array.isArray(p) ? p[0] : p?.date);
+                if (k && k < lpd) dropped += Number((Array.isArray(p) ? p[1] : p?.amount) || 0);
+            });
+            return Math.max(0, amount - dropped);
+        }
+        function scFilterUploadedEntryByMaster_(entry, ivrsNo, dcName) {
+            if (!entry) return entry;
+            const lpd = getMasterLastPayMapForDc_(dcName).get(normalizeRevenueIvrs(ivrsNo));
+            if (!lpd) return entry;
+            const rows = getRevenueUploadedPaidPaymentRows(entry) || [];
+            const keys = (rows.length ? rows : [entry]).map((r) => scRowPayDateKey_(r));
+            if (keys.some((k) => !k || k >= lpd)) return entry;
+            return null;
+        }
+
         function getRevenueCategoryPaymentSourceRows() {
             const rawRows = getRevenueCategoryRawPaymentRows().filter((row) => !!getRevenueUploadedPaidRowUploadedDate(row));
             const rawByDc = {};
@@ -20561,7 +20648,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 // taaki partial/adhoora local cache poore server data ko hide na kare.
                 rows.push(...(serverList.length > rawList.length ? serverList : rawList));
             });
-            return rows;
+            // USER RULE (2026-09-25) PAID DATE RULE
+            return rows.filter((row) => isCashPaymentCountable_(getRevenueUploadedPaidRowDcName(row), getRevenueUploadedPaidRowIvrs(row), scRowPayDateKey_(row)));
         }
 
         function getRevenueUploadedPaidCacheKey(ivrsNo, dcName = activeDC) {
@@ -22850,13 +22938,15 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     const existing = byKey.get(key);
                     if (existing) {
                         existing.amount += amount;
+                        if (Array.isArray(entry.payments)) existing.payments = (existing.payments || []).concat(entry.payments); // PAID DATE RULE
                         if (!existing.category && entry.tariff_category) existing.category = entry.tariff_category;
                         existing.legacyAmbiguous = existing.legacyAmbiguous || !!entry.legacy_ambiguous;
                     } else {
                         byKey.set(key, {
                             amount,
                             category: entry.tariff_category || "",
-                            legacyAmbiguous: !!entry.legacy_ambiguous
+                            legacyAmbiguous: !!entry.legacy_ambiguous,
+                            payments: Array.isArray(entry.payments) ? entry.payments.slice() : null // PAID DATE RULE
                         });
                     }
                 });
