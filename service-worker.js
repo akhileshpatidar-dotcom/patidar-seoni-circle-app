@@ -15,6 +15,7 @@ const CACHE_VERSION = "seoni-app-shell-v4";
 const SHELL_FILES = [
     "./index.html",
     "./styles.css",
+    "./tailwind.css",
     "./app.js",
     "./manifest.json",
     "./icon-192.png",
@@ -25,12 +26,11 @@ const SHELL_FILES = [
 // index.html me hi inline the, ab teen files me split hain). In teeno ko
 // network-first rakha hai taaki deploy ke turant baad latest version mile,
 // CACHE_VERSION bump ka wait na karna pade.
-const NETWORK_FIRST_FILES = ["/index.html", "/styles.css", "/app.js"];
+const NETWORK_FIRST_FILES = ["/index.html", "/styles.css", "/tailwind.css", "/app.js"];
 
 // In-app CDN libraries (opaque/no-cors cache — cross-origin, cache-first hai
 // kyunki ye rarely change hote hain aur data nahi hain)
 const CDN_FILES = [
-    "https://cdn.tailwindcss.com",
     "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js",
     "https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js",
     "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"
