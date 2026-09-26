@@ -9156,6 +9156,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         }
 
         function showToast(message, ok) {
+            if (!ok) window.scToastFailSeq_ = (window.scToastFailSeq_ || 0) + 1; // DOWNLOAD PATTERN (2026-09-26)
             const t = document.getElementById("toast-notif");
             t.innerText = message;
             t.style.background = ok ? "#10b981" : "#ef4444";
@@ -11857,16 +11858,16 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             // (sirf poori raw list) - taaki sirf summary chahiye ho to poori
             // list wali badi PDF na download karni pade.
             const downloadButtons = activeViewLevel === "DC"
-                ? `<div style="display:flex; gap:8px; margin-top:12px;">
+                ? `<div class="omvig-dl-btns" style="display:flex; gap:8px; margin-top:12px;">
                      <button class="btn-unique" style="flex:1; background:#16a34a; color:#fff;" onclick="downloadOmvigReport('XLS')">⬇️ Excel</button>
                      <button class="btn-unique" style="flex:1; background:#dc2626; color:#fff;" onclick="downloadOmvigReport('PDF')">⬇️ PDF</button>
                    </div>`
-                : `<div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
+                : `<div class="omvig-dl-btns" style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
                      <button class="btn-unique" style="flex:1; min-width:100px; background:#16a34a; color:#fff;" onclick="downloadOmvigReport('XLS')">⬇️ Excel</button>
                      <button class="btn-unique" style="flex:1; min-width:100px; background:#0891b2; color:#fff;" onclick="downloadOmvigReport('PDF_SUMMARY')">📊 Summary PDF</button>
                      <button class="btn-unique" style="flex:1; min-width:100px; background:#dc2626; color:#fff;" onclick="downloadOmvigReport('PDF_LIST')">📋 List PDF</button>
                    </div>`;
-            return freezeLine + bodyHtml + downloadButtons;
+            return freezeLine + bodyHtml + downloadButtons + SC_OMVIG_DL_STATUS_HTML_;
         }
 
         // USER REQUEST (2026-09-14): "Daily/Monthly" toggle - Revenue jaisa hi,
@@ -12225,16 +12226,16 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 bodyHtml = renderOmvigDailyCircleLevelHtml_(data.rowsWithStatus, data.dcSummaryMap);
             }
             const downloadButtons = activeViewLevel === "DC"
-                ? `<div style="display:flex; gap:8px; margin-top:12px;">
+                ? `<div class="omvig-dl-btns" style="display:flex; gap:8px; margin-top:12px;">
                      <button class="btn-unique" style="flex:1; background:#16a34a; color:#fff;" onclick="downloadOmvigDailyReport('XLS')">⬇️ Excel</button>
                      <button class="btn-unique" style="flex:1; background:#dc2626; color:#fff;" onclick="downloadOmvigDailyReport('PDF')">⬇️ PDF</button>
                    </div>`
-                : `<div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
+                : `<div class="omvig-dl-btns" style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
                      <button class="btn-unique" style="flex:1; min-width:100px; background:#16a34a; color:#fff;" onclick="downloadOmvigDailyReport('XLS')">⬇️ Excel</button>
                      <button class="btn-unique" style="flex:1; min-width:100px; background:#0891b2; color:#fff;" onclick="downloadOmvigDailyReport('PDF_SUMMARY')">📊 Summary PDF</button>
                      <button class="btn-unique" style="flex:1; min-width:100px; background:#dc2626; color:#fff;" onclick="downloadOmvigDailyReport('PDF_LIST')">📋 List PDF</button>
                    </div>`;
-            return dateLine + bodyHtml + downloadButtons;
+            return dateLine + bodyHtml + downloadButtons + SC_OMVIG_DL_STATUS_HTML_;
         }
 
         // USER REQUEST (2026-09-14): on-screen dropdown filter (Division/DC/
@@ -12310,7 +12311,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             }));
         }
 
-        async function downloadOmvigReport(fmt) {
+        async function scOmvigReportDownloadCore_(fmt) {
             try {
                 const data = await loadOmvigReportData_();
                 if (!data.freeze_date) return showToast("Pehle Freeze Date set karein", false);
@@ -12407,8 +12408,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 const omvigColumnStyles_ = {};
                 LEFT_ALIGN_COLS_.forEach((i) => { omvigColumnStyles_[i] = { halign: "left" }; });
                 RIGHT_ALIGN_COLS_.forEach((i) => { omvigColumnStyles_[i] = { halign: "right" }; });
-                const drawFullListTable = (startY) => {
-                    doc.autoTable({
+                const drawFullListTable = (startY, tDoc = doc) => { // tDoc: Hindi pre-warm scratch (2026-09-26)
+                    tDoc.autoTable({
                         startY,
                         head: [listHeaders],
                         body: listBodyRows.length ? listBodyRows : [listHeaders.map(() => "")],
@@ -12451,7 +12452,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                         didDrawCell: (cellData) => {
                             if (cellData.section === "body" && meterCheckingCellHasDevanagari_(cellData.cell.raw)) {
                                 const align = LEFT_ALIGN_COLS_.includes(cellData.column.index) ? "left" : "center";
-                                drawMeterCheckingHindiCell_(doc, cellData, align);
+                                drawMeterCheckingHindiCell_(tDoc, cellData, align);
                             }
                         }
                     });
@@ -12464,6 +12465,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 8);
                     doc.setFontSize(13); doc.setTextColor(0); doc.text(`${reportTitle} - Full List`, 148, 15, { align: "center" });
                     doc.setFontSize(9); doc.setTextColor(80); doc.text(`Freeze Date: ${data.freeze_date}`, 148, 21, { align: "center" });
+                    await scPrewarmHindiCells_(drawFullListTable, 26); // SPEED FIX 2026-09-26
                     drawFullListTable(26);
                     const pdfBlob = doc.output("blob");
                     await saveShmsBlob(`${fileName}.pdf`, pdfBlob, "application/pdf");
@@ -12507,6 +12509,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     doc.addPage("a4", "l");
                     doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 8);
                     doc.setFontSize(13); doc.setTextColor(0); doc.text(`${reportTitle} - Full List`, 148, 15, { align: "center" });
+                    await scPrewarmHindiCells_(drawFullListTable, 20); // SPEED FIX 2026-09-26
                     drawFullListTable(20);
                 }
 
@@ -12526,7 +12529,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // (DC/Consumer/Panchanama/Pay Mode/Amount) - Monthly wale Circle/Division/
         // Checked-By/Inspection-Date/EZ-No/Tariff/Case/Balanced-Amount columns
         // Daily data me hote hi nahi, isliye copy nahi kiye ja sakte.
-        async function downloadOmvigDailyReport(fmt) {
+        async function scOmvigDailyReportDownloadCore_(fmt) {
             try {
                 const data = await loadOmvigDailyReportData_();
                 if (!data.date) return showToast("Abhi tak koi Paid List upload nahi hui hai", false);
@@ -12575,8 +12578,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 const omvigDailyColumnStyles_ = {};
                 LEFT_ALIGN_COLS_.forEach((i) => { omvigDailyColumnStyles_[i] = { halign: "left" }; });
                 RIGHT_ALIGN_COLS_.forEach((i) => { omvigDailyColumnStyles_[i] = { halign: "right" }; });
-                const drawFullListTable = (startY) => {
-                    doc.autoTable({
+                const drawFullListTable = (startY, tDoc = doc) => { // tDoc: Hindi pre-warm scratch (2026-09-26)
+                    tDoc.autoTable({
                         startY,
                         head: [listHeaders],
                         body: listBodyRows.length ? listBodyRows : [listHeaders.map(() => "")],
@@ -12594,7 +12597,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                         didDrawCell: (cellData) => {
                             if (cellData.section === "body" && meterCheckingCellHasDevanagari_(cellData.cell.raw)) {
                                 const align = LEFT_ALIGN_COLS_.includes(cellData.column.index) ? "left" : "center";
-                                drawMeterCheckingHindiCell_(doc, cellData, align);
+                                drawMeterCheckingHindiCell_(tDoc, cellData, align);
                             }
                         }
                     });
@@ -12604,6 +12607,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 8);
                     doc.setFontSize(13); doc.setTextColor(0); doc.text(`${reportTitle} - Full List`, 148, 15, { align: "center" });
                     doc.setFontSize(9); doc.setTextColor(80); doc.text(`Date: ${data.date}`, 148, 21, { align: "center" });
+                    await scPrewarmHindiCells_(drawFullListTable, 26); // SPEED FIX 2026-09-26
                     drawFullListTable(26);
                     const pdfBlob = doc.output("blob");
                     await saveShmsBlob(`${fileName}.pdf`, pdfBlob, "application/pdf");
@@ -12643,6 +12647,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     doc.addPage("a4", "l");
                     doc.setFontSize(7); doc.setTextColor(100); doc.text("DEVELOPED BY - AKHILESH PATIDAR (AE)", 14, 8);
                     doc.setFontSize(13); doc.setTextColor(0); doc.text(`${reportTitle} - Full List`, 148, 15, { align: "center" });
+                    await scPrewarmHindiCells_(drawFullListTable, 20); // SPEED FIX 2026-09-26
                     drawFullListTable(20);
                 }
 
@@ -14454,13 +14459,13 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             link.style.display = "none";
             document.body.appendChild(link);
             link.click();
-            try {
-                window.open(url, "_blank", "noopener");
-            } catch (_) {}
+            // USER REQUEST (2026-09-26): pehle yahan window.open() bhi hota tha - PDF naye
+            // tab/viewer me khulti thi aur app "hang" jaisa lagta tha. Ab baaki app jaisa
+            // sirf seedha download (O&M/VIG, Peak Load, STM isi helper se download karte hain).
             setTimeout(() => {
                 try { document.body.removeChild(link); } catch (_) {}
                 URL.revokeObjectURL(url);
-            }, 800);
+            }, 1500);
             return true;
         }
 
@@ -14494,6 +14499,79 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             document.body.removeChild(link);
             setTimeout(() => URL.revokeObjectURL(url), 120000);
             return true;
+        }
+
+        // =====================================================================
+        // DOWNLOAD PATTERN (USER REQUEST 2026-09-26): poore app me ek jaisa download -
+        // buttons disable + progress/spinner status ("Processing...") -> "Done" /
+        // "Failed - Retry" (Revenue/Freeze category downloads wala hi pattern). O&M/VIG
+        // (Monthly + Daily) aur SHMS/Feeder/STM/Peak Load ab isi se chalte hain.
+        // Asli report banane ka code (…Core_) bilkul nahi badla.
+        // =====================================================================
+        const SC_OMVIG_DL_STATUS_HTML_ = `<div id="omvig-download-status" style="display:none; text-align:center; font-weight:900; border-radius:14px; padding:8px 10px; width:100%; margin-top:8px;"></div>`;
+        const scDlTokens_ = {};
+        function scSetDownloadBusy_(key, status, buttons, isBusy, message, ok) {
+            (buttons || []).forEach((b) => {
+                b.disabled = isBusy;
+                b.style.opacity = isBusy ? "0.65" : "1";
+                b.style.pointerEvents = isBusy ? "none" : "auto";
+            });
+            const token = scDlTokens_[key] = (scDlTokens_[key] || 0) + 1;
+            if (!status) return;
+            if (isBusy) {
+                status.style.display = "block";
+                status.style.background = "#dbeafe";
+                status.style.color = "#1d4ed8";
+                renderSyncingProgress(status, () => scDlTokens_[key] === token && status.isConnected, message || "Downloading...");
+                return;
+            }
+            const text = normalizeActionStatusMessage(message, false, ok);
+            status.style.display = text ? "block" : "none";
+            status.textContent = text;
+            status.style.background = ok ? "#dcfce7" : "#fff1f2";
+            status.style.color = ok ? "#047857" : "#991b1b";
+        }
+        async function scRunStandardDownload_(key, getStatus, getButtons, fmt, coreFn) {
+            if (scDlTokens_[key + "_busy"]) return;
+            scDlTokens_[key + "_busy"] = true;
+            const label = String(fmt || "").toUpperCase().indexOf("PDF") > -1 ? "PDF" : "Excel";
+            const failBefore = window.scToastFailSeq_ || 0;
+            let ok = true;
+            try {
+                scSetDownloadBusy_(key, getStatus(), getButtons(), true, `${label} downloading... kripya wait kijiye`, true);
+                // status/spinner screen par pehle dikh jaaye, phir bhaari PDF/Excel kaam
+                await new Promise((r) => setTimeout(r, 60)); // rAF nahi - app background me ho to rAF rukta hai
+                await coreFn(fmt);
+                ok = (window.scToastFailSeq_ || 0) === failBefore;
+            } catch (_) {
+                ok = false;
+            } finally {
+                scDlTokens_[key + "_busy"] = false;
+                scSetDownloadBusy_(key, getStatus(), getButtons(), false, ok ? `${label} download ho chuki hai` : "Download nahi ho paya", ok);
+            }
+        }
+        function downloadOmvigReport(fmt) {
+            return scRunStandardDownload_("omvig", () => document.getElementById("omvig-download-status"),
+                () => Array.from(document.querySelectorAll(".omvig-dl-btns button")), fmt, scOmvigReportDownloadCore_);
+        }
+        function downloadOmvigDailyReport(fmt) {
+            return scRunStandardDownload_("omvig", () => document.getElementById("omvig-download-status"),
+                () => Array.from(document.querySelectorAll(".omvig-dl-btns button")), fmt, scOmvigDailyReportDownloadCore_);
+        }
+        function scShmsDownloadStatusEl_() {
+            let el = document.getElementById("shms-download-status");
+            if (el) return el;
+            const row = document.querySelector("#shms-progress-view .btn-export-row");
+            if (!row) return null;
+            el = document.createElement("div");
+            el.id = "shms-download-status";
+            el.style.cssText = "display:none; text-align:center; font-weight:900; border-radius:14px; padding:8px 10px; width:100%; margin-top:8px;";
+            row.insertAdjacentElement("afterend", el);
+            return el;
+        }
+        function downloadShmsProgress(fmt) {
+            return scRunStandardDownload_("shms", scShmsDownloadStatusEl_,
+                () => Array.from(document.querySelectorAll("#shms-progress-view .btn-export-row button")), fmt, scShmsProgressDownloadCore_);
         }
 
         function savePdfDocumentForDevice(doc, fileName) {
@@ -14704,7 +14782,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             }
         }
 
-        async function downloadShmsProgress(fmt) {
+        async function scShmsProgressDownloadCore_(fmt) {
             if (progressReportSource === "FEEDER") {
                 return downloadFeederReport(fmt);
             }
@@ -27353,15 +27431,55 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
 
         function drawMeterCheckingHindiCell_(doc, cellData, align) {
             const { x, y, width, height } = cellData.cell;
+            if (scHindiCollect_) { scHindiCollect_.push([String(cellData.cell.raw ?? ""), width, height, align]); return; }
             doc.setFillColor(255, 255, 255);
             doc.rect(x, y, width, height, "F");
             doc.setDrawColor(0, 0, 0);
             doc.setLineWidth(0.1);
             doc.rect(x, y, width, height, "S");
             try {
-                const imgData = renderMeterCheckingHindiCellImage_(String(cellData.cell.raw ?? ""), width, height, align);
-                doc.addImage(imgData, "PNG", x + 0.4, y + 0.3, Math.max(0.1, width - 0.8), Math.max(0.1, height - 0.6));
+                // SPEED FIX (2026-09-26, USER-REPORTED "download par hang"): O&M/VIG list me
+                // ~2,200 Hindi cells (sirf ~900 alag text) - har cell ki canvas image dobara
+                // banti thi (~16ms each => 40s+ UI freeze). Ab same text+size ki image ek hi
+                // baar banti hai aur PDF me ek hi baar embed hoti hai (alias). Dikhne me same.
+                const raw = String(cellData.cell.raw ?? "");
+                const key = scHindiCellKey_(raw, width, height, align);
+                let hit = scHindiCellImgCache_.get(key);
+                if (!hit) {
+                    if (scHindiCellImgCache_.size > 20000) scHindiCellImgCache_.clear();
+                    hit = { data: renderMeterCheckingHindiCellImage_(raw, width, height, align), alias: `schc${++scHindiCellImgSeq_}` };
+                    scHindiCellImgCache_.set(key, hit);
+                }
+                doc.addImage(hit.data, "PNG", x + 0.4, y + 0.3, Math.max(0.1, width - 0.8), Math.max(0.1, height - 0.6), hit.alias, "FAST");
             } catch (_) {}
+        }
+        const scHindiCellImgCache_ = new Map();
+        let scHindiCellImgSeq_ = 0;
+        let scHindiCollect_ = null;
+        const scHindiCellKey_ = (raw, w, h, align) => `${raw}|${w.toFixed(2)}|${h.toFixed(2)}|${align || ""}`;
+        // SPEED FIX (2026-09-26): bade PDF (O&M/VIG list) se pehle ek "scratch" PDF par
+        // table ka layout nikaal kar sabhi Hindi cell images thoda-thoda karke (beech me
+        // ruk-ruk kar) bana lete hain - taaki phone par app freeze na ho aur progress
+        // chalta dikhe. Asli PDF bilkul pehle jaisa hi banta hai (cache se).
+        async function scPrewarmHindiCells_(drawFn, startY) {
+            try {
+                if (!window.jspdf?.jsPDF) return;
+                const scratch = new window.jspdf.jsPDF("l", "mm", "a4");
+                scHindiCollect_ = [];
+                try { drawFn(startY, scratch); } finally { var cells = scHindiCollect_; scHindiCollect_ = null; }
+                const todo = [];
+                const seen = new Set();
+                (cells || []).forEach((c) => {
+                    const key = scHindiCellKey_(c[0], c[1], c[2], c[3]);
+                    if (seen.has(key) || scHindiCellImgCache_.has(key)) return;
+                    seen.add(key); todo.push([key, c]);
+                });
+                for (let i = 0; i < todo.length; i++) {
+                    const [key, c] = todo[i];
+                    try { scHindiCellImgCache_.set(key, { data: renderMeterCheckingHindiCellImage_(c[0], c[1], c[2], c[3]), alias: `schc${++scHindiCellImgSeq_}` }); } catch (_) {}
+                    if (i % 20 === 19) await new Promise((r) => setTimeout(r, 0));
+                }
+            } catch (_) { scHindiCollect_ = null; }
         }
 
         async function downloadMeterCheckingReport(fmt) {
