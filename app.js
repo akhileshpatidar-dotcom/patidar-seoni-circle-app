@@ -3453,7 +3453,9 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 statusBox.style.display = "block";
                 statusBox.style.background = ok ? "#ecfdf5" : "#eff6ff";
                 statusBox.style.color = ok ? "#047857" : "#1d4ed8";
-                statusBox.innerText = text;
+                // USER REQUEST (2026-09-26): process chalte waqt sirf text nahi, ghoomta spinner bhi.
+                const busy = !ok && !/^Freeze nahi ho paya/.test(String(text || ""));
+                statusBox.innerHTML = (busy && typeof FREEZE_SPINNER_HTML_ !== "undefined" ? FREEZE_SPINNER_HTML_ : "") + escapeHtml(String(text || ""));
             };
             setStatus("SYNCING DATA... PLEASE WAIT", false);
             const savedViewLevel = activeViewLevel, savedDC = activeDC, savedDiv = activeDiv;
