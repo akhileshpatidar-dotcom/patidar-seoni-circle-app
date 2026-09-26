@@ -6562,7 +6562,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // nonGovtCount > 0 hone par render/download ko pata chal jaata hai kahan
         // se Govt group shuru hota hai.
         function getProgressDefaultersFilteredRows(mode, filterValue) {
-            const consumerRows = buildRevenueHqVillageConsumerRows(mode, filterValue).filter((row) => row.pendingAmount > 0);
+            const consumerRows = buildRevenueHqVillageConsumerRows(mode, filterValue, true).filter((row) => row.pendingAmount > 0); // USER RULE 2026-09-26: paid = cash list
             const govtFilter = progressDefaultersGovtFilter;
             const sortDesc = (list) => list.slice().sort((a, b) => b.pendingAmount - a.pendingAmount);
             if (govtFilter === "GOVT") {
@@ -7006,7 +7006,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         }
 
         function getProgressNonPayeeFilteredRows(mode, filterValue, bucket) {
-            const allRows = buildRevenueNonPayeeRows(mode, filterValue, bucket);
+            const allRows = buildRevenueNonPayeeRows(mode, filterValue, bucket, true); // USER RULE 2026-09-26: paid = cash list
             const f = progressNonPayeeFilterState;
             const rows = allRows.filter((row) => (
                 (!f.dc || normalizeDcName(row.dcName) === normalizeDcName(f.dc))
@@ -8282,6 +8282,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     // ke andar isRevenueUploadedPaidInCategoryPeriod() bhi expect karta hai -
                     // isliye seedhe revenueFilterValue reuse kar sakte hain, alag se convert
                     // karne ki zaroorat nahi.
+                    try { await warmRevenueFreezePaidSummaryCache_(); } catch (_) {} // USER RULE 2026-09-26: Top 20/50 + Non-Payee ke liye cash list
+                    if (isStaleSummaryRefresh()) return;
                     let hqVillageSummaryData = null;
                     try {
                         const reconciliation = await (scEarlyReconciliationPromise || prepareRevenueCategoryReportData_(
@@ -22440,7 +22442,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             if (!scRevenueLiveFromPublicAt_ || activeViewLevel === "DC") return "";
             const d = new Date(scRevenueLiveFromPublicAt_);
             const hh = String(d.getHours()).padStart(2, "0"), mm = String(d.getMinutes()).padStart(2, "0");
-            return `<div style="display:flex; align-items:center; justify-content:space-between; gap:8px; background:#fffbeb; border:1px solid #fcd34d; color:#92400e; border-radius:12px; padding:6px 10px; font-size:0.66rem; font-weight:800; margin:4px 0 8px;"><span>⏱ Staff entries ${hh}:${mm} tak ki (har 15 min update)</span><button onclick="scRevenueLiveRefresh_()" style="border:none; background:#d97706; color:#fff; border-radius:9px; padding:5px 9px; font-size:0.64rem; font-weight:900;">🔄 Live Refresh</button></div>`;
+            return `<div style="display:flex; align-items:center; justify-content:space-between; gap:8px; background:#fffbeb; border:1px solid #fcd34d; color:#92400e; border-radius:12px; padding:6px 10px; font-size:0.66rem; font-weight:800; margin:4px 0 8px;"><span>⏱ Display Report Before 15 Min</span><button onclick="scRevenueLiveRefresh_()" style="border:none; background:#d97706; color:#fff; border-radius:9px; padding:5px 9px; font-size:0.64rem; font-weight:900;">🔄 Live Refresh</button></div>`;
         }
         function scRevenueLiveRefresh_() {
             scRevenueForceLive_ = true;
@@ -25377,7 +25379,9 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 // hain, "!row.paid" filter hata diya - taaki partial payment wale
                 // consumer bhi apne bache hue bakaya amount ke saath Top Defaulters
                 // me sahi se dikhein (pehle wo poori tarah list se bahar ho jaate the).
-                const consumerRows = buildRevenueHqVillageConsumerRows("DAILY", dateValue);
+                try { await warmRevenueFreezePaidSummaryCache_(); } catch (_) {} // USER RULE 2026-09-26: cash list (Freeze jaisa)
+                if (!isRenderValid()) { if (progress) progress.stop(); return; }
+                const consumerRows = buildRevenueHqVillageConsumerRows("DAILY", dateValue, true);
                 revenueDefaultersRows = consumerRows.filter((row) => row.pendingAmount > 0);
                 if (progress) await progress.finish();
                 if (!isRenderValid()) return;
@@ -25488,8 +25492,27 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             return Number(paidInfo.normalAmount || 0) + Number(paidInfo.agAmount || 0) + Number(paidInfo.mixedAmount || 0) + Number(paidInfo.unknownAmount || 0);
         }
 
-        function buildRevenueHqVillageConsumerRows(mode, filterValue) {
-            const paidInfoByDc = buildRevenueCategoryUploadedPaidInfo(mode, filterValue);
+        // USER RULE (2026-09-26, BARGHAT 1303033740): consumer ki "status" wali report (Top 20/50
+        // Defaulters, Live Non-Payee) me paid/pending Freeze aur Arrears 1 Lakh jaisa hi - poori
+        // cash list (PAID DATE RULE ke saath), chuni hui date/mahina nahi. Pehle Top 20/50 sirf
+        // "usi din" ke payment ko paid maanta tha, isliye 16/09 ko paid consumer 26/09 ko pending dikhta.
+        function scCashListPaidInfoByDc_() {
+            const idx = buildRevenueFreezePaidIndex("");
+            const out = {};
+            Object.keys(idx).forEach((key) => {
+                const sep = key.indexOf("|");
+                if (sep < 0) return;
+                const dc = key.slice(0, sep), ivrs = key.slice(sep + 1);
+                const amount = Number(idx[key].paidAmount || 0);
+                if (!(amount > 0)) return;
+                if (!out[dc]) out[dc] = {};
+                out[dc][ivrs] = { normalAmount: amount, normalCount: 1, agAmount: 0, agCount: 0, mixedAmount: 0, mixedCount: 0, unknownAmount: 0, unknownCount: 0, categoryTotals: {} };
+            });
+            return out;
+        }
+
+        function buildRevenueHqVillageConsumerRows(mode, filterValue, useCashList = false) {
+            const paidInfoByDc = useCashList ? scCashListPaidInfoByDc_() : buildRevenueCategoryUploadedPaidInfo(mode, filterValue);
             const targetDcs = getRevenueCategoryTargetDcs();
             const rows = [];
             targetDcs.forEach((dcName) => {
@@ -25587,9 +25610,12 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             return Math.max(0, months);
         }
 
-        function buildRevenueNonPayeeRows(mode, filterValue, bucket) {
-            const consumerRows = buildRevenueHqVillageConsumerRows(mode, filterValue);
-            const withPendingAmount = (row) => ({ ...row, pendingAmount: parseRevenuePendingAmount(row.netBill || 0) });
+        function buildRevenueNonPayeeRows(mode, filterValue, bucket, hidePaidByCashList = false) {
+            // hidePaidByCashList: sirf Live Non-Payee report (Freeze Now ke liye pehle jaisa - sabhi consumer)
+            const consumerRows = buildRevenueHqVillageConsumerRows(mode, filterValue, hidePaidByCashList);
+            const withPendingAmount = hidePaidByCashList
+                ? (row) => ({ ...row })
+                : (row) => ({ ...row, pendingAmount: parseRevenuePendingAmount(row.netBill || 0) });
             if (bucket === "SINCE_CONNECTION") {
                 return consumerRows
                     .filter((row) => row.hasPaymentDateData && row.neverPaid)
