@@ -11447,9 +11447,47 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             throw lastErr;
         }
 
+        // O&M/VIG PUBLIC CACHE (USER REQUEST 2026-09-26): backend ki public copy (bilkul wahi JSON)
+        // - freeze status, paid (sabhi), daily report, pending (sabhi). META "OK" na ho => purana raasta.
+        const SC_PUB_OMVIG_SHEET_ID = "1bf5lnYkPrScm6NbgXYD9nCmS79iAf1h5J5aoAOncFD0";
+        let scPubOmvigMetaP_ = null, scPubOmvigMetaAt_ = 0;
+        const scPubOmvigJsonMem_ = {};
+        function scPubOmvigMeta_() {
+            if (!SC_PUB_OMVIG_SHEET_ID) return Promise.resolve(null);
+            if (scPubOmvigMetaP_ && Date.now() - scPubOmvigMetaAt_ < 60000) return scPubOmvigMetaP_;
+            scPubOmvigMetaAt_ = Date.now();
+            scPubOmvigMetaP_ = (async () => {
+                try {
+                    const rows = await scPubFetchCsv_(SC_PUB_OMVIG_SHEET_ID, 0, 20000);
+                    const m = {};
+                    rows.slice(1).forEach((r) => { if (r[0]) m[r[0]] = scPubStrip_(r[1]); });
+                    if (m.state !== "OK" || !m.sig) return null;
+                    return { sig: m.sig, gids: JSON.parse(m.gids || "{}") };
+                } catch (_) { return null; }
+            })();
+            return scPubOmvigMetaP_;
+        }
+        async function scPubOmvigJson_(key) {
+            try {
+                const meta = await scPubOmvigMeta_();
+                if (!meta || meta.gids[key] === undefined) return null;
+                const memKey = `${meta.sig}|${key}`;
+                if (!scPubOmvigJsonMem_[memKey]) {
+                    scPubOmvigJsonMem_[memKey] = scPubFetchCsv_(SC_PUB_OMVIG_SHEET_ID, meta.gids[key], 60000).then((rows) => {
+                        const parts = rows.slice(1).filter((r) => r[0] !== "" && r[0] !== undefined).map((r) => [Number(r[0]), scPubStrip_(r[1])]);
+                        const obj = scPubJoinChunks_(parts);
+                        if (!obj || obj.status !== "success") throw new Error("bad");
+                        return obj;
+                    });
+                    scPubOmvigJsonMem_[memKey].catch(() => { delete scPubOmvigJsonMem_[memKey]; });
+                }
+                return JSON.parse(JSON.stringify(await scPubOmvigJsonMem_[memKey]));
+            } catch (_) { return null; }
+        }
+
         async function fetchOmvigFreezeStatus_(forceRefresh = false) {
             if (!forceRefresh && omvigFreezeStatusCache_) return omvigFreezeStatusCache_;
-            const data = await withOmvigRetry_(() => withAppsScriptConcurrencyGate_(omvigSubmitScriptUrl, () => loadRemoteJson(`${omvigSubmitScriptUrl}?action=getFreezeStatus&t=${Date.now()}`, 45000)));
+            const data = (await scPubOmvigJson_("FREEZE_STATUS")) || await withOmvigRetry_(() => withAppsScriptConcurrencyGate_(omvigSubmitScriptUrl, () => loadRemoteJson(`${omvigSubmitScriptUrl}?action=getFreezeStatus&t=${Date.now()}`, 45000))); // PUBLIC CACHE 2026-09-26
             if (data?.status === "error") throw new Error(data.message || "O&M/VIG freeze status load fail");
             let freezeDate = data?.freeze_date || "";
             const pendingCount = Number(data?.pending_count) || 0;
@@ -11547,6 +11585,20 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
 
         async function fetchOmvigPendingForDcs_(dcNames) {
             const BATCH = 6;
+            // PUBLIC CACHE 2026-09-26: sabhi DC ki pending list public copy se (backend ke dc-filter jaisa hi)
+            try {
+                const missing = (dcNames || []).filter((dcName) => !omvigPendingCache_[dcName]);
+                if (missing.length) {
+                    const pub = await scPubOmvigJson_("PENDING_ALL");
+                    if (pub && Array.isArray(pub.data)) {
+                        missing.forEach((dcName) => {
+                            const dcNorm = String(dcName).trim().toUpperCase();
+                            const rows = pub.data.filter((row) => String(row[2] || "").trim().toUpperCase() === dcNorm);
+                            omvigPendingCache_[dcName] = { rows: rows.map(normalizeOmvigPendingRow_), freeze_date: pub.freeze_date || "" };
+                        });
+                    }
+                }
+            } catch (_) {}
             let freezeDateOut = "";
             const allRows = [];
             const failedDcs = [];
@@ -11595,7 +11647,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             const key = dc || "ALL";
             if (omvigPaidCache_[key]) return omvigPaidCache_[key];
             const url = `${omvigSubmitScriptUrl}?action=getPaidSummary${dc ? `&dc=${encodeURIComponent(dc)}` : ""}&t=${Date.now()}`;
-            const data = await withOmvigRetry_(() => withAppsScriptConcurrencyGate_(omvigSubmitScriptUrl, () => loadRemoteJson(url, dc ? 45000 : 90000)));
+            const data = (!dc ? await scPubOmvigJson_("PAID_ALL") : null) || await withOmvigRetry_(() => withAppsScriptConcurrencyGate_(omvigSubmitScriptUrl, () => loadRemoteJson(url, dc ? 45000 : 90000))); // PUBLIC CACHE 2026-09-26
             if (data?.status === "error") throw new Error(data.message || "O&M/VIG paid data load fail");
             const rows = Array.isArray(data?.data) ? data.data : [];
             const result = rows.map(normalizeOmvigPaidRow_);
@@ -12136,7 +12188,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             if (forceRefresh) omvigDailyReportCache_ = null;
             if (omvigDailyReportCache_) return omvigDailyReportCache_;
             const url = `${omvigSubmitScriptUrl}?action=getDailyReport&t=${Date.now()}`;
-            const data = await withOmvigRetry_(() => withAppsScriptConcurrencyGate_(omvigSubmitScriptUrl, () => loadRemoteJson(url, 45000)));
+            const data = (await scPubOmvigJson_("DAILY")) || await withOmvigRetry_(() => withAppsScriptConcurrencyGate_(omvigSubmitScriptUrl, () => loadRemoteJson(url, 45000))); // PUBLIC CACHE 2026-09-26
             if (data?.status === "error") throw new Error(data.message || "O&M/VIG daily report load fail");
             const rows = Array.isArray(data?.rows) ? data.rows.map((r) => ({
                 dc_name: String(r.dc_name || "").trim(),
