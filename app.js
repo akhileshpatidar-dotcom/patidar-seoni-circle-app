@@ -4155,6 +4155,16 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             const normalizedDc = normalizeDcName(dcName);
             const cacheKey = freezeId + "|" + category + "|" + normalizedDc;
             if (revenueFreezeSnapshotCache[cacheKey]) return revenueFreezeSnapshotCache[cacheKey];
+            // SPEED (2026-09-26): phone cache (same freeze version)
+            const scKey = scFreezeSnapCacheKey_(freezeId, category, normalizedDc);
+            if (scKey) {
+                const hit = await scCacheGet_(scKey);
+                if (hit && Array.isArray(hit.rows)) {
+                    const cachedResult = { rows: hit.rows, dc_status: String(hit.dc_status || "").trim() || "ACTIVE" };
+                    revenueFreezeSnapshotCache[cacheKey] = cachedResult;
+                    return cachedResult;
+                }
+            }
             // BUG FIX (2026-09-13, updated): NP3/NP6/SINCE_CONNECTION me Top-N limit
             // na hone se badi DC (jaise SEONI (T), CHHAPARA-1, LAKHNADON) ka snapshot
             // bahut bada ho sakta hai. USER-REPORTED BUG: DC-level par yeh report
@@ -4182,6 +4192,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     const dcStatus = String(parsed?.dc_status || "").trim() || "ACTIVE";
                     const result = { rows, dc_status: dcStatus };
                     revenueFreezeSnapshotCache[cacheKey] = result;
+                    if (scKey) scCacheSet_(scKey, result); // SPEED 2026-09-26
                     return result;
                 } catch (_) {
                     if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, 800));
@@ -4211,7 +4222,30 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // purana per-DC single-call fallback chal jaata hai - report kabhi bhi
         // khaali/galat nahi dikhegi, sirf batch-fail hone par utni hi dheemi
         // (purani jaisi) hogi.
-        const FREEZE_SNAPSHOT_BATCH_SIZE = 6;
+        // SPEED (2026-09-26, user "teeno karo"): 6 DC wale bade batch par Google kabhi 404 de
+        // deta tha (37-64s) aur fir DC-by-DC dheema fallback chalta tha - ab 3 DC ka batch.
+        const FREEZE_SNAPSHOT_BATCH_SIZE = 3;
+        // SPEED (2026-09-26): freeze rows phone (IndexedDB) me freeze ke "version" ke saath yaad.
+        // Backend version tabhi badalta hai jab freeze data / DC status badle (Freeze Now, nayi DC
+        // jodna, Unfreeze/Reactivate) - version same ho to rows dobara server se nahi aati.
+        // Purana backend (version nahi) = cache band, pehle jaisa behaviour.
+        function scFreezeSnapCacheKey_(freezeId, category, dcName) {
+            const a = progressFreezeActiveFreeze;
+            const ver = (a && a.freeze_id === freezeId && a.version) ? String(a.version) : "";
+            return ver ? `frz-snap-v1|${freezeId}|${ver}|${category}|${normalizeDcName(dcName)}` : "";
+        }
+        async function scFreezeSnapCachePrune_(freezeId) {
+            try {
+                const a = progressFreezeActiveFreeze;
+                if (!a || a.freeze_id !== freezeId || !a.version) return;
+                const keepPrefix = `frz-snap-v1|${freezeId}|${a.version}|`;
+                const db = await scIdbOpen_();
+                if (!db) return;
+                const store = db.transaction("kv", "readwrite").objectStore("kv");
+                const req = store.getAllKeys(IDBKeyRange.bound("frz-snap-v1|", "frz-snap-v1|\uffff"));
+                req.onsuccess = () => { (req.result || []).forEach((k) => { if (String(k).indexOf(keepPrefix) !== 0) { try { store.delete(k); } catch (_) {} } }); };
+            } catch (_) {}
+        }
         async function fetchRevenueFreezeSnapshotBatch_(freezeId, category, dcNames, attempts = 2) {
             for (let attempt = 1; attempt <= attempts; attempt++) {
                 try {
@@ -4249,9 +4283,25 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 return { rows: merged, dcStatusMap };
             }
 
+            // SPEED (2026-09-26): pehle phone ka cache (same freeze version) - sirf bachi DC server se.
+            const missingDcs = [];
+            await Promise.all(targetDcs.map(async (dcName) => {
+                const normalizedDc = normalizeDcName(dcName);
+                const key = scFreezeSnapCacheKey_(freezeId, category, normalizedDc);
+                const hit = key ? await scCacheGet_(key) : null;
+                if (hit && Array.isArray(hit.rows)) {
+                    const dcStatus = String(hit.dc_status || "").trim() || "ACTIVE";
+                    dcStatusMap[normalizedDc] = dcStatus;
+                    revenueFreezeSnapshotCache[freezeId + "|" + category + "|" + normalizedDc] = { rows: hit.rows, dc_status: dcStatus };
+                    if (dcStatus !== "UNFROZEN") hit.rows.forEach((r) => merged.push({ ...r, dc_name: normalizedDc }));
+                } else {
+                    missingDcs.push(dcName);
+                }
+            }));
+            scFreezeSnapCachePrune_(freezeId);
             const batches = [];
-            for (let i = 0; i < targetDcs.length; i += FREEZE_SNAPSHOT_BATCH_SIZE) {
-                batches.push(targetDcs.slice(i, i + FREEZE_SNAPSHOT_BATCH_SIZE));
+            for (let i = 0; i < missingDcs.length; i += FREEZE_SNAPSHOT_BATCH_SIZE) {
+                batches.push(missingDcs.slice(i, i + FREEZE_SNAPSHOT_BATCH_SIZE));
             }
             await runWithConcurrencyLimit_(batches, 3, async (batchDcs) => {
                 const dcData = await fetchRevenueFreezeSnapshotBatch_(freezeId, category, batchDcs);
@@ -4267,6 +4317,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                         // report bhi kholta hai (ya dobara isi scope ko re-render
                         // karta hai), to dobara network call na lage.
                         revenueFreezeSnapshotCache[freezeId + "|" + category + "|" + normalizedDc] = { rows, dc_status: dcStatus };
+                        const scKey = scFreezeSnapCacheKey_(freezeId, category, normalizedDc);
+                        if (scKey) scCacheSet_(scKey, { rows, dc_status: dcStatus }); // SPEED 2026-09-26
                         if (dcStatus === "UNFROZEN") return;
                         rows.forEach((r) => merged.push({ ...r, dc_name: normalizedDc }));
                     });
