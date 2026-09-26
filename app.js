@@ -14745,6 +14745,18 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 () => Array.from(document.querySelectorAll("#shms-progress-view .btn-export-row button")), fmt, scShmsProgressDownloadCore_);
         }
 
+        // FIX (2026-09-26, user-reported): Excel Automation / Image To Excel tool ki HTML
+        // "cdn.tailwindcss.com" par nirbhar thi - network par woh domain na khule (ERR_NAME_NOT_RESOLVED)
+        // to poora tool bina design ke khulta tha. Ab app ki apni file tools-tailwind.css (tool ki
+        // classes se bani) pehle lagti hai; CDN script async ho jaata hai (mile to naye classes bhi).
+        function scToolHtmlLocalCss_(html) {
+            try {
+                const base = window.location.href.split("#")[0].split("?")[0].replace(/[^/]*$/, "");
+                return String(html || "").replace(/<script\s+src=["']https:\/\/cdn\.tailwindcss\.com[^"']*["']\s*>\s*<\/script>/i,
+                    (m) => `<link rel="stylesheet" href="${base}tools-tailwind.css">` + m.replace("<script ", "<script async "));
+            } catch (_) { return html; }
+        }
+
         function savePdfDocumentForDevice(doc, fileName) {
             if (isIosLikeDevice()) {
                 return sharePdfBlobOnIos(fileName, doc.output("blob"));
@@ -17734,10 +17746,10 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     if (parsed && parsed.status === "success" && parsed.html) {
                         if (newTab && !newTab.closed) {
                             newTab.document.open();
-                            newTab.document.write(parsed.html);
+                            newTab.document.write(scToolHtmlLocalCss_(parsed.html));
                             newTab.document.close();
                         } else {
-                            const blob = new Blob([parsed.html], { type: "text/html" });
+                            const blob = new Blob([scToolHtmlLocalCss_(parsed.html)], { type: "text/html" });
                             window.open(URL.createObjectURL(blob), "_blank", "noopener");
                         }
                         return;
@@ -17802,10 +17814,10 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     if (parsed && parsed.status === "success" && parsed.html) {
                         if (newTab && !newTab.closed) {
                             newTab.document.open();
-                            newTab.document.write(parsed.html);
+                            newTab.document.write(scToolHtmlLocalCss_(parsed.html));
                             newTab.document.close();
                         } else {
-                            const blob = new Blob([parsed.html], { type: "text/html" });
+                            const blob = new Blob([scToolHtmlLocalCss_(parsed.html)], { type: "text/html" });
                             window.open(URL.createObjectURL(blob), "_blank", "noopener");
                         }
                         return;
@@ -17867,10 +17879,10 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     if (parsed && parsed.status === "success" && parsed.html) {
                         if (newTab && !newTab.closed) {
                             newTab.document.open();
-                            newTab.document.write(parsed.html);
+                            newTab.document.write(scToolHtmlLocalCss_(parsed.html));
                             newTab.document.close();
                         } else {
-                            const blob = new Blob([parsed.html], { type: "text/html" });
+                            const blob = new Blob([scToolHtmlLocalCss_(parsed.html)], { type: "text/html" });
                             window.open(URL.createObjectURL(blob), "_blank", "noopener");
                         }
                         return;
@@ -17928,10 +17940,10 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     if (parsed && parsed.status === "success" && parsed.html) {
                         if (newTab && !newTab.closed) {
                             newTab.document.open();
-                            newTab.document.write(parsed.html);
+                            newTab.document.write(scToolHtmlLocalCss_(parsed.html));
                             newTab.document.close();
                         } else {
-                            const blob = new Blob([parsed.html], { type: "text/html" });
+                            const blob = new Blob([scToolHtmlLocalCss_(parsed.html)], { type: "text/html" });
                             window.open(URL.createObjectURL(blob), "_blank", "noopener");
                         }
                         return;
