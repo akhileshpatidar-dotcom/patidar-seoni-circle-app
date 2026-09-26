@@ -2277,14 +2277,32 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             p.append("dc", activeDC);
             p.append("division", activeDiv);
             p.append("timestamp", new Date().toLocaleDateString("en-GB"));
+            // OFFLINE QUEUE 2: isi consumer ki entry pehle se phone me pending ho to dobara nahi
+            const scOffqMobileKey = scOffqKey_(activeDC, currentData?.ivrs);
+            if (await scOffqFind_("MOBILE", scOffqMobileKey)) {
+                showToast("Is consumer ki entry pehle se phone me pending save hai (internet aate hi submit hogi)", false);
+                return;
+            }
+            const scOffqQueueMobile = async () => {
+                const saved = await scOffqSave_("MOBILE", scOffqMobileKey, `${currentData?.ivrs || ""} - ${currentData?.name || ""} -> ${n}`, scriptURL, "application/x-www-form-urlencoded;charset=UTF-8", p.toString());
+                if (!saved) {
+                    showToast("Network nahi hai aur phone me bhi save nahi ho paya. Internet aane par dobara Submit karein.", false);
+                    return false;
+                }
+                showToast("Network nahi hai. Entry phone me safe save ho gayi, internet aate hi apne aap submit hogi.", true);
+                resetForm(true);
+                return true;
+            };
+            if (navigator.onLine === false) { await scOffqQueueMobile(); return; }
+            let scMobileSubmitDone = false;
             try {
                 const btn = document.getElementById("submit-btn");
                 setActionButtonState(btn, "processing", "Submit");
-                const response = await fetch(scriptURL, {
+                const response = await fetchWithTimeout(scriptURL, {
                     method: "POST",
                     headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
                     body: p.toString()
-                });
+                }, 30000);
 
                 const responseText = await response.text();
                 let submitOk = response.ok;
@@ -2304,11 +2322,14 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     }
                 }
 
+                // OFFLINE QUEUE 2: server ne JSON error nahi diya (Google ka HTML/5xx) -> network jaisa maan kar queue
+                if (!submitOk && !/^\s*\{/.test(String(responseText || ""))) throw new Error("__SC_OFFQ_NETWORK__");
                 showToast(submitMessage, submitOk);
                 if (!submitOk) {
                     setActionButtonState(btn, "failed", "Submit");
                     return;
                 }
+                scMobileSubmitDone = true;
                 setActionButtonState(btn, "done", "Submit");
                 // Local map turant update kar do (60-second cache wait na karna pade) taaki
                 // agar ye hi IVRS turant dobara search ho, to "already submitted" sahi dikhe.
@@ -2339,7 +2360,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 if (searchInput) searchInput.focus();
             } catch (e) {
                 setActionButtonState(document.getElementById("submit-btn"), "failed", "Submit");
-                showToast("Submit blocked ya network issue aaya", false);
+                if (scMobileSubmitDone) { setActionButtonState(document.getElementById("submit-btn"), "done", "Submit"); return; }
+                await scOffqQueueMobile(); // OFFLINE QUEUE 2 (pehle: "Submit blocked ya network issue aaya")
             } finally {
                 setTimeout(() => setActionButtonState(document.getElementById("submit-btn"), "idle", "Submit"), 900);
             }
@@ -18595,6 +18617,205 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             retryFieldOfflineQueue("PEAKLOAD", true).catch(() => {});
         }, 60000);
 
+        // ===== OFFLINE QUEUE 2 (2026-09-26, USER REQUEST): Mobile Update + Meter
+        // Checking. Revenue/Feeder jaisa hi pattern - network na ho (ya request
+        // fail/timeout ho) to entry phone me safe save hoti hai aur internet aate hi
+        // (app open, "online" event, har 60 sec, ya Retry button) apne-aap submit.
+        // Storage: IndexedDB (localStorage nahi) - Meter Checking ki 3 photos
+        // localStorage ki 5-10MB limit me nahi samati thi. Duplicate safety: dono
+        // backend IVRS par duplicate block karte hain; retry par "Already Submitted"
+        // aaye to entry pehle hi save ho chuki thi -> queue se hata dete hain.
+        const SC_OFFQ_DB = "seoni-offline-queue-v1";
+        const SC_OFFQ_STORE = "items";
+        const SC_OFFQ_TYPES = {
+            MOBILE: { viewSel: "#mobile-update-view .search-panel", title: "Mobile Update", timeoutMs: 30000 },
+            METER: { viewSel: "#meter-checking-view .search-panel", title: "Meter Checking", timeoutMs: 120000 }
+        };
+        let scOffqDbPromise_ = null;
+        const scOffqBusy_ = {};
+
+        function scOffqDb_() {
+            if (scOffqDbPromise_) return scOffqDbPromise_;
+            scOffqDbPromise_ = new Promise((resolve, reject) => {
+                try {
+                    const req = indexedDB.open(SC_OFFQ_DB, 1);
+                    req.onupgradeneeded = () => {
+                        const db = req.result;
+                        if (!db.objectStoreNames.contains(SC_OFFQ_STORE)) db.createObjectStore(SC_OFFQ_STORE, { keyPath: "id" });
+                    };
+                    req.onsuccess = () => resolve(req.result);
+                    req.onerror = () => reject(req.error || new Error("IndexedDB open failed"));
+                } catch (e) { reject(e); }
+            });
+            scOffqDbPromise_.catch(() => { scOffqDbPromise_ = null; });
+            return scOffqDbPromise_;
+        }
+
+        async function scOffqAll_(type) {
+            const db = await scOffqDb_();
+            return new Promise((resolve, reject) => {
+                const req = db.transaction(SC_OFFQ_STORE, "readonly").objectStore(SC_OFFQ_STORE).getAll();
+                req.onsuccess = () => resolve((req.result || [])
+                    .filter((item) => !type || item.type === type)
+                    .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt))));
+                req.onerror = () => reject(req.error);
+            });
+        }
+
+        async function scOffqWrite_(fn) {
+            const db = await scOffqDb_();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(SC_OFFQ_STORE, "readwrite");
+                fn(tx.objectStore(SC_OFFQ_STORE));
+                tx.oncomplete = () => resolve(true);
+                tx.onerror = () => reject(tx.error || new Error("IndexedDB write failed"));
+                tx.onabort = () => reject(tx.error || new Error("IndexedDB write aborted"));
+            });
+        }
+
+        function scOffqKey_(dcName, ivrs) {
+            return `${normalizeLookupValue(dcName || "")}__${normalizeLookupDigits(ivrs || "")}`;
+        }
+
+        async function scOffqFind_(type, key) {
+            try { return (await scOffqAll_(type)).find((item) => item.key === key) || null; } catch (_) { return null; }
+        }
+
+        // true = phone me safe save ho gaya; false = save nahi ho paya (form reset
+        // mat karo, user dobara Submit kare).
+        async function scOffqSave_(type, key, label, url, contentType, body) {
+            try {
+                const old = await scOffqAll_(type);
+                const item = {
+                    id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                    type, key, label, url, contentType, body,
+                    createdAt: new Date().toISOString(),
+                    lastError: ""
+                };
+                await scOffqWrite_((store) => {
+                    old.filter((row) => row.key === key).forEach((row) => store.delete(row.id));
+                    store.put(item);
+                });
+                try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (_) {}
+                scOffqRender_(type);
+                return true;
+            } catch (_) {
+                return false;
+            }
+        }
+
+        // ok = save ho gaya, already = pehle hi save tha, rejected = server ne mana
+        // kiya (reason ke saath, entry rakhi jaati hai), retry = network/temporary.
+        async function scOffqPost_(item) {
+            const cfg = SC_OFFQ_TYPES[item.type] || {};
+            const response = await fetchWithTimeout(item.url, {
+                method: "POST",
+                headers: { "Content-Type": item.contentType },
+                body: item.body
+            }, cfg.timeoutMs || 30000);
+            const text = await response.text();
+            let parsed = null;
+            try { parsed = JSON.parse(text || "{}"); } catch (_) {}
+            const isErr = parsed && (parsed.status === "error" || (item.type === "METER" && parsed.status && parsed.status !== "success"));
+            if (isErr) {
+                const msg = String(parsed.message || "");
+                return /already submitted/i.test(msg) ? { kind: "already" } : { kind: "rejected", message: msg || "Server ne entry mana kar di" };
+            }
+            if (!response.ok || !parsed) return { kind: "retry" };
+            return { kind: "ok", parsed };
+        }
+
+        async function scOffqRetry_(type, silent = false) {
+            if (scOffqBusy_[type]) return;
+            scOffqBusy_[type] = true;
+            const btn = document.getElementById(`sc-offq-btn-${type}`);
+            let okCount = 0, pendingCount = 0;
+            try {
+                const items = await scOffqAll_(type);
+                if (!items.length) return;
+                if (!silent) setActionButtonState(btn, "processing", "Retry Pending Data");
+                for (const item of items) {
+                    if (navigator.onLine === false) { pendingCount++; continue; }
+                    // USER RULE (18:35): "pehle se submit" wali entry auto-retry me baar-baar nahi bhejte;
+                    // woh error + Delete ke saath dikhti rehti hai, user khud Delete kare.
+                    if (silent && item.alreadySubmitted) { pendingCount++; continue; }
+                    let res;
+                    try { res = await scOffqPost_(item); } catch (_) { res = { kind: "retry" }; }
+                    if (res.kind === "ok") {
+                        await scOffqWrite_((store) => store.delete(item.id)).catch(() => {});
+                        okCount++;
+                    } else if (res.kind === "already") {
+                        pendingCount++;
+                        if (!item.alreadySubmitted) {
+                            await scOffqWrite_((store) => store.put({ ...item, alreadySubmitted: true, lastError: "Yah consumer pehle se submit hai - ise Delete kar sakte hain" })).catch(() => {});
+                        }
+                    } else {
+                        pendingCount++;
+                        const lastError = res.kind === "rejected" ? res.message : "";
+                        if (lastError !== (item.lastError || "")) {
+                            await scOffqWrite_((store) => store.put({ ...item, lastError })).catch(() => {});
+                        }
+                    }
+                }
+                if (!silent) {
+                    setActionButtonState(btn, pendingCount ? "failed" : "done", "Retry Pending Data");
+                    showToast(pendingCount ? `${okCount} submit ho gayi, ${pendingCount} abhi pending hai` : "Pending entry submit ho gayi", !pendingCount);
+                } else if (okCount) {
+                    showToast(`${okCount} pending ${SC_OFFQ_TYPES[type].title} entry automatic submit ho gayi`, true);
+                }
+            } catch (_) {
+                if (!silent) setActionButtonState(btn, "failed", "Retry Pending Data");
+            } finally {
+                scOffqBusy_[type] = false;
+                scOffqRender_(type);
+                if (!silent) setTimeout(() => setActionButtonState(document.getElementById(`sc-offq-btn-${type}`), "idle", "Retry Pending Data"), 900);
+            }
+        }
+
+        async function scOffqRender_(type) {
+            const cfg = SC_OFFQ_TYPES[type];
+            if (!cfg) return;
+            let items = [];
+            try { items = await scOffqAll_(type); } catch (_) { items = []; }
+            let box = document.getElementById(`sc-offq-box-${type}`);
+            if (!items.length) { if (box) box.style.display = "none"; return; }
+            if (!box) {
+                const panel = document.querySelector(cfg.viewSel);
+                if (!panel) return;
+                box = document.createElement("div");
+                box.id = `sc-offq-box-${type}`;
+                box.style.cssText = "width:100%; max-width:340px; margin:0 auto 12px; background:#fff7ed; border:1.5px solid #fdba74; border-radius:16px; padding:12px; color:#9a3412; font-size:0.76rem; font-weight:900; line-height:1.45; text-align:center; box-sizing:border-box;";
+                box.innerHTML = `<div id="sc-offq-text-${type}"></div><button id="sc-offq-btn-${type}" onclick="scOffqRetry_('${type}')" style="width:100%; height:42px; margin-top:9px; border:none; border-radius:13px; background:#ea580c; color:#ffffff; font-size:0.78rem; font-weight:950; text-transform:uppercase;">Retry Pending Data</button>`;
+                panel.insertBefore(box, panel.firstChild);
+            }
+            // Error wali entry (jaise "pehle se submit hai") ke niche Delete button.
+            const list = items.map((item) => `<div style="font-weight:800; color:#7c2d12; margin-top:4px;">• ${escapeHtml(item.label || "")}${item.lastError ? `<div style="color:#b91c1c; font-weight:900; margin:2px 0 0 10px;">⚠ ${escapeHtml(item.lastError)}</div><button onclick="scOffqDelete_('${type}','${escapeHtml(item.id)}')" style="margin:5px 0 2px 10px; height:30px; padding:0 14px; border:none; border-radius:10px; background:#dc2626; color:#ffffff; font-size:0.7rem; font-weight:950; text-transform:uppercase;">🗑 Delete</button>` : ""}</div>`).join("");
+            const more = "";
+            const textEl = document.getElementById(`sc-offq-text-${type}`);
+            if (textEl) textEl.innerHTML = `⏳ ${items.length} entry phone me safe save hai. Internet aate hi apne aap submit hogi.${list ? `<div style="margin-top:6px; text-align:left;">${list}${more}</div>` : ""}`;
+            box.style.display = "block";
+        }
+
+        async function scOffqDelete_(type, id) {
+            try {
+                await scOffqWrite_((store) => store.delete(id));
+                showToast("Pending entry hata di gayi", true);
+            } catch (_) {
+                showToast("Entry hata nahi payi, dobara try karein", false);
+            }
+            scOffqRender_(type);
+        }
+
+        function scOffqRetryAll_(silent) {
+            Object.keys(SC_OFFQ_TYPES).forEach((type) => scOffqRetry_(type, silent).catch(() => {}));
+        }
+        window.addEventListener("load", () => {
+            Object.keys(SC_OFFQ_TYPES).forEach((type) => scOffqRender_(type));
+            scOffqRetryAll_(true);
+        });
+        window.addEventListener("online", () => scOffqRetryAll_(true));
+        setInterval(() => { if (navigator.onLine !== false) scOffqRetryAll_(true); }, 60000);
+
         function mapRevenueTdSheetEntry(row) {
             return {
                 dcName: row.dc_name || row.dcName || row["DC NAME"] || activeDC || "",
@@ -27535,6 +27756,23 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             }
 
             const submitBtn = document.getElementById("meter-checking-submit-btn");
+            // OFFLINE QUEUE 2: isi consumer ki entry pehle se phone me pending ho to dobara nahi
+            const scOffqMeterKey = scOffqKey_(activeDC, currentMeterCheckingRecord.ivrsNo || currentMeterCheckingRecord.meterNo);
+            if (await scOffqFind_("METER", scOffqMeterKey)) {
+                return showToast("Is consumer ki entry pehle se phone me pending save hai (internet aate hi submit hogi)", false);
+            }
+            let scOffqMeterBody = "";
+            const scOffqQueueMeter = async () => {
+                const rec = currentMeterCheckingRecord || {};
+                const saved = scOffqMeterBody && await scOffqSave_("METER", scOffqMeterKey, `${rec.ivrsNo || rec.meterNo || ""} - ${rec.consumerName || ""}`, meterCheckingSubmitScriptUrl, "text/plain;charset=utf-8", scOffqMeterBody);
+                setActionButtonState(submitBtn, "idle", "Submit");
+                if (!saved) {
+                    showToast("Network nahi hai aur phone me bhi save nahi ho paya. Internet aane par dobara Submit karein.", false);
+                    return;
+                }
+                showToast("Network nahi hai. Entry (photos samet) phone me safe save ho gayi, internet aate hi apne aap submit hogi.", true);
+                resetMeterCheckingSearch();
+            };
             setActionButtonState(submitBtn, "processing", "Submit");
             try {
                 const record = currentMeterCheckingRecord;
@@ -27563,14 +27801,23 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     photo3_name: meterCheckingPhoto3.name || "",
                     photo3_mime_type: "image/jpeg"
                 };
-                const response = await fetch(meterCheckingSubmitScriptUrl, {
-                    method: "POST",
-                    headers: { "Content-Type": "text/plain;charset=utf-8" },
-                    body: JSON.stringify(payload)
-                });
-                const responseText = await response.text();
+                scOffqMeterBody = JSON.stringify(payload);
+                if (navigator.onLine === false) return await scOffqQueueMeter();
+                let response, responseText;
+                try {
+                    response = await fetchWithTimeout(meterCheckingSubmitScriptUrl, {
+                        method: "POST",
+                        headers: { "Content-Type": "text/plain;charset=utf-8" },
+                        body: scOffqMeterBody
+                    }, 120000);
+                    responseText = await response.text();
+                } catch (_) {
+                    return await scOffqQueueMeter(); // OFFLINE QUEUE 2: network/timeout
+                }
                 let parsed = {};
-                try { parsed = JSON.parse(responseText || "{}"); } catch (_) {}
+                let scParsedOk = false;
+                try { parsed = JSON.parse(responseText || "{}"); scParsedOk = true; } catch (_) {}
+                if (!scParsedOk && !response.ok) return await scOffqQueueMeter(); // Google HTML/5xx
                 if (!response.ok || (parsed.status && parsed.status !== "success")) {
                     throw new Error(parsed.message || "Meter Checking submit nahi ho payi");
                 }
