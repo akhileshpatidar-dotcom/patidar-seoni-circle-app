@@ -19579,7 +19579,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 const d = new Date(Number(snap.at || 0));
                 when = `${String(d.getDate()).padStart(2, "0")}-${String(d.getMonth() + 1).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
             } catch (_) {}
-            cont.innerHTML = `<div style="margin:4px 0 8px; padding:8px 10px; border:1px solid #fbbf24; background:#fffbeb; color:#92400e; border-radius:12px; font-size:0.66rem; font-weight:900; text-align:center; line-height:1.4;">🔄 Pichhli baar (${escapeHtml(when)}) ka data dikh raha hai — naya data aa raha hai, kripya rukein</div><div class="sc-swr-progress"></div><div style="pointer-events:none; opacity:0.5; filter:grayscale(0.4);">${snap.html}</div>`;
+            cont.innerHTML = `<div style="margin:4px 0 8px; padding:8px 10px; border:1px solid #fbbf24; background:#fffbeb; color:#92400e; border-radius:12px; font-size:0.66rem; font-weight:900; text-align:center; line-height:1.4;">🔄 Display Report Before 15 Min, Please wait for Latest Report</div><div class="sc-swr-progress"></div><div style="pointer-events:none; opacity:0.5; filter:grayscale(0.4);">${snap.html}</div>`;
             return cont.querySelector(".sc-swr-progress");
         }
         function scSaveSnapshot_(key, html) {
