@@ -8249,9 +8249,11 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     // Dono ek-doosre par nirbhar nahi - result bilkul wahi.
                     // (Entries-sync pehle shuru hota hai taaki backend ki 2-request line me
                     // woh aage rahe; reconciliation uske turant baad line me lagta hai.)
+                    scRevenueLiveFromPublicAt_ = 0; // LIVE CACHE 2026-09-26
+                    const scAllowPubLive = activeViewLevel !== "DC";
                     const scRevenueSyncPromise = Promise.all([
-                        syncRevenueLiveEntriesFromSheet(3, false, revenueSummaryScopeDc),
-                        syncRevenueTdEntriesFromSheet(3, false, revenueSummaryScopeDc)
+                        syncRevenueLiveEntriesFromSheet(3, false, revenueSummaryScopeDc, scAllowPubLive),
+                        syncRevenueTdEntriesFromSheet(3, false, revenueSummaryScopeDc, scAllowPubLive)
                     ]);
                     let scEarlyReconciliationPromise = null;
                     if (activeViewLevel !== "DC") {
@@ -8301,7 +8303,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                         hqVillageSummaryData = null;
                     }
 
-                    cont.innerHTML = renderRevenueProgressSummary(uiListSummary, label, hqVillageSummaryData, revenueMode, revenueFilterValue);
+                    cont.innerHTML = scRevenueLiveNoteHtml_() + renderRevenueProgressSummary(uiListSummary, label, hqVillageSummaryData, revenueMode, revenueFilterValue);
                     if (scSnapKey) scSaveSnapshot_(scSnapKey, cont.innerHTML); // SPEED PHASE 1
                     // SPEED PHASE 1: Circle/Division ka bhaari background warm-up ab yahan
                     // (report dikhne ke BAAD) - pehle askPassword() par hi chal kar
@@ -18563,22 +18565,35 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // dekhein waha wali detailed note.
         let revenueTdEntriesCachedScopeDc = null;
 
-        async function syncRevenueTdEntriesFromSheet(attempts = 3, forceRefresh = false, scopeDc = null) {
-            const cacheSatisfiesScope = revenueTdEntriesCachedScopeDc === null || (scopeDc && revenueTdEntriesCachedScopeDc === scopeDc);
+        let scTdEntriesFromPub_ = false;
+        async function syncRevenueTdEntriesFromSheet(attempts = 3, forceRefresh = false, scopeDc = null, allowPublic = false) {
+            const cacheSatisfiesScope = (revenueTdEntriesCachedScopeDc === null || (scopeDc && revenueTdEntriesCachedScopeDc === scopeDc)) && !(scTdEntriesFromPub_ && (scopeDc || !allowPublic || scRevenueForceLive_)); // LIVE CACHE
             if (!forceRefresh && cacheSatisfiesScope && revenueTdEntriesSyncedAt && Date.now() - revenueTdEntriesSyncedAt < REVENUE_TD_ENTRIES_SYNC_TTL_MS) {
                 return getRevenueTdEntriesLocal();
             }
             if (!revenueCollectionSubmitScriptUrl) return getRevenueTdEntriesLocal();
             const dedupeKey = scopeDc || "__ALL__";
             if (!forceRefresh && revenueTdEntriesSyncFetchPromises[dedupeKey]) return revenueTdEntriesSyncFetchPromises[dedupeKey];
-            revenueTdEntriesSyncFetchPromises[dedupeKey] = syncRevenueTdEntriesFromSheetInner_(attempts, scopeDc).finally(() => {
+            revenueTdEntriesSyncFetchPromises[dedupeKey] = syncRevenueTdEntriesFromSheetInner_(attempts, scopeDc, allowPublic).finally(() => {
                 delete revenueTdEntriesSyncFetchPromises[dedupeKey];
             });
             return revenueTdEntriesSyncFetchPromises[dedupeKey];
         }
 
-        async function syncRevenueTdEntriesFromSheetInner_(attempts, scopeDc = null) {
+        async function syncRevenueTdEntriesFromSheetInner_(attempts, scopeDc = null, allowPublic = false) {
             const scopeParam = scopeDc ? `&dc_name=${encodeURIComponent(scopeDc)}` : "";
+            if (!scopeDc && allowPublic) { // LIVE CACHE 2026-09-26
+                const pubT = await scPubLiveJson_("__LIVE_TD__");
+                if (pubT) {
+                    const freshRows = pubT.obj.entries.map(mapRevenueTdSheetEntry).filter((row) => normalizeRevenueIvrs(row.ivrsNo));
+                    setRevenueTdEntriesLocal(freshRows);
+                    revenueTdEntriesCachedScopeDc = null;
+                    revenueTdEntriesSyncedAt = Date.now();
+                    scTdEntriesFromPub_ = true;
+                    scRevenueLiveFromPublicAt_ = scRevenueLiveFromPublicAt_ ? Math.min(scRevenueLiveFromPublicAt_, pubT.at) : pubT.at;
+                    return getRevenueTdEntriesLocal();
+                }
+            }
             for (let attempt = 1; attempt <= attempts; attempt++) {
                 try {
                     const parsed = await withAppsScriptConcurrencyGate_(revenueCollectionSubmitScriptUrl, async () => {
@@ -18597,6 +18612,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                         } else {
                             setRevenueTdEntriesLocal(freshRows);
                             revenueTdEntriesCachedScopeDc = null;
+                            scTdEntriesFromPub_ = false;
                         }
                         revenueTdEntriesSyncedAt = Date.now();
                         return getRevenueTdEntriesLocal();
@@ -22292,22 +22308,112 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // fetch kar leta hai.
         let revenueLiveEntriesCachedScopeDc = null;
 
-        async function syncRevenueLiveEntriesFromSheet(attempts = 3, forceRefresh = false, scopeDc = null) {
-            const cacheSatisfiesScope = revenueLiveEntriesCachedScopeDc === null || (scopeDc && revenueLiveEntriesCachedScopeDc === scopeDc);
+        // LIVE REVENUE PUBLIC CACHE (USER REQUEST 2026-09-26, "15 minute purana, bahut tez"):
+        // Circle/Division Revenue report me staff entries + TD backend ki 15-min public copy se
+        // (screen par samay + "Live Refresh" button); reconciliation (cash list se bana) public
+        // copy se tabhi jab paid SIG same ho - woh bilkul sahi hota hai. DC level pehle jaisa live.
+        let scRevenueForceLive_ = false;
+        let scRevenueLiveFromPublicAt_ = 0;
+        const SC_PUB_LIVE_MAX_AGE_MS = 20 * 60 * 1000;
+        async function scPubLiveJson_(key) {
+            try {
+                if (scRevenueForceLive_) return null;
+                const meta = await scPubPaidMeta_();
+                const info = meta && meta[key];
+                if (!info) return null;
+                const at = Number(info.sig);
+                if (!at || Date.now() - at > SC_PUB_LIVE_MAX_AGE_MS) return null;
+                const rows = await scPubFetchCsv_(SC_PUB_PAID_SHEET_ID, info.gid, 60000);
+                const parts = rows.slice(1).filter((r) => r[0] !== "" && r[0] !== undefined).map((r) => [Number(r[0]), scPubStrip_(r[1])]);
+                if (!parts.length) return null;
+                const obj = scPubJoinChunks_(parts);
+                if (!obj || obj.status !== "success" || !Array.isArray(obj.entries)) return null;
+                return { obj, at };
+            } catch (_) { return null; }
+        }
+        const scPubReconTabMem_ = {};
+        async function scPubReconForBatch_(batch, periodMode, periodValue) {
+            try {
+                const meta = await scPubPaidMeta_();
+                if (!meta) return null;
+                const key = `${periodMode}|${periodValue}`;
+                const out = [];
+                const infos = [];
+                for (const dcRaw of batch) {
+                    const dc = normalizeDcName(dcRaw);
+                    const info = meta["RECON:" + dc];
+                    const paid = meta[dc];
+                    if (!info || !paid || !paid.sig) return null;
+                    let sigMap = {};
+                    try { sigMap = JSON.parse(info.sig); } catch (_) { return null; }
+                    if (sigMap[key] !== paid.sig) return null;
+                    infos.push(info);
+                }
+                // saare DC ek saath (parallel) - order wahi rakha
+                const lists = await Promise.all(infos.map(async (info) => {
+                    const memKey = `${info.gid}|${info.sig}`;
+                    if (!scPubReconTabMem_[memKey]) {
+                        scPubReconTabMem_[memKey] = scPubFetchCsv_(SC_PUB_PAID_SHEET_ID, info.gid).then((rows) => {
+                            const parts = {};
+                            rows.slice(1).forEach((r) => { if (!r[0]) return; (parts[r[0]] = parts[r[0]] || []).push([Number(r[1]), scPubStrip_(r[2])]); });
+                            const byPeriod = {};
+                            Object.keys(parts).forEach((k) => { byPeriod[k] = scPubJoinChunks_(parts[k]); });
+                            return byPeriod;
+                        });
+                        scPubReconTabMem_[memKey].catch(() => { delete scPubReconTabMem_[memKey]; });
+                    }
+                    const byPeriod = await scPubReconTabMem_[memKey];
+                    return Array.isArray(byPeriod[key]) ? byPeriod[key] : null;
+                }));
+                for (const list of lists) {
+                    if (!list) return null;
+                    list.forEach((e) => out.push(e));
+                }
+                return out;
+            } catch (_) { return null; }
+        }
+        function scRevenueLiveNoteHtml_() {
+            if (!scRevenueLiveFromPublicAt_ || activeViewLevel === "DC") return "";
+            const d = new Date(scRevenueLiveFromPublicAt_);
+            const hh = String(d.getHours()).padStart(2, "0"), mm = String(d.getMinutes()).padStart(2, "0");
+            return `<div style="display:flex; align-items:center; justify-content:space-between; gap:8px; background:#fffbeb; border:1px solid #fcd34d; color:#92400e; border-radius:12px; padding:6px 10px; font-size:0.66rem; font-weight:800; margin:4px 0 8px;"><span>⏱ Staff entries ${hh}:${mm} tak ki (har 15 min update)</span><button onclick="scRevenueLiveRefresh_()" style="border:none; background:#d97706; color:#fff; border-radius:9px; padding:5px 9px; font-size:0.64rem; font-weight:900;">🔄 Live Refresh</button></div>`;
+        }
+        function scRevenueLiveRefresh_() {
+            scRevenueForceLive_ = true;
+            revenueLiveEntriesSyncedAt = 0;
+            revenueTdEntriesSyncedAt = 0;
+            Promise.resolve(refreshSummary()).finally(() => { scRevenueForceLive_ = false; });
+        }
+
+        let scLiveEntriesFromPub_ = false;
+        async function syncRevenueLiveEntriesFromSheet(attempts = 3, forceRefresh = false, scopeDc = null, allowPublic = false) {
+            const cacheSatisfiesScope = (revenueLiveEntriesCachedScopeDc === null || (scopeDc && revenueLiveEntriesCachedScopeDc === scopeDc)) && !(scLiveEntriesFromPub_ && (scopeDc || !allowPublic || scRevenueForceLive_)); // LIVE CACHE: public copy sirf Circle/Division summary ke liye
             if (!forceRefresh && cacheSatisfiesScope && revenueLiveEntriesSyncedAt && Date.now() - revenueLiveEntriesSyncedAt < REVENUE_LIVE_ENTRIES_SYNC_TTL_MS) {
                 return getRevenueLiveEntries();
             }
             if (!revenueCollectionSubmitScriptUrl) return getRevenueLiveEntries();
             const dedupeKey = scopeDc || "__ALL__";
             if (!forceRefresh && revenueLiveEntriesSyncFetchPromises[dedupeKey]) return revenueLiveEntriesSyncFetchPromises[dedupeKey];
-            revenueLiveEntriesSyncFetchPromises[dedupeKey] = syncRevenueLiveEntriesFromSheetInner_(attempts, scopeDc).finally(() => {
+            revenueLiveEntriesSyncFetchPromises[dedupeKey] = syncRevenueLiveEntriesFromSheetInner_(attempts, scopeDc, allowPublic).finally(() => {
                 delete revenueLiveEntriesSyncFetchPromises[dedupeKey];
             });
             return revenueLiveEntriesSyncFetchPromises[dedupeKey];
         }
 
-        async function syncRevenueLiveEntriesFromSheetInner_(attempts, scopeDc = null) {
+        async function syncRevenueLiveEntriesFromSheetInner_(attempts, scopeDc = null, allowPublic = false) {
             const scopeParam = scopeDc ? `&dc_name=${encodeURIComponent(scopeDc)}` : "";
+            if (!scopeDc && allowPublic) { // LIVE CACHE 2026-09-26
+                const pubE = await scPubLiveJson_("__LIVE_ENTRIES__");
+                if (pubE) {
+                    const freshRows = pubE.obj.entries.map(mapRevenueSheetEntry).filter((row) => normalizeRevenueIvrs(row.ivrsNo));
+                    setRevenueLiveEntries(freshRows);
+                    revenueLiveEntriesCachedScopeDc = null;
+                    revenueLiveEntriesSyncedAt = Date.now();
+                    scLiveEntriesFromPub_ = true;
+                    scRevenueLiveFromPublicAt_ = scRevenueLiveFromPublicAt_ ? Math.min(scRevenueLiveFromPublicAt_, pubE.at) : pubE.at;
+                    return getRevenueLiveEntries();
+                }
+            }
             for (let attempt = 1; attempt <= attempts; attempt++) {
                 try {
                     const parsed = await withAppsScriptConcurrencyGate_(revenueCollectionSubmitScriptUrl, async () => {
@@ -22334,6 +22440,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                         } else {
                             setRevenueLiveEntries(freshRows);
                             revenueLiveEntriesCachedScopeDc = null;
+                            scLiveEntriesFromPub_ = false;
                         }
                         revenueLiveEntriesSyncedAt = Date.now();
                         return getRevenueLiveEntries();
@@ -23447,6 +23554,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             let capabilityMismatch = false;
 
             async function runBatch(batch) {
+                const scPubRecon = await scPubReconForBatch_(batch, expectedPeriodMode, periodValue); // LIVE CACHE 2026-09-26 (paid SIG same = bilkul sahi)
+                if (scPubRecon) return { ok: true, entries: scPubRecon };
                 const dcNamesParam = `&dc_names=${encodeURIComponent(batch.join(","))}`;
                 for (let attempt = 1; attempt <= 2; attempt++) {
                     try {
