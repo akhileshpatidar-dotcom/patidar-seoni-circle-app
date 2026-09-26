@@ -21475,6 +21475,19 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             };
         }
 
+        // USER RULE (2026-09-26): NORMAL file ke sabhi IVRS upload hon; AG file ki jo row ka IVRS
+        // NORMAL file me bhi hai (LV5 ke kuch consumer dono me aate hain) woh SKIP - sheet me ek
+        // hi row jaaye (pehle dono jud kar "NORMAL+AG" ban jaate the, amount doguna).
+        function scSplitAgRowsByNormal_(agRows, normalIvrsSet) {
+            const keep = [];
+            const skipped = [];
+            (agRows || []).forEach((row) => {
+                const iv = normalizeRevenueIvrs(row.ivrsNo);
+                if (iv && normalIvrsSet.has(iv)) skipped.push(iv); else keep.push(row);
+            });
+            return { keep, skipped: Array.from(new Set(skipped)) };
+        }
+
         function buildRevenuePaidUploadEntries(rows, dcName) {
             const grouped = {};
             rows.forEach((row) => {
@@ -21780,7 +21793,15 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                         if (!blockRows.length) return;
                         const parsed = readRevenuePaidRowsFromSheetRows_(blockRows, "AG");
                         parsed.forEach((row) => {
-                            const dc = currentDc || ivrsToDc[row.ivrsNo];
+                            // FIX (2026-09-26, user-reported): 26/09 ki AG file me saari 6,945 rows
+                            // ADEGAON me chali gayi (LOCATION block pehchan nahi hua). Ab consumer ki
+                            // DC master se (sabse pakka), master me na ho tabhi LOCATION block.
+                            const masterDc = ivrsToDc[row.ivrsNo];
+                            const dc = masterDc || currentDc;
+                            if (masterDc && currentDc && masterDc !== currentDc && planByDc[currentDc]) {
+                                const iv = normalizeRevenueIvrs(row.ivrsNo);
+                                if (iv) (planByDc[currentDc].foreignAgIvrs = planByDc[currentDc].foreignAgIvrs || new Set()).add(iv);
+                            }
                             if (dc && planByDc[dc]) planByDc[dc].ag.push(row); else agUnassigned++;
                         });
                         blockRows = [];
@@ -21795,11 +21816,45 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     });
                     flush();
                 }
+                // USER RULE (2026-09-26): poori NORMAL file me jo IVRS hai (kisi bhi DC ka), woh AG se skip
+                const scNormalAll = new Set();
+                plan.forEach((p) => p.normal.forEach((r) => { const iv = normalizeRevenueIvrs(r.ivrsNo); if (iv) scNormalAll.add(iv); }));
+                let scAgSkippedTotal = 0;
+                plan.forEach((p) => {
+                    const split = scSplitAgRowsByNormal_(p.ag, scNormalAll);
+                    p.ag = split.keep;
+                    // doosri DC ke consumer jo is DC ke LOCATION block me aaye the - is DC ki sheet se
+                    // unki (galti se pehle judi) AG rows bhi hatengi
+                    const ownIvrs = new Set(p.ag.map((r) => normalizeRevenueIvrs(r.ivrsNo)));
+                    const foreign = Array.from(p.foreignAgIvrs || []).filter((iv) => !ownIvrs.has(iv));
+                    p.skipAgIvrs = Array.from(new Set([...split.skipped, ...foreign]));
+                    scAgSkippedTotal += split.skipped.length;
+                });
+                // FIX (2026-09-26): sheet me pehle se padi DOOSRI DC ke consumer ki AG rows (jaise 26/09 ko
+                // ADEGAON me 6,343, 24/09 CHHAPARA-1 me CHHAPARA-2 ki 727) - master se pehchan kar hatao.
+                // Asli DC me woh consumer pehle se hai (26/09 jaanch), isliye sirf duplicate hatta hai.
+                let scForeignAgTotal = 0;
+                try {
+                    const scPubPaidNow = await scPubPaidMeta_();
+                    if (scPubPaidNow) {
+                        await runWithConcurrencyLimit_(plan.slice(), 4, async (p) => {
+                            const rows = await scPubPaidRowsForDc_(scPubPaidNow, p.dc);
+                            if (!rows) return;
+                            const extra = Array.from(new Set(rows
+                                .filter((r) => String(r.source_type || "").toUpperCase().includes("AG"))
+                                .map((r) => normalizeRevenueIvrs(r.ivrs_no))
+                                .filter((iv) => iv && ivrsToDc[iv] && ivrsToDc[iv] !== p.dc)));
+                            if (!extra.length) return;
+                            p.skipAgIvrs = Array.from(new Set([...(p.skipAgIvrs || []), ...extra]));
+                            scForeignAgTotal += extra.length;
+                        });
+                    }
+                } catch (_) {}
                 plan.forEach((p) => { if (!p.normal.length && !p.ag.length) { p.status = "SKIPPED"; p.statusText = "File me data nahi"; } });
                 renderDivisionPaidUploadTable_(plan);
-                const note = (normalUnassigned || agUnassigned)
+                const note = ((normalUnassigned || agUnassigned)
                     ? `<br>⚠️ Kisi DC se match nahi hui (upload nahi hongi): NORMAL ${normalUnassigned}, AG ${agUnassigned}`
-                    : "";
+                    : "") + (scAgSkippedTotal ? `<br>ℹ️ AG file ke ${scAgSkippedTotal} consumer NORMAL file me bhi the - AG se skip (ek hi baar jayenge)` : "") + (scForeignAgTotal ? `<br>🧹 Doosri DC ke ${scForeignAgTotal} consumer ki galat AG rows hatayi jaayengi (asli DC me maujood)` : "");
                 setDivisionPaidUploadStatus_(`Files padh li gayi. Ab har DC ka upload ek-ek karke ho raha hai (DC upload jaisa hi)...${note}`, true);
 
                 let failed = 0;
@@ -21820,6 +21875,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     payload.append("dc_name", p.dc);
                     payload.append("uploaded_at", new Date().toISOString());
                     payload.append("entries_json", JSON.stringify(entries));
+                    payload.append("skip_ag_ivrs", JSON.stringify(p.skipAgIvrs || []));
                     let result = null;
                     let synced = false;
                     try {
@@ -21948,6 +22004,9 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 // na ho - backend par bhejne SE PEHLE file ke IVRS ko chuni hui DC ki
                 // master list se milate hain; aadhe se kam mile to upload yahin ruk jaata hai.
                 await checkRevenuePaidFileBelongsToDc_(activeDC || "", normalRows, agRows);
+                const scAgSplit = scSplitAgRowsByNormal_(agRows, new Set(normalRows.map((r) => normalizeRevenueIvrs(r.ivrsNo)).filter(Boolean)));
+                agRows.length = 0;
+                agRows.push(...scAgSplit.keep);
                 const entries = buildRevenuePaidUploadEntries([...normalRows, ...agRows], activeDC || "");
                 if (!entries.length) throw new Error("Paid data file me valid rows nahi mili");
                 const paymentRowCount = entries.reduce((total, entry) => total + getRevenueUploadedPaidPaymentRows(entry).length, 0);
@@ -21964,6 +22023,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 payload.append("dc_name", activeDC || "");
                 payload.append("uploaded_at", new Date().toISOString());
                 payload.append("entries_json", JSON.stringify(entries));
+                payload.append("skip_ag_ivrs", JSON.stringify(scAgSplit.skipped));
 
                 setRevenuePaidUploadProgress(70, `Backend upload chal raha hai... Unique IVRS: ${entries.length} | Payment Rows: ${paymentRowCount}`);
                 let backendSynced = false;
