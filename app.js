@@ -4129,6 +4129,14 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         async function ensureRevenueFreezeActiveInfo(forceRefresh = false) {
             if (progressFreezeActiveFreeze && !forceRefresh) return progressFreezeActiveFreeze;
             if (!revenueFreezeTrackingScriptUrl || revenueFreezeTrackingScriptUrl.indexOf("PASTE_") === 0) return null;
+            if (!forceRefresh) { // PUBLIC CACHE 2026-09-26: listFreezes ki wahi copy public sheet se
+                const pub = await scPubFreezeMeta_();
+                if (pub) {
+                    const active = pub.list.freezes.filter((f) => f.status !== "UNFROZEN").sort((a, b) => String(b.freeze_date || "").localeCompare(String(a.freeze_date || "")))[0] || null;
+                    progressFreezeActiveFreeze = active;
+                    return active;
+                }
+            }
             // BUG FIX (2026-09-13, further): Console se confirm hua ki yahan kabhi-kabhi
             // Apps Script ka "echo" content-delivery layer 404/HTML error page de deta
             // hai (JSON ki jagah <!DOCTYPE...), jisse JSON.parse yahin throw ho jaata
@@ -4167,6 +4175,127 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // ka data Division/Circle level merge me shaamil NAHI hota (baaki DC par
         // koi asar nahi), aur DC-level report me us DC ke liye seedha "yeh DC
         // unfreeze hai" message dikhta hai.
+        // =====================================================================
+        // PUBLIC CACHE (USER REQUEST 2026-09-26): "ek user ne data sync kiya to baaki sabke
+        // liye dobara mehnat na ho". Backend (freeze script + master) chalu freeze ki rows aur
+        // har DC ki compact paid list ek public (link-viewer) Google Sheet me ek baar likh deta
+        // hai; app unhe seedha Google se padhta hai (Apps Script par bojh nahi, 500 users me bhi
+        // tez). Data bilkul wahi JSON hai jo Apps Script deta - report same. Kuch bhi gadbad
+        // (sheet ID khaali, META "STALE", version alag, network) => purana Apps Script raasta.
+        // =====================================================================
+        const SC_PUB_FREEZE_SHEET_ID = "1L7mWJWR-x4fb7Mxlr_lj_nJ3y5B8M4OxjqCfUdNZpSc";
+        const SC_PUB_PAID_SHEET_ID = "12TMn1sBVldv7EBfWgBTep5XkMm2cO84Fb7gdM7fI2jQ";
+        function scPubParseCsv_(text) {
+            const rows = [];
+            let row = [], field = "", i = 0, q = false;
+            const n = text.length;
+            while (i < n) {
+                const c = text[i];
+                if (q) {
+                    if (c === '"') { if (text[i + 1] === '"') { field += '"'; i += 2; continue; } q = false; i++; continue; }
+                    field += c; i++; continue;
+                }
+                if (c === '"') { q = true; i++; continue; }
+                if (c === ",") { row.push(field); field = ""; i++; continue; }
+                if (c === "\r") { i++; continue; }
+                if (c === "\n") { row.push(field); rows.push(row); row = []; field = ""; i++; continue; }
+                field += c; i++;
+            }
+            if (field !== "" || row.length) { row.push(field); rows.push(row); }
+            return rows;
+        }
+        async function scPubFetchCsv_(sheetId, gid, timeoutMs = 45000) {
+            const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+            const timer = setTimeout(() => { try { if (ctrl) ctrl.abort(); } catch (_) {} }, timeoutMs);
+            try {
+                const res = await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${encodeURIComponent(gid)}`, ctrl ? { cache: "no-store", signal: ctrl.signal } : { cache: "no-store" });
+                if (!res.ok) throw new Error("public cache " + res.status);
+                const text = await res.text();
+                if (/^\s*</.test(text)) throw new Error("public cache html");
+                return scPubParseCsv_(text);
+            } finally { clearTimeout(timer); }
+        }
+        const scPubStrip_ = (v) => String(v == null ? "" : v).replace(/^~/, "");
+        function scPubJoinChunks_(parts) {
+            return JSON.parse(parts.sort((a, b) => a[0] - b[0]).map((p) => p[1]).join(""));
+        }
+        let scPubFreezeMetaP_ = null, scPubFreezeMetaAt_ = 0;
+        function scPubFreezeMeta_() {
+            if (!SC_PUB_FREEZE_SHEET_ID) return Promise.resolve(null);
+            if (scPubFreezeMetaP_ && Date.now() - scPubFreezeMetaAt_ < 60000) return scPubFreezeMetaP_;
+            scPubFreezeMetaAt_ = Date.now();
+            scPubFreezeMetaP_ = (async () => {
+                try {
+                    const rows = await scPubFetchCsv_(SC_PUB_FREEZE_SHEET_ID, 0, 20000);
+                    const m = {};
+                    rows.slice(1).forEach((r) => { if (r[0]) m[r[0]] = scPubStrip_(r[1]); });
+                    if (m.state !== "OK") return null;
+                    const list = JSON.parse(m.list_freezes || "{}");
+                    if (!list || !Array.isArray(list.freezes)) return null;
+                    return { freezeId: m.published_freeze_id || "", version: m.published_version || "", dcStatus: JSON.parse(m.dc_status || "{}"), gids: JSON.parse(m.dc_gids || "{}"), list };
+                } catch (_) { return null; }
+            })();
+            return scPubFreezeMetaP_;
+        }
+        const scPubFreezeTabMem_ = {};
+        function scPubFreezeTab_(pub, dc) {
+            const k = pub.version + "|" + dc;
+            if (!scPubFreezeTabMem_[k]) {
+                scPubFreezeTabMem_[k] = (async () => {
+                    const gid = pub.gids[dc];
+                    if (gid === undefined || gid === null || gid === "") return {}; // tab hi nahi = Apps Script bhi khaali deta
+                    const rows = await scPubFetchCsv_(SC_PUB_FREEZE_SHEET_ID, gid);
+                    const parts = {};
+                    rows.slice(1).forEach((r) => { const cat = r[0]; if (!cat) return; (parts[cat] = parts[cat] || []).push([Number(r[1]), scPubStrip_(r[2])]); });
+                    const byCat = {};
+                    Object.keys(parts).forEach((cat) => { byCat[cat] = scPubJoinChunks_(parts[cat]); });
+                    return byCat;
+                })();
+                scPubFreezeTabMem_[k].catch(() => { delete scPubFreezeTabMem_[k]; });
+            }
+            return scPubFreezeTabMem_[k];
+        }
+        async function scPubFreezeRowsForDc_(freezeId, category, dcName) {
+            try {
+                const pub = await scPubFreezeMeta_();
+                const a = progressFreezeActiveFreeze;
+                if (!pub || !pub.freezeId || pub.freezeId !== freezeId || !a || a.freeze_id !== freezeId || String(a.version || "") !== String(pub.version)) return null;
+                const dc = normalizeDcName(dcName);
+                const byCat = await scPubFreezeTab_(pub, dc);
+                const rows = Array.isArray(byCat[category]) ? byCat[category] : [];
+                return { rows, dc_status: String(pub.dcStatus[dc] || "").trim() || "ACTIVE" };
+            } catch (_) { return null; }
+        }
+        let scPubPaidMetaP_ = null, scPubPaidMetaAt_ = 0;
+        function scPubPaidMeta_() {
+            if (!SC_PUB_PAID_SHEET_ID) return Promise.resolve(null);
+            if (scPubPaidMetaP_ && Date.now() - scPubPaidMetaAt_ < 60000) return scPubPaidMetaP_;
+            scPubPaidMetaAt_ = Date.now();
+            scPubPaidMetaP_ = (async () => {
+                try {
+                    const rows = await scPubFetchCsv_(SC_PUB_PAID_SHEET_ID, 0, 20000);
+                    const m = {};
+                    rows.slice(1).forEach((r) => { const dc = normalizeDcName(r[0]); if (dc && r[2] !== undefined && r[2] !== "") m[dc] = { sig: scPubStrip_(r[1]), gid: String(r[2]) }; });
+                    return Object.keys(m).length ? m : null;
+                } catch (_) { return null; }
+            })();
+            return scPubPaidMetaP_;
+        }
+        async function scPubPaidRowsForDc_(meta, dcName) {
+            try {
+                const dc = normalizeDcName(dcName);
+                const info = meta && meta[dc];
+                if (!info) return null;
+                const rows = await scPubFetchCsv_(SC_PUB_PAID_SHEET_ID, info.gid);
+                const parts = rows.slice(1).filter((r) => r[0] !== "" && r[0] !== undefined).map((r) => [Number(r[0]), scPubStrip_(r[1])]);
+                if (!parts.length) return null;
+                const list = scPubJoinChunks_(parts);
+                if (!Array.isArray(list)) return null;
+                // fetchRevenueFreezePaidSummaryBatch_ jaisa hi object
+                return list.map((r) => ({ dc_name: dc, ivrs_no: r[0], amount_paid: r[1], payment_date: r[2], source_type: r[3], tariff_category: r[4], uploaded_date: r[5] }));
+            } catch (_) { return null; }
+        }
+
         async function fetchRevenueFreezeSnapshotRows(freezeId, category, dcName, attempts = 2) {
             const normalizedDc = normalizeDcName(dcName);
             const cacheKey = freezeId + "|" + category + "|" + normalizedDc;
@@ -4180,6 +4309,12 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     revenueFreezeSnapshotCache[cacheKey] = cachedResult;
                     return cachedResult;
                 }
+            }
+            const scPub = await scPubFreezeRowsForDc_(freezeId, category, normalizedDc); // PUBLIC CACHE 2026-09-26
+            if (scPub) {
+                revenueFreezeSnapshotCache[cacheKey] = scPub;
+                if (scKey) scCacheSet_(scKey, scPub);
+                return scPub;
             }
             // BUG FIX (2026-09-13, updated): NP3/NP6/SINCE_CONNECTION me Top-N limit
             // na hone se badi DC (jaise SEONI (T), CHHAPARA-1, LAKHNADON) ka snapshot
@@ -4315,6 +4450,22 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 }
             }));
             scFreezeSnapCachePrune_(freezeId);
+            if (missingDcs.length) { // PUBLIC CACHE 2026-09-26: pehle public sheet se, jo na mile wahi Apps Script se
+                const stillMissing = [];
+                await runWithConcurrencyLimit_(missingDcs.slice(), 6, async (dcName) => {
+                    const normalizedDc = normalizeDcName(dcName);
+                    const r = await scPubFreezeRowsForDc_(freezeId, category, normalizedDc);
+                    if (!r) { stillMissing.push(dcName); return; }
+                    dcStatusMap[normalizedDc] = r.dc_status;
+                    revenueFreezeSnapshotCache[freezeId + "|" + category + "|" + normalizedDc] = r;
+                    const scKey = scFreezeSnapCacheKey_(freezeId, category, normalizedDc);
+                    if (scKey) scCacheSet_(scKey, r);
+                    if (r.dc_status === "UNFROZEN") return;
+                    r.rows.forEach((row) => merged.push({ ...row, dc_name: normalizedDc }));
+                });
+                missingDcs.length = 0;
+                missingDcs.push(...stillMissing);
+            }
             const batches = [];
             for (let i = 0; i < missingDcs.length; i += FREEZE_SNAPSHOT_BATCH_SIZE) {
                 batches.push(missingDcs.slice(i, i + FREEZE_SNAPSHOT_BATCH_SIZE));
@@ -5641,7 +5792,14 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 revenueCategoryCacheWarmedAt[dcName] = Date.now();
             };
             // 1) nishaan (ek chhota request) + phone cache
-            const sigs = await fetchPaidMasterSignatures_(pendingDcs);
+            const scPubPaid = await scPubPaidMeta_(); // PUBLIC CACHE 2026-09-26
+            let sigs = null;
+            if (scPubPaid) {
+                sigs = {};
+                pendingDcs.forEach((dcName) => { if (scPubPaid[dcName]) sigs[dcName] = scPubPaid[dcName].sig; });
+            } else {
+                sigs = await fetchPaidMasterSignatures_(pendingDcs);
+            }
             const needDcs = [];
             if (sigs) {
                 await Promise.all(pendingDcs.map(async (dcName) => {
@@ -5652,6 +5810,17 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 }));
             } else {
                 needDcs.push(...pendingDcs);
+            }
+            if (scPubPaid && needDcs.length) { // PUBLIC CACHE 2026-09-26
+                const stillNeed = [];
+                await runWithConcurrencyLimit_(needDcs.slice(), 6, async (dcName) => {
+                    const rows = await scPubPaidRowsForDc_(scPubPaid, dcName);
+                    if (!rows) { stillNeed.push(dcName); return; }
+                    markWarm(dcName, rows);
+                    scCacheSet_(`paid-cat-v1|${dcName}`, { sig: scPubPaid[dcName].sig, rows });
+                });
+                needDcs.length = 0;
+                needDcs.push(...stillNeed);
             }
             if (!needDcs.length) return;
             // 2) jo badle/nahi the - batch + compact
