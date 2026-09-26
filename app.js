@@ -5560,14 +5560,57 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // using their existing category endpoint unchanged. This endpoint omits
         // PAYMENT ROWS JSON and tariff parsing because Freeze status needs only
         // aggregate amount/date for each unique DC+IVRS.
-        const REVENUE_FREEZE_PAID_BATCH_SIZE = 6;
+        const REVENUE_FREEZE_PAID_BATCH_SIZE = 4; // SPEED 2026-09-26 (bade DC ke rows bhari hote hain)
         const revenueFreezePaidCacheWarmedAt_ = {};
         const REVENUE_FREEZE_PAID_CACHE_TTL_MS = 60000;
         async function fetchRevenueFreezePaidSummaryBatch_(dcNames, attempts = 2) {
-            // This action is not deployed in the freeze backend. Skip the
-            // guaranteed failed request and let the caller use the proven
-            // warmRevenueCategoryUploadedPaidCache fallback immediately.
+            // SPEED (2026-09-26, user "kar do"): 24 DC ki paid list pehle 24 alag request me
+            // aati thi (~62s, ~25MB). Ab master backend ki wahi getUploadedPaidCategoryList
+            // action - dc_names (kai DC ek request) + compact=1 (chhota JSON) - aur wapas same
+            // row shape me khol dete hain. Purana backend (dc_names_supported nahi) => null =>
+            // pehle jaisa per-DC fallback.
+            if (!revenueCollectionSubmitScriptUrl || !dcNames.length) return null;
+            for (let attempt = 1; attempt <= attempts; attempt++) {
+                try {
+                    const parsed = await withAppsScriptConcurrencyGate_(revenueCollectionSubmitScriptUrl, async () => {
+                        const response = await fetch(`${revenueCollectionSubmitScriptUrl}?action=getUploadedPaidCategoryList&compact=1&dc_names=${encodeURIComponent(dcNames.join(","))}&t=${Date.now()}`);
+                        return await response.json();
+                    });
+                    if (parsed && parsed.status === "success" && parsed.dc_names_supported && parsed.compact) {
+                        const entries = [];
+                        Object.entries(parsed.compact).forEach(([dc, list]) => {
+                            (list || []).forEach((r) => entries.push({ dc_name: dc, ivrs_no: r[0], amount_paid: r[1], payment_date: r[2], source_type: r[3], tariff_category: r[4], uploaded_date: r[5] }));
+                        });
+                        return { entries, signatures: parsed.signatures || {} };
+                    }
+                    if (parsed && parsed.status === "success") return null; // purana backend
+                } catch (_) {}
+                if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, 800));
+            }
             return null;
+        }
+
+        // SPEED (2026-09-26): phone (IndexedDB) me har DC ki paid list uske "nishaan" (PAID MASTER
+        // rows + aakhri upload samay) ke saath. Nishaan na badle to server se dobara nahi mangte.
+        async function fetchPaidMasterSignatures_(dcNames) {
+            try {
+                const parsed = await withAppsScriptConcurrencyGate_(revenueCollectionSubmitScriptUrl, () => loadRemoteJson(`${revenueCollectionSubmitScriptUrl}?action=getPaidMasterSignatures&dc_names=${encodeURIComponent(dcNames.join(","))}&t=${Date.now()}`, 60000));
+                return parsed && parsed.status === "success" && parsed.signatures ? parsed.signatures : null;
+            } catch (_) { return null; }
+        }
+        function scMergeLocalPaymentRows_(rows, dcName) {
+            const localCache = getRevenueUploadedPaidCache();
+            return (rows || []).map((row) => {
+                const ivrs = getRevenueUploadedPaidRowIvrs(row);
+                const resolvedDc = getRevenueUploadedPaidRowDcName(row, dcName);
+                const localRow = localCache[getRevenueUploadedPaidCacheKey(ivrs, resolvedDc)];
+                let localPaymentRows = localRow?.paymentRows || localRow?.payment_rows || localRow?.payments || localRow?.paymentDetails || [];
+                if (typeof localPaymentRows === "string") { try { localPaymentRows = JSON.parse(localPaymentRows); } catch (_) { localPaymentRows = []; } }
+                if (Array.isArray(localPaymentRows) && localPaymentRows.length) {
+                    return { ...row, paymentRows: localPaymentRows, payment_rows: localPaymentRows, paymentCount: localPaymentRows.length, payment_count: localPaymentRows.length };
+                }
+                return row;
+            });
         }
 
         async function warmRevenueFreezePaidSummaryCache_() {
@@ -5575,9 +5618,30 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             const now = Date.now();
             const pendingDcs = targetDcs.filter((dcName) => now - (revenueFreezePaidCacheWarmedAt_[dcName] || 0) > REVENUE_FREEZE_PAID_CACHE_TTL_MS);
             if (!pendingDcs.length) return;
+            const markWarm = (dcName, rows) => {
+                // warmRevenueCategoryUploadedPaidCache jaisa hi: phone wali payment rows bachakar save.
+                saveRevenueUploadedPaidEntriesLocalBulk(scMergeLocalPaymentRows_(rows, dcName), dcName, true);
+                revenueFreezePaidCacheWarmedAt_[dcName] = Date.now();
+                revenueCategoryCacheWarmedAt[dcName] = Date.now();
+            };
+            // 1) nishaan (ek chhota request) + phone cache
+            const sigs = await fetchPaidMasterSignatures_(pendingDcs);
+            const needDcs = [];
+            if (sigs) {
+                await Promise.all(pendingDcs.map(async (dcName) => {
+                    const sig = sigs[dcName];
+                    const hit = sig ? await scCacheGet_(`paid-cat-v1|${dcName}`) : null;
+                    if (hit && hit.sig === sig && Array.isArray(hit.rows)) markWarm(dcName, hit.rows);
+                    else needDcs.push(dcName);
+                }));
+            } else {
+                needDcs.push(...pendingDcs);
+            }
+            if (!needDcs.length) return;
+            // 2) jo badle/nahi the - batch + compact
             const batches = [];
-            for (let i = 0; i < pendingDcs.length; i += REVENUE_FREEZE_PAID_BATCH_SIZE) {
-                batches.push(pendingDcs.slice(i, i + REVENUE_FREEZE_PAID_BATCH_SIZE));
+            for (let i = 0; i < needDcs.length; i += REVENUE_FREEZE_PAID_BATCH_SIZE) {
+                batches.push(needDcs.slice(i, i + REVENUE_FREEZE_PAID_BATCH_SIZE));
             }
             let batchFailed = false;
             await runWithConcurrencyLimit_(batches, 2, async (batchDcs) => {
@@ -5591,20 +5655,15 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     rowsByDc[dcName].push(row);
                 });
                 batchDcs.forEach((dcName) => {
-                    saveRevenueUploadedPaidEntriesLocalBulk(rowsByDc[dcName] || [], dcName, true);
-                    revenueFreezePaidCacheWarmedAt_[dcName] = Date.now();
+                    const rows = rowsByDc[dcName] || [];
+                    markWarm(dcName, rows);
+                    const sig = parsed.signatures?.[dcName];
+                    if (sig) scCacheSet_(`paid-cat-v1|${dcName}`, { sig, rows });
                 });
             });
-            // Old/not-yet-deployed backend: retain the existing proven behavior.
             if (batchFailed) await warmRevenueCategoryUploadedPaidCache();
         }
 
-        // Ek saath sabhi DC ka fetch chalane (Promise.all) ki jagah, ek chhoti si
-        // concurrency-limited "pool" - ek time par sirf `limit` (5) DC ka request
-        // Apps Script ko jaata hai, baki queue me wait karte hain. Isse Apps Script
-        // par load kam hota hai aur bade DC (CHHAPARA-1, DHUMA, GHANSORE, LAKHNADON
-        // jaise) ko apna turn milte hi poora time milta hai jawab dene ke liye,
-        // instead of 20+ requests ke saath compete karne ke.
         async function runWithConcurrencyLimit_(items, limit, worker) {
             let cursor = 0;
             async function runNext() {
