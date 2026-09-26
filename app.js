@@ -1718,69 +1718,83 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             document.getElementById("pwd-modal").style.display = "none";
         }
 
-        function verifyPassword() {
-            // AUDIT ITEM #7 FOLLOW-UP FIX (2026-09-15, USER-REPORTED): FREEZE_ADMIN aur
-            // OMVIG_ADMIN pehle yahan bhi hardcoded "AE123"/"admin123" se match karte
-            // the - lekin backend ab in dono ke liye ALAG (naya, secret) Script-Property
-            // password maangta hai. Isse ek deadlock ban gaya tha: purana password bharo
-            // to yeh generic gate match ho jaata (panel khul jaata) par backend ka asli
-            // action (Upload/Freeze/Status change) "Invalid Admin Password" de deta;
-            // naya (sahi) password bharo to YEH gate hi "Invalid Password!" de deta
-            // (kyunki yeh abhi bhi purani value se compare kar raha tha) - panel kabhi
-            // khulta hi nahi. FIX: in dono ke liye ab yahan koi frontend password-check
-            // NAHI hai - panel jo bhi non-empty value type karo usी se khul jaata hai,
-            // aur wahi value backend ko `admin_password` field me jaati hai. Asli
-            // security ab poori tarah BACKEND par hai (Script Property se match) - galat
-            // password se panel to khul jaayega (jaisa pehle bhi effectively hota tha,
-            // kyunki frontend password public source me hi tha), lekin Upload Paid List/
-            // Freeze Now/Status change jaisa koi bhi real data-changing action galat
-            // password se fail hoga ("Invalid Admin Password" toast).
-            if (pendingLevel === "FREEZE_ADMIN" || pendingLevel === "OMVIG_ADMIN") {
-                const enteredPwd = document.getElementById("pwd-input").value;
-                if (!enteredPwd) { showToast("Password daliye", false); return; }
-                if (pendingLevel === "FREEZE_ADMIN") freezeAdminPasswordEntered = enteredPwd;
-                if (pendingLevel === "OMVIG_ADMIN") omvigAdminPasswordEntered = enteredPwd;
-                activeViewLevel = pendingLevel;
+        // USER REQUEST (2026-09-26): koi bhi admin panel sirf SAHI password se khule - galat par
+        // "Wrong Password". Panel kholne se pehle backend se check (password app ke public code me
+        // nahi rehta). Backend purana ho (valid field nahi) to pehle jaisa chalta hai, taaki deploy
+        // ke beech koi panel band na ho jaaye.
+        async function scVerifyAdminPassword_(url, body) {
+            try {
+                const response = await fetchWithTimeout(url, {
+                    method: "POST",
+                    headers: { "Content-Type": "text/plain;charset=UTF-8" },
+                    body: JSON.stringify(body)
+                }, 30000);
+                const text = await response.text();
+                let parsed = {};
+                try { parsed = JSON.parse(text || "{}"); } catch (_) {}
+                if (typeof parsed.valid === "boolean") return parsed.valid ? "ok" : "wrong";
+                return "old";
+            } catch (_) { return "net"; }
+        }
+        function scAdminPwdFailToast_(result) {
+            if (result === "wrong") showToast("Wrong Password! Galat password, dobara daliye", false);
+            else showToast("Password check nahi ho paya - internet check karke dobara try karein", false);
+        }
+        let scPwdVerifyBusy_ = false;
+        async function verifyPassword() {
+            if (scPwdVerifyBusy_) return;
+            const input = document.getElementById("pwd-input");
+            const enteredPwd = String(input?.value || "");
+            const level = pendingLevel;
+            const toolUploadLevels = ["EXCEL_TOOL_ADMIN", "PANCHNAMA_TOOL_ADMIN", "ARRANGE_EXCEL_TOOL_ADMIN", "IMAGE_TO_EXCEL_TOOL_ADMIN"];
+            let url = "", body = null;
+            if (level === "FREEZE_ADMIN") { url = revenueFreezeTrackingScriptUrl; body = { action: "verifyFreezeAdmin", admin_password: enteredPwd }; }
+            else if (level === "OMVIG_ADMIN") { url = omvigSubmitScriptUrl; body = { action: "verifyOmvigAdmin", admin_password: enteredPwd }; }
+            else if (toolUploadLevels.indexOf(level) > -1) { url = revenueCollectionSubmitScriptUrl; body = { action: "verifyAdminPassword", type: "staff", admin_password: enteredPwd }; }
+            else if (level === "STOCK") { url = stockSubmitScriptUrl; body = { action: "verifyStockAdmin", admin_password: enteredPwd }; }
+            else { showToast("Invalid Password!", false); return; }
+            if (!enteredPwd) { showToast("Password daliye", false); return; }
+            const btn = document.querySelector("#pwd-modal button");
+            const oldText = btn ? btn.textContent : "";
+            scPwdVerifyBusy_ = true;
+            if (btn) { btn.disabled = true; btn.textContent = "CHECKING..."; }
+            let result;
+            try { result = await scVerifyAdminPassword_(url, body); } finally {
+                scPwdVerifyBusy_ = false;
+                if (btn) { btn.disabled = false; btn.textContent = oldText; }
+            }
+            if (result === "old" && level === "STOCK" && enteredPwd !== "AE123") result = "wrong"; // purana stock backend = purana check
+            if (result === "wrong" || result === "net") {
+                scAdminPwdFailToast_(result);
+                if (result === "wrong" && input) input.value = "";
+                return;
+            }
+            if (level === "FREEZE_ADMIN" || level === "OMVIG_ADMIN") {
+                if (level === "FREEZE_ADMIN") freezeAdminPasswordEntered = enteredPwd;
+                if (level === "OMVIG_ADMIN") omvigAdminPasswordEntered = enteredPwd;
+                activeViewLevel = level;
                 closePwdModal();
-                if (pendingLevel === "FREEZE_ADMIN") { initFreezeAdmin(); switchView("freeze-admin"); }
+                if (level === "FREEZE_ADMIN") { initFreezeAdmin(); switchView("freeze-admin"); }
                 else { initOmvigAdmin(); switchView("omvig-admin"); }
                 return;
             }
-            // USER DECISION (2026-09-21): Tool-upload panels bhi ab isi "type karo,
-            // wahi backend ko jaayega" flow me - koi fixed password app.js me nahi.
-            const toolUploadLevels = ["EXCEL_TOOL_ADMIN", "PANCHNAMA_TOOL_ADMIN", "ARRANGE_EXCEL_TOOL_ADMIN", "IMAGE_TO_EXCEL_TOOL_ADMIN"];
-            if (toolUploadLevels.indexOf(pendingLevel) > -1) {
-                const enteredPwd = document.getElementById("pwd-input").value;
-                if (!enteredPwd) { showToast("Password daliye", false); return; }
+            if (toolUploadLevels.indexOf(level) > -1) {
                 toolUploadPasswordEntered = enteredPwd;
-                activeViewLevel = pendingLevel;
+                activeViewLevel = level;
                 closePwdModal();
-                if (pendingLevel === "EXCEL_TOOL_ADMIN") { initExcelToolAdminUpload(); switchView("excel-tool-admin"); return; }
-                if (pendingLevel === "PANCHNAMA_TOOL_ADMIN") { initPanchnamaToolAdminUpload(); switchView("panchnama-tool-admin"); return; }
-                if (pendingLevel === "ARRANGE_EXCEL_TOOL_ADMIN") { initArrangeExcelToolAdminUpload(); switchView("arrange-excel-tool-admin"); return; }
-                if (pendingLevel === "IMAGE_TO_EXCEL_TOOL_ADMIN") { initImageToExcelToolAdminUpload(); switchView("image-to-excel-tool-admin"); return; }
+                if (level === "EXCEL_TOOL_ADMIN") { initExcelToolAdminUpload(); switchView("excel-tool-admin"); return; }
+                if (level === "PANCHNAMA_TOOL_ADMIN") { initPanchnamaToolAdminUpload(); switchView("panchnama-tool-admin"); return; }
+                if (level === "ARRANGE_EXCEL_TOOL_ADMIN") { initArrangeExcelToolAdminUpload(); switchView("arrange-excel-tool-admin"); return; }
+                if (level === "IMAGE_TO_EXCEL_TOOL_ADMIN") { initImageToExcelToolAdminUpload(); switchView("image-to-excel-tool-admin"); return; }
                 return;
             }
-            // STOCK - koi backend verification hai hi nahi is feature ke liye (Stock
-            // Material apna alag, simple module hai) - isliye yahan ek local-only
-            // lock hamesha rakha hai. Yeh AE123 hardcoded hi rahega jab tak Stock ke
-            // liye bhi koi backend password-check nahi banaya jaata.
-            if (document.getElementById("pwd-input").value === "AE123" && pendingLevel === "STOCK") {
-                activeViewLevel = pendingLevel;
+            if (level === "STOCK") {
+                activeViewLevel = level;
                 closePwdModal();
                 openStockDashboard();
-                return;
             }
-            showToast("Invalid Password!", false);
         }
 
-        // Sub DN Chhapara ke 3-dot menu se password-protected "Update Excel Automation
-        // Tool" - yahan se ek naya .html file upload karke Excel Automation tool ko
-        // backend (Google Sheet, action=uploadExternalToolHtml) me save kar dete hain.
-        // Har DC ka "Compare Two Excel File" button ab is backend se hi latest content
-        // fetch karta hai (openExcelAutomationTool() dekhiye) - isliye ek jagah upload
-        // karte hi sabhi DC me turant reflect ho jaata hai, GitHub par dobara upload
-        // karne ki zaroorat nahi padti.
         function openExcelToolAdminUpload() {
             closeHeaderMenu();
             askPassword("EXCEL_TOOL_ADMIN");
@@ -18652,10 +18666,13 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             clearStaffAdminResult();
         }
 
-        function unlockStaffAdmin() {
+        async function unlockStaffAdmin() {
             const passwordInput = document.getElementById("staff-admin-password");
             const password = String(passwordInput?.value || "").trim();
             if (!password) return showToast("Password daliye", false);
+            // USER REQUEST (2026-09-26): sirf sahi password se khule
+            const vr = await scVerifyAdminPassword_(revenueCollectionSubmitScriptUrl, { action: "verifyAdminPassword", type: "staff_admin", admin_password: password });
+            if (vr === "wrong" || vr === "net") { scAdminPwdFailToast_(vr); if (vr === "wrong" && passwordInput) passwordInput.value = ""; return; }
             // USER DECISION (2026-09-21): ADMIN STAFF ka password ab yahan
             // frontend me fixed check nahi hota (Freeze/OMVIG wale pattern jaisa)
             // - jo bhi type kiya jaaye, wahi neeche admin_password field me
@@ -20292,10 +20309,13 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             }
         }
 
-        function unlockRevenuePaidUpload() {
+        async function unlockRevenuePaidUpload() {
             const input = document.getElementById("revenue-admin-password");
             const password = String(input?.value || "").trim();
             if (!password) return showToast("Password daliye", false);
+            // USER REQUEST (2026-09-26): sirf sahi password se khule
+            const vr = await scVerifyAdminPassword_(revenueCollectionSubmitScriptUrl, { action: "verifyAdminPassword", type: "revenue", admin_password: password });
+            if (vr === "wrong" || vr === "net") { scAdminPwdFailToast_(vr); if (vr === "wrong" && input) input.value = ""; return; }
             // USER DECISION (2026-09-21): Paid Master Upload ka password ab
             // yahan frontend me fixed check nahi hota - jo bhi type kiya jaaye,
             // wahi neeche admin_password field me backend ko bhejte hain; asli
@@ -21414,10 +21434,13 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             if (lock) lock.style.display = divisionPaidUploadPassword_ ? "none" : "block";
             if (panel) panel.style.display = divisionPaidUploadPassword_ ? "block" : "none";
         }
-        function unlockDivisionPaidUpload() {
+        async function unlockDivisionPaidUpload() {
             const input = document.getElementById("division-paid-password");
             const password = String(input?.value || "").trim();
             if (!password) return showToast("Password daliye", false);
+            // USER REQUEST (2026-09-26): sirf sahi password se khule
+            const vr = await scVerifyAdminPassword_(revenueCollectionSubmitScriptUrl, { action: "verifyAdminPassword", type: "division", admin_password: password });
+            if (vr === "wrong" || vr === "net") { scAdminPwdFailToast_(vr); if (vr === "wrong" && input) input.value = ""; return; }
             divisionPaidUploadPassword_ = password; // asli check backend par
             if (input) input.value = "";
             initDivisionPaidUpload();
