@@ -913,3 +913,12 @@
   #home-view .home-utility-art svg { height: 112px; min-height: 112px; }
   #home-view .home-footer { position: relative; z-index: 2; min-height: 26px; }
 }
+
+
+/* HOME-VISUAL-BOTTOM-ALIGN-2026-10-02 */
+#home-view .home-utility-art { margin-top: auto !important; flex: 0 0 210px !important; min-height: 210px !important; }
+#home-view .home-utility-art svg { height: 210px !important; min-height: 210px !important; }
+@media (min-width: 801px) {
+  #home-view .home-utility-art { flex: 0 0 170px !important; min-height: 170px !important; }
+  #home-view .home-utility-art svg { height: 170px !important; min-height: 170px !important; }
+}
