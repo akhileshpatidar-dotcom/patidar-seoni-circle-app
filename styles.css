@@ -932,3 +932,12 @@
 #home-view .home-substation-art { display: block; flex: 0 0 118px; width: 100%; height: 118px !important; min-height: 118px !important; }
 @media (min-width: 801px) { #home-view .home-substation-art { flex-basis: 145px; height: 145px !important; min-height: 145px !important; } }
 @media (max-height: 680px) and (max-width: 800px) { #home-view .home-substation-art { flex-basis: 92px; height: 92px !important; min-height: 92px !important; } }
+
+
+/* HOME-IOS-BOTTOM-ANCHOR-2026-10-02 */
+@supports (-webkit-touch-callout: none) {
+  #home-view { overflow: hidden !important; padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px)) !important; }
+  #home-view .home-utility-art { flex: 1 1 auto !important; min-height: 0 !important; margin-top: auto !important; }
+  #home-view .home-logo-watermark { flex: 1 1 auto !important; min-height: 0 !important; }
+  #home-view .home-utility-art svg.home-substation-art { flex: 0 0 118px !important; height: 118px !important; min-height: 118px !important; }
+}
