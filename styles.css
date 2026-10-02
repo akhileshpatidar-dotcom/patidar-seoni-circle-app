@@ -941,3 +941,11 @@
   #home-view .home-logo-watermark { flex: 1 1 auto !important; min-height: 0 !important; }
   #home-view .home-utility-art svg.home-substation-art { flex: 0 0 118px !important; height: 118px !important; min-height: 118px !important; }
 }
+
+
+/* HOME-IOS-GRAY-STRIP-FIX-2026-10-02 */
+@supports (-webkit-touch-callout: none) {
+  html, body { background: #ffffff !important; }
+  body.sc-has-tabbar { background: #ffffff !important; padding-bottom: 0 !important; }
+  body.sc-has-tabbar .app-shell { background: #ffffff !important; }
+}
