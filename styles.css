@@ -960,3 +960,17 @@
   html, body, body.sc-has-tabbar, .app-shell { background: #ffffff !important; }
   body.sc-has-tabbar { padding-bottom: 0 !important; }
 }
+
+
+/* HOME-WATERMARK-SOFT-SHINE-2026-10-03 */
+#home-view .home-logo-watermark img {
+  animation: homeWatermarkShine 6s ease-in-out infinite;
+  will-change: opacity, filter;
+}
+@keyframes homeWatermarkShine {
+  0%, 100% { opacity: .075; filter: blur(1.5px) drop-shadow(0 0 0 rgba(255, 210, 80, 0)); }
+  50% { opacity: .135; filter: blur(1.35px) drop-shadow(0 0 10px rgba(255, 210, 80, .28)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #home-view .home-logo-watermark img { animation: none; }
+}
