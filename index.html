@@ -1485,10 +1485,15 @@
                 <select id="revenue-report-hq" onchange="renderRevenueReportDownload()" style="width:100%; max-width:360px; height:38px; margin:6px auto 0; display:block; border:1.2px solid #93c5fd; border-radius:12px; padding:0 12px; font-size:0.74rem; font-weight:900; color:#0f172a; background:#ffffff;">
                     <option value="">All HQ</option>
                 </select>
-                <select id="revenue-report-type" onchange="renderRevenueReportDownload()" style="width:100%; max-width:360px; height:38px; margin:6px auto 0; display:block; border:1.2px solid #93c5fd; border-radius:12px; padding:0 12px; font-size:0.74rem; font-weight:900; color:#0f172a; background:#ffffff;">
+                <select id="revenue-report-type" onchange="scRevTdStatusToggle_(); renderRevenueReportDownload()" style="width:100%; max-width:360px; height:38px; margin:6px auto 0; display:block; border:1.2px solid #93c5fd; border-radius:12px; padding:0 12px; font-size:0.74rem; font-weight:900; color:#0f172a; background:#ffffff;">
                     <option value="">Paid + TD Both</option>
                     <option value="PAID">Paid by Staff</option>
                     <option value="TD">TD by Staff</option>
+                </select>
+                <select id="revenue-report-td-status" onchange="renderRevenueReportDownload()" style="width:100%; max-width:360px; height:38px; margin:6px auto 0; display:none; border:1.2px solid #93c5fd; border-radius:12px; padding:0 12px; font-size:0.74rem; font-weight:900; color:#0f172a; background:#ffffff;">
+                    <option value="">All TD (Paid + Unpaid)</option>
+                    <option value="PAID">TD - Paid after TD</option>
+                    <option value="UNPAID">TD - Unpaid (still pending)</option>
                 </select>
                 <div style="display:flex; gap:10px; width:100%; max-width:360px; margin:9px auto 0;">
                     <button id="revenue-report-pdf-btn" onclick="downloadRevenueSelectedReport('PDF')" style="flex:1; height:34px; border:none; border-radius:11px; background:#ef4444; color:#ffffff; font-size:0.66rem; font-weight:950;">PDF</button>
