@@ -130,7 +130,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         const vehicleReadingListStorageKey = "seoni_vehicle_reading_list_v1";
         const vehicleReadingCsvUrl = "https://docs.google.com/spreadsheets/d/1osWQoSwAPk6XbkkdlaNNswHXAp8AJMX-k2PmxG_opU8/export?format=csv&gid=1288084519";
         const vehicleReadingSubmitScriptUrl = "https://script.google.com/macros/s/AKfycbyqG_i3xzySgBJETTnmEo5WhZV_51eaXex_0-vIWhmCqdWNF0Y2Uar6wZPdgjDPBVmi/exec";
-        const vehicleReadingVehicles = ["407- MP22ZB6089", "BOLERO- MP22ZC1591", "407- MP22G4316", "CAMPER- MP22G4342"];
+        const vehicleReadingVehicles = ["407- MP22ZB6089", "BOLERO- MP22ZC1591", "407- MP22ZL8832", "CAMPER- MP22G4342"];
         const revenueCollectionSubmitScriptUrl = "https://script.google.com/macros/s/AKfycbzaimPwzUYELgmujpaBbfByy0BcjOERA8e0mslNdbH5uUw2L6L24785obmdcpcDOc53Ww/exec";
         const revenueOfflineQueueStorageKey = "seoni-revenue-offline-submit-queue-v1";
         // Meeter Cheking (2026-09-10 addition) - abhi sirf SEONI (T) DC ke liye live hai.
