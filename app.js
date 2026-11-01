@@ -14756,7 +14756,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             const statusBox = document.getElementById("omvig-paid-upload-status");
             const file = fileInput?.files?.[0] || null;
             if (!file) return showToast("Please select the Paid List file first", false);
-            setActionButtonState(uploadBtn, "processing", "Upload Paid List");
+            setActionButtonState(uploadBtn, "processing", "Upload Payment List");
             if (statusBox) { statusBox.style.display = "block"; statusBox.innerHTML = `<div style="text-align:center; font-size:0.75rem; font-weight:800; color:#1d4ed8;">Reading file...</div>`; }
             try {
                 const rows = await readOmvigPaidFile(file);
@@ -14771,7 +14771,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 let parsed = {};
                 try { parsed = JSON.parse(text || "{}"); } catch (_) {}
                 if (parsed.status !== "success") throw new Error(parsed.message || "Upload failed");
-                setActionButtonState(uploadBtn, "done", "Upload Paid List");
+                setActionButtonState(uploadBtn, "done", "Upload Payment List");
                 showToast(parsed.message || "Paid list uploaded", true);
                 // BUG FIX (2026-09-23, USER-REPORTED - "summary samajh nahi aa raha"):
                 // pehle sirf raw "X matched, Y unmatched, Z duplicate skip" ek line me
@@ -14813,11 +14813,11 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     // status refresh fail ho to bhi upload khud successful ho chuka hai - chup rehte hain, agli baar panel khulne par sahi dikh jayega.
                 }
             } catch (error) {
-                setActionButtonState(uploadBtn, "failed", "Upload Paid List");
+                setActionButtonState(uploadBtn, "failed", "Upload Payment List");
                 showToast(error?.message || "Paid list upload failed", false);
                 if (statusBox) statusBox.innerHTML = `<div style="text-align:center; font-size:0.75rem; font-weight:800; color:#b91c1c;">Upload fail: ${escapeHtml(error?.message || "")}</div>`;
             } finally {
-                setTimeout(() => setActionButtonState(uploadBtn, "idle", "Upload Paid List"), 900);
+                setTimeout(() => setActionButtonState(uploadBtn, "idle", "Upload Payment List"), 900);
             }
         }
 
