@@ -14625,7 +14625,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 name: idx(["Consumer_Name", "Person Name"]), ez: idx(["EZ_no", "EZ Number"]), cno: idx(["Consumer_No"]),
                 insp: idx(["inspection_date", "Inspection Date"]), tariff: idx(["Tariff_Name"]), caseName: idx(["Case_Name"]),
                 billed: idx(["Billed_amount", "Billed Amount"]), rebate: idx(["Court_Rebate", "court_rebate"]),
-                pay: idx(["payment", "Payment amount", "Payment Received"]), status: idx(["Case_Status"])
+                pay: idx(["payment", "Payment amount", "Payment Received"]), status: idx(["Case_Status"]), statusDt: idx(["Case_Status_Dt"])
             };
             if (c.pn < 0 || c.dc < 0 || c.billed < 0 || c.pay < 0) throw new Error("Pending list format does not match (Panchanama_No / DC / Billed_amount / payment column not found)");
             if (c.status < 0 && !opts.history) throw new Error("Case_Status column not found - please download the Pending for Payment list with Case_Status column");
@@ -14637,7 +14637,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 if (!pn) continue;
                 const status = txt(row, c.status);
                 if (/^disposed/i.test(status)) skippedDisposed++; // backend: naya Disposed case nahi jodta, purane ko band kar deta hai
-                rows.push([txt(row, c.circle), txt(row, c.division), txt(row, c.dc), pn, txt(row, c.name), txt(row, c.ez), txt(row, c.cno), txt(row, c.insp), txt(row, c.tariff), txt(row, c.caseName), cleanOmvigAmount_(row[c.billed]), c.rebate > -1 ? cleanOmvigAmount_(row[c.rebate]) : 0, cleanOmvigAmount_(row[c.pay]), status]);
+                rows.push([txt(row, c.circle), txt(row, c.division), txt(row, c.dc), pn, txt(row, c.name), txt(row, c.ez), txt(row, c.cno), txt(row, c.insp), txt(row, c.tariff), txt(row, c.caseName), cleanOmvigAmount_(row[c.billed]), c.rebate > -1 ? cleanOmvigAmount_(row[c.rebate]) : 0, cleanOmvigAmount_(row[c.pay]), status, (/^disposed/i.test(status) ? txt(row, c.statusDt) : "")]);
             }
             return { rows, skippedDisposed };
         }
@@ -14899,7 +14899,9 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 hist: row.length > 12,
                 billed_amount: row.length > 12 ? cleanOmvigAmount_(row[12]) : 0,
                 court_rebate: row.length > 12 ? cleanOmvigAmount_(row[13]) : 0,
-                first_seen: row.length > 12 ? String(row[15] || "").trim().slice(0, 10) : ""
+                first_seen: row.length > 12 ? String(row[15] || "").trim().slice(0, 10) : "",
+                case_status: row.length > 12 ? String(row[14] || "").trim() : "",
+                disposed_date: row.length > 16 ? String(row[16] || "").trim().slice(0, 10) : ""
             };
         }
 
@@ -15558,6 +15560,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 const histRow = !!(win && histFrom && r.hist);
                 if (histRow && r.first_seen && r.first_seen > win.endIso) return; // case appeared after this month
                 if (histRow) { const inspIso = scOmIsoDate_(r.inspection_date); if (inspIso && inspIso > win.endIso) return; } // inspected after this month
+                const dispRow = histRow && /^disposed/i.test(r.case_status || "");
+                if (dispRow && (!r.disposed_date || r.disposed_date < win.startIso)) return; // disposed before this month
                 paidList.forEach((p) => {
                     const payDateKey = scOmIsoDate_(p.pay_date);
                     if (histRow) { // history mode: every payment counts; before month start reduces the opening balance
@@ -15575,7 +15579,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 });
                 const balancedAmount = histRow ? Math.round((r.billed_amount - r.court_rebate - paidBefore) * 100) / 100 : (win ? (r.balanced_amount - paidBefore) : r.balanced_amount);
                 if (win && balancedAmount <= 0.5) return; // already settled before this month
-                const remainingPending = Math.max(0, balancedAmount - paidAmountNow);
+                const remainingPending = (dispRow && r.disposed_date <= win.endIso) ? 0 : Math.max(0, balancedAmount - paidAmountNow);
                 const isPaidNow = paidAmountNow > 0 && remainingPending <= 0;
                 out.push({
                     ...r,
