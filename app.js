@@ -16026,7 +16026,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         }
         function renderOmvigPickerHtml_() {
             const startIso = omvigHistoryFrom_ || omvigKnownStartIso_ || "";
-            const inpStyle = "flex:1; height:36px; border-radius:10px; border:2px solid #0d9488; font-size:0.72rem; font-weight:800; color:#0f172a; background:#fff; padding:0 8px;";
+            const inpStyle = "flex:1; min-width:0; height:36px; border-radius:10px; border:2px solid #0d9488; font-size:0.72rem; font-weight:800; color:#0f172a; background:#fff; padding:0 8px;";
             if (omvigReportMode === "DAILY") {
                 const todayIso = getTodayIsoDate();
                 const val = omvigSelDate || omvigYesterdayIso_();
@@ -16036,29 +16036,57 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     <button type="button" onclick="setOmvigSelDate('')" style="height:36px; padding:0 10px; border-radius:10px; border:2px solid #0d9488; background:${omvigSelDate ? "#fff" : "#0d9488"}; color:${omvigSelDate ? "#0d9488" : "#fff"}; font-size:0.66rem; font-weight:900;">YESTERDAY</button>
                 </div>`;
             }
-            // UPDATE 144: Year + Month selection (2020 se current month tak, koi limit nahi)
-            const nowIso = getTodayIsoDate();
-            const firstKey = startIso ? startIso.slice(0, 7) : nowIso.slice(0, 7);
-            const lastKey = nowIso.slice(0, 7);
-            const firstYear = Number(firstKey.slice(0, 4)), lastYear = Number(lastKey.slice(0, 4));
-            const selYear = omvigSelMonth ? Number(omvigSelMonth.slice(0, 4)) : 0;
-            let yOpts = `<option value="">Since Report Start Date${omvigKnownStartIso_ ? ` (${escapeHtml(scOmDmy_(omvigKnownStartIso_))})` : ""}</option>`;
-            for (let y = lastYear; y >= firstYear; y--) yOpts += `<option value="${y}" ${selYear === y ? "selected" : ""}>${y}</option>`;
-            let mOpts = "";
-            if (selYear) {
-                const names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-                for (let m = 1; m <= 12; m++) {
-                    const k = `${selYear}-${String(m).padStart(2, "0")}`;
-                    if (k < firstKey || k > lastKey) continue;
-                    mOpts += `<option value="${k}" ${omvigSelMonth === k ? "selected" : ""}>${names[m - 1]}</option>`;
-                }
-            }
-            return `<div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
-                <span style="font-size:0.66rem; font-weight:900; color:#0f172a;">YEAR</span>
-                <select onchange="setOmvigSelYear(this.value)" style="${inpStyle}">${yOpts}</select>
-                ${selYear ? `<span style="font-size:0.66rem; font-weight:900; color:#0f172a;">MONTH</span><select onchange="setOmvigSelMonth(this.value)" style="${inpStyle}">${mOpts}</select>` : ""}
+            // UPDATE 145: ek hi button + popup (Year arrows + 12 month grid) - ek click me month chunna, ek hi baar load
+            const rg = omvigPickRange_();
+            const names3 = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+            const label = omvigSelMonth ? `${omvigMonthLabel_(omvigSelMonth)}` : `Since Report Start${omvigKnownStartIso_ ? ` (${scOmDmy_(omvigKnownStartIso_)})` : ""}`;
+            void names3; void rg;
+            return `<div style="position:relative; margin-bottom:10px;">
+                <button type="button" onclick="toggleOmvigPicker()" style="width:100%; height:40px; border-radius:10px; border:2px solid #0d9488; background:#fff; color:#0f172a; font-size:0.78rem; font-weight:900; display:flex; align-items:center; justify-content:space-between; padding:0 12px;"><span>📅 ${escapeHtml(label)}</span><span style="color:#0d9488;">▾</span></button>
+                <div id="omvig-picker-panel" style="display:none; margin-top:6px; background:#fff; border:2px solid #0d9488; border-radius:12px; padding:10px; box-shadow:0 6px 18px rgba(15,23,42,0.12);"></div>
             </div>`;
         }
+
+        function omvigPickRange_() {
+            const startIso = omvigHistoryFrom_ || omvigKnownStartIso_ || "";
+            const lastKey = getTodayIsoDate().slice(0, 7);
+            const firstKey = startIso ? startIso.slice(0, 7) : lastKey;
+            return { firstKey, lastKey, firstYear: Number(firstKey.slice(0, 4)), lastYear: Number(lastKey.slice(0, 4)) };
+        }
+        let omvigPickYear_ = 0;
+        function omvigPickerPanelHtml_() {
+            const rg = omvigPickRange_();
+            const names3 = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+            const y = omvigPickYear_;
+            const arrow = (dir, enabled, sym) => `<button type="button" ${enabled ? `onclick="omvigPickerYear(${dir})"` : "disabled"} style="width:38px; height:34px; border-radius:8px; border:1.5px solid ${enabled ? "#0d9488" : "#cbd5e1"}; background:#fff; color:${enabled ? "#0d9488" : "#cbd5e1"}; font-size:1rem; font-weight:900;">${sym}</button>`;
+            let cells = "";
+            for (let m = 1; m <= 12; m++) {
+                const k = `${y}-${String(m).padStart(2, "0")}`;
+                const ok = k >= rg.firstKey && k <= rg.lastKey;
+                const sel = omvigSelMonth === k;
+                cells += `<button type="button" ${ok ? `onclick="omvigPickMonth('${k}')"` : "disabled"} style="height:36px; border-radius:8px; border:1.5px solid ${sel ? "#0d9488" : "#e2e8f0"}; background:${sel ? "#0d9488" : "#fff"}; color:${sel ? "#fff" : (ok ? "#0f172a" : "#cbd5e1")}; font-size:0.74rem; font-weight:900;">${names3[m - 1]}</button>`;
+            }
+            return `<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">${arrow(-1, y > rg.firstYear, "‹")}<span style="font-size:0.9rem; font-weight:950; color:#0f172a;">${y}</span>${arrow(1, y < rg.lastYear, "›")}</div>
+                <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:6px;">${cells}</div>
+                <button type="button" onclick="omvigPickSince()" style="width:100%; height:34px; margin-top:8px; border-radius:8px; border:1.5px solid #0d9488; background:${omvigSelMonth ? "#fff" : "#0d9488"}; color:${omvigSelMonth ? "#0d9488" : "#fff"}; font-size:0.68rem; font-weight:900;">Since Report Start${omvigKnownStartIso_ ? ` (${escapeHtml(scOmDmy_(omvigKnownStartIso_))})` : ""}</button>`;
+        }
+        function toggleOmvigPicker() {
+            const p = document.getElementById("omvig-picker-panel");
+            if (!p) return;
+            if (p.style.display === "block") { p.style.display = "none"; return; }
+            const rg = omvigPickRange_();
+            omvigPickYear_ = omvigSelMonth ? Number(omvigSelMonth.slice(0, 4)) : rg.lastYear;
+            p.innerHTML = omvigPickerPanelHtml_();
+            p.style.display = "block";
+        }
+        function omvigPickerYear(delta) {
+            const rg = omvigPickRange_();
+            omvigPickYear_ = Math.max(rg.firstYear, Math.min(rg.lastYear, omvigPickYear_ + delta));
+            const p = document.getElementById("omvig-picker-panel");
+            if (p) p.innerHTML = omvigPickerPanelHtml_();
+        }
+        function omvigPickMonth(k) { setOmvigSelMonth(k); }
+        function omvigPickSince() { setOmvigSelMonth(""); }
 
         function renderOmvigModeToggleHtml_() {
             const dailyActive = omvigReportMode === "DAILY";
