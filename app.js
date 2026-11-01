@@ -15040,7 +15040,33 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // saath (parallel), fetch + client-side merge karte hain. Koi bhi
         // ek DC ka response ab kabhi bhi itna bada nahi hoga ki echo layer
         // usse serve na kar paaye.
+        // UPDATE 142: O&M/VIG data IndexedDB me save (version = upload timestamps). App dobara kholne par
+        // data seedha device se aata hai; koi bhi upload hone par version badalta hai aur naya data aata hai.
+        function omvigDataVer_() {
+            const f = omvigFreezeStatusCache_;
+            if (!f) return "";
+            return [f.freeze_date, f.pending_count, f.last_upload_at, f.last_billed_upload_at, f.history_from, f.last_history_upload_at].join("|");
+        }
+        async function omvigIdbGet_(kind, key) {
+            const ver = omvigDataVer_();
+            if (!ver) return null;
+            try { const rec = await scCacheGet_(`omvig-${kind}|${key}`); return rec && rec.ver === ver ? rec.data : null; } catch (_) { return null; }
+        }
+        function omvigIdbSet_(kind, key, data) {
+            const ver = omvigDataVer_();
+            if (!ver || !data) return;
+            try { scCacheSet_(`omvig-${kind}|${key}`, { ver, data, at: Date.now() }).catch(() => {}); } catch (_) {}
+        }
+
         async function fetchOmvigPendingSingleDc_(dcName) {
+            if (omvigPendingCache_[dcName]) return omvigPendingCache_[dcName];
+            const hit = await omvigIdbGet_("pliv", dcName);
+            if (hit) { omvigPendingCache_[dcName] = hit; return hit; }
+            const res = await fetchOmvigPendingSingleDcNet_(dcName);
+            omvigIdbSet_("pliv", dcName, res);
+            return res;
+        }
+        async function fetchOmvigPendingSingleDcNet_(dcName) {
             const key = dcName;
             if (omvigPendingCache_[key]) return omvigPendingCache_[key];
             try { // SPEED 29/09: DC ke liye bhi public PENDING_ALL copy (backend dc-filter jaisa), pehle 14s Apps Script
@@ -15111,6 +15137,11 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // UPDATE 139: history-mode pending rows (includes cases already settled after history start)
         async function fetchOmvigPendingAll_(dcNames) {
             const names = Array.from(new Set((dcNames || []).map((n) => String(n || "").trim()).filter(Boolean)));
+            for (const n of names) {
+                if (omvigPendingAllCache_[n]) continue;
+                const hit = await omvigIdbGet_("pall", n);
+                if (hit) omvigPendingAllCache_[n] = hit;
+            }
             const missing = names.filter((n) => !omvigPendingAllCache_[n]);
             const BATCH = 8;
             for (let i = 0; i < missing.length; i += BATCH) {
@@ -15125,7 +15156,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     const k = normalizeDcName(row.dc_name);
                     if (dcMap[k]) dcMap[k].push(row);
                 });
-                batch.forEach((n) => { omvigPendingAllCache_[n] = { rows: dcMap[normalizeDcName(n)] || [], freeze_date: data?.freeze_date || "" }; });
+                batch.forEach((n) => { omvigPendingAllCache_[n] = { rows: dcMap[normalizeDcName(n)] || [], freeze_date: data?.freeze_date || "" }; omvigIdbSet_("pall", n, omvigPendingAllCache_[n]); });
             }
             const rows = [];
             let fz = "";
@@ -15134,6 +15165,17 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         }
 
         async function fetchOmvigPendingForDcs_(dcNames) {
+            const idbHits = {};
+            for (const n of (dcNames || [])) {
+                if (omvigPendingCache_[n]) continue;
+                const hit = await omvigIdbGet_("pliv", n);
+                if (hit) { omvigPendingCache_[n] = hit; idbHits[n] = true; }
+            }
+            const out = await fetchOmvigPendingForDcsNet_(dcNames);
+            (dcNames || []).forEach((n) => { if (!idbHits[n] && omvigPendingCache_[n]) omvigIdbSet_("pliv", n, omvigPendingCache_[n]); });
+            return out;
+        }
+        async function fetchOmvigPendingForDcsNet_(dcNames) {
             const BATCH = 6;
             // PUBLIC CACHE 2026-09-26: sabhi DC ki pending list public copy se (backend ke dc-filter jaisa hi)
             try {
@@ -15194,6 +15236,15 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         }
 
         async function fetchOmvigPaid_(dc) {
+            const key = dc || "ALL";
+            if (omvigPaidCache_[key]) return omvigPaidCache_[key];
+            const hit = await omvigIdbGet_("paid", key);
+            if (hit) { omvigPaidCache_[key] = hit; return hit; }
+            const res = await fetchOmvigPaidNet_(dc);
+            omvigIdbSet_("paid", key, res);
+            return res;
+        }
+        async function fetchOmvigPaidNet_(dc) {
             const key = dc || "ALL";
             if (omvigPaidCache_[key]) return omvigPaidCache_[key];
             const url = `${omvigSubmitScriptUrl}?action=getPaidSummary${dc ? `&dc=${encodeURIComponent(dc)}` : ""}&t=${Date.now()}`;
