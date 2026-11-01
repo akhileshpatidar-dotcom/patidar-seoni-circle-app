@@ -15238,7 +15238,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // pehle "yyyy-mm-dd" me badal kar compare karte hain.
         function scOmIsoDate_(v) {
             const s = String(v == null ? "" : v).trim();
-            let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+            let m = s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
             if (m) return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
             m = s.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})/);
             if (m) return `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
@@ -15506,6 +15506,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 let paidAmountNow = 0, paidDateNow = "", paidIsoNow = "", paidBefore = 0;
                 const histRow = !!(win && histFrom && r.hist);
                 if (histRow && r.first_seen && r.first_seen > win.endIso) return; // case appeared after this month
+                if (histRow) { const inspIso = scOmIsoDate_(r.inspection_date); if (inspIso && inspIso > win.endIso) return; } // inspected after this month
                 paidList.forEach((p) => {
                     const payDateKey = scOmIsoDate_(p.pay_date);
                     if (histRow) { // history mode: every payment counts; before month start reduces the opening balance
