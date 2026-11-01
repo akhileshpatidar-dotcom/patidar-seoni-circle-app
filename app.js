@@ -15598,15 +15598,15 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             const totalCount = rowsWithStatus.length;
             const paidCount = rowsWithStatus.filter((r) => r.isPaidNow).length;
             const partPaidCount = rowsWithStatus.filter((r) => !r.isPaidNow && r.paidAmountNow > 0).length;
-            const pendingCount = totalCount - paidCount;
+            const pendingCount = rowsWithStatus.filter((r) => omvigIsInPendingBucket_(r)).length;
             const scLimO_ = scListLimit_(Infinity); // STATUS PACK 3a: screen par pehle 50, poori list download me
             const rowsHtml = rowsWithStatus.slice(0, scLimO_).map((r) => {
-                const statusLabel = r.isPaidNow ? `PAID${r.paidDateNow ? ` (${r.paidDateNow})` : ""}` : (r.paidAmountNow > 0 ? `PENDING - PART PAID${r.paidDateNow ? ` (${r.paidDateNow})` : ""}` : "PENDING");
+                const statusLabel = r.isPaidNow ? `PAID${r.paidDateNow ? ` (${r.paidDateNow})` : ""}` : (r.paidAmountNow > 0 ? `PART PAID${r.paidDateNow ? ` (${r.paidDateNow})` : ""}` : "PENDING");
                 const statusColor = r.isPaidNow ? "#166534" : (r.paidAmountNow > 0 ? "#dc2626" : "#1e293b");
                 return `<div class="summary-table-row" style="grid-template-columns: 2fr 1.3fr 1fr; text-align:left;">
                     <div>${escapeHtml(r.consumer_name)}<br><span style="font-size:0.58rem; color:#64748b;">${escapeHtml(r.panchanama_no)} | ${escapeHtml(r.case_name)}</span></div>
                     <div style="font-weight:900; color:${statusColor};">${statusLabel}</div>
-                    <div class="font-black">${formatProgressReportAmount(r.isPaidNow ? r.balanced_amount : r.remainingPending)}</div>
+                    <div class="font-black">${formatProgressReportAmount(omvigFilterStatus === "PENDING" ? r.remainingPending : r.paidAmountNow)}</div>
                 </div>`;
             }).join("");
             return `
@@ -15618,18 +15618,22 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // Sirf poori balanced amount cover hone par case Paid hoga; part payment
         // ki bachi hui rashi Pending amount me shamil rahegi.
         function filterOmvigRowsByStatus_(rows, status) {
-            if (status === "PAID") return rows.filter((r) => r.isPaidNow);
-            if (status === "PENDING") return rows.filter((r) => !r.isPaidNow);
+            // UPDATE 140: PART PAID bhi Paid me (jitna aaya), bacha hua Pending me - Power BI se match.
+            if (status === "PAID") return rows.filter((r) => Number(r.paidAmountNow || 0) > 0);
+            if (status === "PENDING") return rows.filter((r) => Number(r.remainingPending || 0) > 0.5);
             return rows;
         }
 
         // DC/Division/Circle summaries me bhi wahi rule: fully settled = Paid,
         // aur Part Paid = Pending (remaining balance ke saath).
         function omvigIsInPaidBucket_(r) {
-            return !!r.isPaidNow;
+            return Number(r.paidAmountNow || 0) > 0;
         }
         function omvigPaidBucketAmount_(r) {
-            return Number(r.pending_amount || 0);
+            return Number(r.paidAmountNow || 0);
+        }
+        function omvigIsInPendingBucket_(r) {
+            return Number(r.remainingPending || 0) > 0.5;
         }
 
         // DC level ke liye ek hi row ka summary (Freeze NP ke DC-wise summary
@@ -15639,7 +15643,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             rowsWithStatus.forEach((r) => {
                 g.totalCount += 1;
                 if (omvigIsInPaidBucket_(r)) { g.paidCount += 1; g.paidAmount += omvigPaidBucketAmount_(r); }
-                else { g.pendingCount += 1; g.pendingAmount += Number(r.remainingPending || 0); }
+                if (omvigIsInPendingBucket_(r)) { g.pendingCount += 1; g.pendingAmount += Number(r.remainingPending || 0); }
             });
             return g;
         }
@@ -15652,7 +15656,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         function buildOmvigStatusSummaryRow_(filteredRows, dcName, status) {
             const g = { name: dcName || "-", totalCount: filteredRows.length, paidCount: 0, paidAmount: 0, pendingCount: 0, pendingAmount: 0 };
             filteredRows.forEach((r) => {
-                if (status === "PAID") { g.paidCount += 1; g.paidAmount += Number(r.isPaidNow ? r.pending_amount : r.paidAmountNow) || 0; }
+                if (status === "PAID") { g.paidCount += 1; g.paidAmount += Number(r.paidAmountNow) || 0; }
                 else { g.pendingCount += 1; g.pendingAmount += Number(r.remainingPending || 0); }
             });
             return g;
@@ -15671,7 +15675,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 const g = map[key];
                 g.totalCount += 1;
                 if (omvigIsInPaidBucket_(r)) { g.paidCount += 1; g.paidAmount += omvigPaidBucketAmount_(r); }
-                else { g.pendingCount += 1; g.pendingAmount += Number(r.remainingPending || 0); }
+                if (omvigIsInPendingBucket_(r)) { g.pendingCount += 1; g.pendingAmount += Number(r.remainingPending || 0); }
             });
             return getDivisionDcNames(divisionName).map((dcName) => map[normalizeDcName(dcName)] || emptyGroup(normalizeDcName(dcName)));
         }
@@ -15701,7 +15705,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 const g = map[key];
                 g.totalCount += 1;
                 if (omvigIsInPaidBucket_(r)) { g.paidCount += 1; g.paidAmount += omvigPaidBucketAmount_(r); }
-                else { g.pendingCount += 1; g.pendingAmount += Number(r.remainingPending || 0); }
+                if (omvigIsInPendingBucket_(r)) { g.pendingCount += 1; g.pendingAmount += Number(r.remainingPending || 0); }
             });
 
             const rows = [];
