@@ -5813,7 +5813,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // "PAID"/"PENDING" hi rehta hai, Freeze Tracking Report ke maujooda 3
         // call (jo naye param bilkul nahi bhejte) me output bilkul waisa hi
         // rahega, koi badlav nahi.
-        function renderFreezeGroupSummaryTableHtml(nameColLabel, summaryRows, titleText, paidColLabel, pendingColLabel, newCaseCol, noDuesCol, partCol) {
+        function renderFreezeGroupSummaryTableHtml(nameColLabel, summaryRows, titleText, paidColLabel, pendingColLabel, newCaseCol, noDuesCol, partCol, omLayout) {
             paidColLabel = paidColLabel || "PAID";
             pendingColLabel = pendingColLabel || "PENDING";
             const headCellStyle = "padding:6px 4px; font-size:0.56rem; font-weight:900; text-transform:uppercase; background:#0891b2; color:#fff; text-align:center;";
@@ -5832,9 +5832,11 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     <td style="${bodyCellStyle} ${fw} color:${totalColor};">${noDuesCol ? (Number(r.totalCount || 0) + Number(r.noDuesCount || 0)) : r.totalCount}</td>${noDuesCol ? `
                     <td style="${bodyCellStyle} ${fw} color:#475569;">${Number(r.noDuesCount || 0)}</td>` : ""}
                     <td style="${bodyCellStyle} ${fw} color:#166534;">${r.paidCount}</td>
-                    <td style="${bodyCellStyle} ${fw} color:#166534;">${formatRevenueLakhValue(r.paidAmount)}</td>
+                    <td style="${bodyCellStyle} ${fw} color:#166534;">${formatRevenueLakhValue(r.paidAmount)}</td>${(omLayout && partCol) ? `
+                    <td style="${bodyCellStyle} ${fw} color:#b45309;">${Number(r.partCount || 0)}</td>
+                    <td style="${bodyCellStyle} ${fw} color:#b45309;">${formatRevenueLakhValue(Number(r.partAmount || 0))}</td>` : ""}
                     <td style="${bodyCellStyle} ${fw} color:#9f1239;">${r.pendingCount}</td>
-                    <td style="${bodyCellStyle} ${fw} color:#9f1239;">${formatRevenueLakhValue(r.pendingAmount)}</td>${partCol ? `
+                    <td style="${bodyCellStyle} ${fw} color:#9f1239;">${formatRevenueLakhValue(r.pendingAmount)}</td>${(partCol && !omLayout) ? `
                     <td style="${bodyCellStyle} ${fw} color:#b45309;">${Number(r.partCount || 0)}</td>` : ""}${newCaseCol ? `
                     <td style="${bodyCellStyle} ${fw} color:#c2410c; background:#fff7ed;">${r.newCnt == null ? "-" : r.newCnt}</td>
                     <td style="${bodyCellStyle} ${fw} color:#c2410c; background:#fff7ed;">${r.newAmt == null ? "-" : formatRevenueLakhValue(r.newAmt)}</td>` : ""}
@@ -5843,20 +5845,23 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             return `
                 <div style="font-size:0.62rem; font-weight:900; color:#9f1239; text-align:center; margin-top:10px;">${escapeHtml(titleText)}</div>
                 <div style="overflow-x:auto; margin-top:6px; border-radius:10px; border:1px solid #e2e8f0;">
-                    <table style="width:100%; border-collapse:collapse; min-width:${newCaseCol ? 600 : (noDuesCol ? 580 : (partCol ? 540 : 480))}px;">
+                    <table style="width:100%; border-collapse:collapse; min-width:${newCaseCol ? 600 : (noDuesCol ? 580 : (omLayout && partCol ? 620 : (partCol ? 540 : 480)))}px;">
                         <thead>
                             <tr>
                                 <th rowspan="2" style="${headCellStyle}">${escapeHtml(nameColLabel)}</th>
                                 <th rowspan="2" style="${headCellStyle}">TOTAL<br>CONSUMER</th>${noDuesCol ? `
                                 <th rowspan="2" style="${headCellStyle}">NO<br>DUES</th>` : ""}
-                                <th colspan="2" style="${headCellStyle}">${escapeHtml(paidColLabel)}</th>
-                                <th colspan="2" style="${headCellStyle}">${escapeHtml(pendingColLabel)}</th>${partCol ? `
+                                <th colspan="2" style="${headCellStyle}">${escapeHtml(paidColLabel)}</th>${(omLayout && partCol) ? `
+                                <th colspan="2" style="${headCellStyle} background:#b45309;">PART PAID</th>` : ""}
+                                <th colspan="2" style="${headCellStyle}">${escapeHtml(pendingColLabel)}</th>${(partCol && !omLayout) ? `
                                 <th rowspan="2" style="${headCellStyle}">PART<br>PAID</th>` : ""}${newCaseCol ? `
                                 <th colspan="2" style="${headCellStyle} background:#ea580c;">NEW CASE</th>` : ""}
                             </tr>
                             <tr>
                                 <th style="${headCellStyle}">COUNT</th>
-                                <th style="${headCellStyle}">AMT (LAKH)</th>
+                                <th style="${headCellStyle}">AMT (LAKH)</th>${(omLayout && partCol) ? `
+                                <th style="${headCellStyle} background:#b45309;">COUNT</th>
+                                <th style="${headCellStyle} background:#b45309;">AMT (LAKH)</th>` : ""}
                                 <th style="${headCellStyle}">COUNT</th>
                                 <th style="${headCellStyle}">AMT (LAKH)</th>${newCaseCol ? `
                                 <th style="${headCellStyle} background:#ea580c;">COUNT</th>
@@ -11576,7 +11581,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 const pMobDay = mobAgg("DAILY", todayIso);
                 const pMobMonth = mobAgg("MONTHLY", ym);
                 const pOmDay = fetchOmvigDailyReport_(!!forceLive).catch(() => null);
-                const pOmMonth = loadOmvigReportData_(!!forceLive, true).catch(() => null);
+                const pOmMonth = loadOmvigReportData_(!!forceLive, todayIso.slice(0, 7)).catch(() => null); // UPDATE 146: current calendar month, same logic as report
                 const pMaster = (async () => { const out = {}; await runWithConcurrencyLimit_(dcs.slice(), 6, async (dc) => { out[normalizeDcName(dc)] = await scBriefMasterState_(dc, !!forceLive); }); return out; })();
                 const pPaid = (async () => {
                     const meta = await scPubPaidMeta_();
@@ -11709,29 +11714,11 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 // Pending hamesha freeze se cumulative (report jaisa).
                 const omFreezeIso = scOmIsoDate_(omMonth && omMonth.freeze_date);
                 const omFromIso = omFreezeIso && omFreezeIso > `${todayIso.slice(0, 7)}-01` ? omFreezeIso : `${todayIso.slice(0, 7)}-01`;
-                const omMonthByPn = {};
-                if (omMonthOk) {
-                    try {
-                        const omPaidRows = await fetchOmvigPaid_(activeViewLevel === "DC" ? activeDC : "");
-                        omPaidRows.forEach((p) => {
-                            const d = scOmIsoDate_(p.pay_date);
-                            if (!d || !p.panchanama_no || (omFreezeIso && d < omFreezeIso) || d > todayIso) return;
-                            const o = omMonthByPn[p.panchanama_no] || (omMonthByPn[p.panchanama_no] = { before: 0, inWin: 0 });
-                            if (d >= omFromIso) o.inWin += Number(p.amount) || 0; else o.before += Number(p.amount) || 0;
-                        });
-                    } catch (_) {}
-                    if (isStale()) return;
-                }
                 if (omMonthOk) Object.keys(per).forEach((k) => {
                     const dcRows = omMonth.rowsWithStatus.filter((r) => normalizeDcName(r.dc_name || r.dc || "") === k);
                     const g = buildOmvigSingleDcSummaryRow_(dcRows, per[k].dc);
-                    let mc = 0, ma = 0;
-                    dcRows.forEach((r) => {
-                        const o = omMonthByPn[r.panchanama_no];
-                        if (!o || !(o.inWin > 0)) return;
-                        mc += 1; ma += Math.min(o.inWin, Math.max(0, Number(r.balanced_amount || 0) - o.before));
-                    });
-                    per[k].omMCnt = mc; per[k].omMAmt = ma; per[k].omPendCnt = g.pendingCount; per[k].omPendAmt = g.pendingAmount;
+                    // UPDATE 146: Paid = jin cases me is mahine payment aayi (part paid bhi), Pending = bacha hua (part paid ka remainder bhi)
+                    per[k].omMCnt = g.paidCount; per[k].omMAmt = g.paidAmount; per[k].omPendCnt = g.pendingCount; per[k].omPendAmt = g.pendingAmount;
                 });
                 Object.keys(per).forEach((k) => {
                     const p = paid.out[k] || {};
@@ -11840,13 +11827,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     dataAt: scRevenueLiveFromPublicAt_ ? scRevenueLiveFromPublicAt_ : Date.now(),
                     fromPublic: !!scRevenueLiveFromPublicAt_,
                     revOk, mobOk: !!mobDay, mobMOk: !!mobMonth, omOk: !!(omDay && omDay.dcSummaryMap), omMOk: omMonthOk,
-                    omDate: (omDay && omDay.date) || "", omNew: (() => { // OM NEW CASES - freeze ginti se alag
-                        if (!omDay || isDcLevel) return null;
-                        const dk = activeViewLevel === "DIVISION" ? scOmNewDivKey_(activeDiv) : "";
-                        const ydI = scOmIsoDate_(omDay.date);
-                        return { d: scOmNewCasesSummary_(omDay.newCases, omFreezeIso, ydI, ydI, dk), m: scOmNewCasesSummary_(omDay.newCases, omFreezeIso, omFromIso, todayIso, dk) };
-                    })(),
-                    omFreeze: scOmDmy_(omFreezeIso), omMLabel: omFromIso > `${todayIso.slice(0, 7)}-01` ? `From ${scOmDmy_(omFromIso).slice(0, 5)}` : "This Month", paidOk: paid.metaOk || !!coll, collOk: !!coll,
+                    omDate: (omDay && omDay.date) || "", omNew: null, // UPDATE 146: NEW CASE logic hata di
+                    omFreeze: "", omMLabel: "This Month", paidOk: paid.metaOk || !!coll, collOk: !!coll,
                     totals, divRows, subRows, subTitle, subHead, per: all,
                     dataStatus: all.map((p) => ({ dc: p.dc, cashDate: scBriefDateOf_(p.cashTs), cashDays: p.cashDays, cashToday: p.cashToday, master: p.master })),
                     lagging: lagging.slice(0, maxLag), laggingTotal: lagging.length,
@@ -15379,7 +15361,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             if (!Array.isArray(newCases) || omvigFilterStatus === "PENDING" || scOmSlabOn_() || scOmNewCasesScopeDiv_() === null) return null;
             return { newCases, freezeIso: freezeIso || "", from: fromIso || "", to: toIso || "" };
         }
-        function scOmNewOn_() { return !!scOmNewCtx_ && scOmNewCasesScopeDiv_() !== null && omvigFilterStatus !== "PENDING" && !scOmSlabOn_(); }
+        function scOmNewOn_() { return false; /* UPDATE 146: NEW CASE logic hata di */ !!scOmNewCtx_ && scOmNewCasesScopeDiv_() !== null && omvigFilterStatus !== "PENDING" && !scOmSlabOn_(); }
         function scOmSlabOn_() { return !!omvigFilterSlab; } // slab me NEW CASE (freeze amount nahi) shamil nahi
         function scOmNewFor_(divKey) {
             const c = scOmNewCtx_;
@@ -15395,18 +15377,19 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 return { ...r, newCnt: null, newAmt: null };
             });
         }
+        function scOmHasPart_(rows) { return (rows || []).some((r) => !r.type && r.partCount != null); }
         function scOmSummaryTableHtml_(nameColLabel, rows, titleText, paidColLabel, pendingColLabel) {
-            const on = scOmNewOn_();
-            const html = renderFreezeGroupSummaryTableHtml(nameColLabel, on ? scOmAttachNewCases_(rows) : rows, titleText, paidColLabel, pendingColLabel, on);
-            return on ? html + `<div style="font-size:0.56rem; font-weight:700; color:#9a3412; text-align:center; margin-top:4px;">NEW CASE = a case found in the paid list that is not in the freeze list (separate from the freeze count). The paid list has no DC, so the figure is shown only in the Division/Total row.</div>` : html;
+            // UPDATE 146: TOTAL | PAID | PART PAID | PENDING (NEW CASE hata diya)
+            const hasPart = scOmHasPart_(rows);
+            const html = renderFreezeGroupSummaryTableHtml(nameColLabel, rows, titleText, paidColLabel, pendingColLabel, false, false, hasPart, true);
+            return html + (hasPart ? `<div style="font-size:0.56rem; font-weight:700; color:#64748b; text-align:center; margin-top:4px;">PAID includes part-paid cases (amount received). PENDING includes the balance of part-paid cases.</div>` : "");
         }
-        function scOmSumHead_(on) {
+        function scOmSumHead_(on, rows) {
             const pl = omvigReportMode === "DAILY" ? omvigDailyPaidLbl_() : "PAID (FREEZE)";
-            return ["DC NAME", "TOTAL", `${pl} COUNT`, `${pl} AMT`, "PENDING COUNT", "PENDING AMT", "PAID %", "PENDING %"].concat(on ? ["NEW CASE COUNT", "NEW CASE AMT"] : []);
+            return ["DC NAME", "TOTAL", `${pl} COUNT`, `${pl} AMT`].concat(scOmHasPart_(rows) ? ["PART PAID COUNT", "PART PAID AMT"] : []).concat(["PENDING COUNT", "PENDING AMT", "PAID %", "PENDING %"]);
         }
-        function scOmSumRow_(r, on) {
-            return [r.name, r.totalCount, r.paidCount, r.paidAmount, r.pendingCount, r.pendingAmount, `${r.paidPercent}%`, `${r.pendingPercent}%`]
-                .concat(on ? [r.newCnt == null ? "-" : r.newCnt, r.newAmt == null ? "-" : Math.round(r.newAmt)] : []);
+        function scOmSumRow_(r, on, rows) {
+            return [r.name, r.totalCount, r.paidCount, r.paidAmount].concat(scOmHasPart_(rows) ? [r.partCount || 0, Math.round(r.partAmount || 0)] : []).concat([r.pendingCount, r.pendingAmount, `${r.paidPercent}%`, `${r.pendingPercent}%`]);
         }
         // ----- NEW CASES dropdown view (USER 29/09 11:39) -----
         // Upar dropdown: FREEZE CASES (purana report, koi badlav nahi) / NEW CASES
@@ -15595,7 +15578,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         }
 
         async function loadOmvigReportData_(forceRefresh = false, noWindow = false) {
-            const monthKey = noWindow ? "" : (omvigSelMonth || "");
+            const monthKey = typeof noWindow === "string" ? noWindow : (noWindow ? "" : (omvigSelMonth || "")); // UPDATE 146: string = exact month (Daily Brief)
             const baseKey = `${activeViewLevel}:${activeViewLevel === "DC" ? activeDC : (activeViewLevel === "DIVISION" ? activeDiv : "CIRCLE")}`;
             const scopeKey = `${baseKey}|${monthKey}`;
             if (!forceRefresh && omvigReportCache_ && omvigReportCache_.scopeKey === scopeKey) return omvigReportCache_;
@@ -15688,6 +15671,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         function omvigPaidBucketAmount_(r) {
             return Number(r.paidAmountNow || 0);
         }
+        function omvigIsPartRow_(r) { return Number(r.paidAmountNow || 0) > 0 && Number(r.remainingPending || 0) > 0.5; }
         function omvigIsInPendingBucket_(r) {
             return Number(r.remainingPending || 0) > 0.5;
         }
@@ -15695,11 +15679,12 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // DC level ke liye ek hi row ka summary (Freeze NP ke DC-wise summary
         // jaisa hi shape/table, bas is scope me hamesha ek hi row hogi).
         function buildOmvigSingleDcSummaryRow_(rowsWithStatus, dcName) {
-            const g = { name: dcName || "-", totalCount: 0, paidCount: 0, paidAmount: 0, pendingCount: 0, pendingAmount: 0 };
+            const g = { name: dcName || "-", totalCount: 0, paidCount: 0, paidAmount: 0, pendingCount: 0, pendingAmount: 0, partCount: 0, partAmount: 0 };
             rowsWithStatus.forEach((r) => {
                 g.totalCount += 1;
                 if (omvigIsInPaidBucket_(r)) { g.paidCount += 1; g.paidAmount += omvigPaidBucketAmount_(r); }
                 if (omvigIsInPendingBucket_(r)) { g.pendingCount += 1; g.pendingAmount += Number(r.remainingPending || 0); }
+                if (omvigIsPartRow_(r)) { g.partCount += 1; g.partAmount += Number(r.paidAmountNow || 0); }
             });
             return g;
         }
@@ -15710,8 +15695,9 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // 0 rahega, sirf jo status choose kiya wahi count/amount dikhega,
         // niche ki list se exactly match karega.
         function buildOmvigStatusSummaryRow_(filteredRows, dcName, status) {
-            const g = { name: dcName || "-", totalCount: filteredRows.length, paidCount: 0, paidAmount: 0, pendingCount: 0, pendingAmount: 0 };
+            const g = { name: dcName || "-", totalCount: filteredRows.length, paidCount: 0, paidAmount: 0, pendingCount: 0, pendingAmount: 0, partCount: 0, partAmount: 0 };
             filteredRows.forEach((r) => {
+                if (omvigIsPartRow_(r)) { g.partCount += 1; g.partAmount += Number(r.paidAmountNow || 0); }
                 if (status === "PAID") { g.paidCount += 1; g.paidAmount += Number(r.paidAmountNow) || 0; }
                 else { g.pendingCount += 1; g.pendingAmount += Number(r.remainingPending || 0); }
             });
@@ -15723,7 +15709,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // dikhaye, sabhi 24 DC ki nahi - Division-level jaisa hi DC-list
         // (bina sub-total/grand-total ke).
         function buildOmvigDivisionDcSummaryRows_(rowsWithStatus, divisionName) {
-            const emptyGroup = (key) => ({ name: key, totalCount: 0, paidCount: 0, paidAmount: 0, pendingCount: 0, pendingAmount: 0 });
+            const emptyGroup = (key) => ({ name: key, totalCount: 0, paidCount: 0, paidAmount: 0, pendingCount: 0, pendingAmount: 0, partCount: 0, partAmount: 0 });
             const map = {};
             rowsWithStatus.forEach((r) => {
                 const key = normalizeDcName(r.dc_name) || "-";
@@ -15732,6 +15718,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 g.totalCount += 1;
                 if (omvigIsInPaidBucket_(r)) { g.paidCount += 1; g.paidAmount += omvigPaidBucketAmount_(r); }
                 if (omvigIsInPendingBucket_(r)) { g.pendingCount += 1; g.pendingAmount += Number(r.remainingPending || 0); }
+                if (omvigIsPartRow_(r)) { g.partCount += 1; g.partAmount += Number(r.paidAmountNow || 0); }
             });
             return getDivisionDcNames(divisionName).map((dcName) => map[normalizeDcName(dcName)] || emptyGroup(normalizeDcName(dcName)));
         }
@@ -15748,7 +15735,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // scope se hota hai (renderOmvigCircleLevelHtml_ + getOmvigDownloadSummaryRows_),
         // isliye DIVISION-level branch ki zaroorat nahi.
         function buildOmvigCircleDcWiseSummaryRows_(rowsWithStatus) {
-            const emptyGroup = (key) => ({ name: key, totalCount: 0, paidCount: 0, paidAmount: 0, pendingCount: 0, pendingAmount: 0 });
+            const emptyGroup = (key) => ({ name: key, totalCount: 0, paidCount: 0, paidAmount: 0, pendingCount: 0, pendingAmount: 0, partCount: 0, partAmount: 0 });
             const withPercents = (g) => ({
                 ...g,
                 paidPercent: g.totalCount ? ((g.paidCount / g.totalCount) * 100).toFixed(1) : "0.0",
@@ -15762,6 +15749,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 g.totalCount += 1;
                 if (omvigIsInPaidBucket_(r)) { g.paidCount += 1; g.paidAmount += omvigPaidBucketAmount_(r); }
                 if (omvigIsInPendingBucket_(r)) { g.pendingCount += 1; g.pendingAmount += Number(r.remainingPending || 0); }
+                if (omvigIsPartRow_(r)) { g.partCount += 1; g.partAmount += Number(r.paidAmountNow || 0); }
             });
 
             const rows = [];
@@ -15775,11 +15763,11 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 const divTotal = emptyGroup(getDivisionTotalLabel(divisionName));
                 dcRows.forEach((r) => {
                     divTotal.totalCount += r.totalCount; divTotal.paidCount += r.paidCount; divTotal.paidAmount += r.paidAmount;
-                    divTotal.pendingCount += r.pendingCount; divTotal.pendingAmount += r.pendingAmount;
+                    divTotal.pendingCount += r.pendingCount; divTotal.pendingAmount += r.pendingAmount; divTotal.partCount += (r.partCount || 0); divTotal.partAmount += (r.partAmount || 0);
                 });
                 rows.push({ ...withPercents(divTotal), type: "SUB_TOTAL" });
                 grand.totalCount += divTotal.totalCount; grand.paidCount += divTotal.paidCount; grand.paidAmount += divTotal.paidAmount;
-                grand.pendingCount += divTotal.pendingCount; grand.pendingAmount += divTotal.pendingAmount;
+                grand.pendingCount += divTotal.pendingCount; grand.pendingAmount += divTotal.pendingAmount; grand.partCount += divTotal.partCount; grand.partAmount += divTotal.partAmount;
             });
             rows.push({ ...withPercents(grand), type: "GRAND_TOTAL" });
             return rows;
@@ -15796,8 +15784,9 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // renderOmvigDivisionLevelHtml_/renderOmvigCircleLevelHtml_ reuse karte
         // hain, isliye yeh fix dono me apne aap aa jaata hai.
         function appendOmvigTotalRow_(rows) {
-            const total = { name: "TOTAL", totalCount: 0, paidCount: 0, paidAmount: 0, pendingCount: 0, pendingAmount: 0, type: "GRAND_TOTAL" };
+            const total = { name: "TOTAL", totalCount: 0, paidCount: 0, paidAmount: 0, pendingCount: 0, pendingAmount: 0, partCount: 0, partAmount: 0, type: "GRAND_TOTAL" };
             rows.forEach((r) => {
+                total.partCount += (r.partCount || 0); total.partAmount += (r.partAmount || 0);
                 total.totalCount += r.totalCount; total.paidCount += r.paidCount; total.paidAmount += r.paidAmount;
                 total.pendingCount += r.pendingCount; total.pendingAmount += r.pendingAmount;
             });
@@ -16313,7 +16302,9 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 paidCount: s ? s.yesterdayPaidCount : 0,
                 paidAmount: s ? s.yesterdayPaidAmount : 0,
                 pendingCount: s ? s.pendingCount : 0,
-                pendingAmount: s ? s.pendingAmount : 0
+                pendingAmount: s ? s.pendingAmount : 0,
+                partCount: (s && s.hasPart) ? (s.partCount || 0) : null,
+                partAmount: (s && s.partAmount) || 0
             };
         }
 
@@ -16340,7 +16331,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // GRAND_TOTAL - buildOmvigCircleDcWiseSummaryRows_ jaisa hi shape, bas
         // source dcSummaryMap hai (case-level rowsWithStatus nahi).
         function omvigDailyCircleDcWiseSummaryRows_(dcSummaryMap, status) {
-            const emptyGroup = (key) => ({ name: key, totalCount: 0, paidCount: 0, paidAmount: 0, pendingCount: 0, pendingAmount: 0 });
+            const emptyGroup = (key) => ({ name: key, totalCount: 0, paidCount: 0, paidAmount: 0, pendingCount: 0, pendingAmount: 0, partCount: 0, partAmount: 0 });
             const withPercents = (g) => ({
                 ...g,
                 paidPercent: g.totalCount ? ((g.paidCount / g.totalCount) * 100).toFixed(1) : "0.0",
@@ -16354,11 +16345,11 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 const divTotal = emptyGroup(getDivisionTotalLabel(divisionName));
                 dcRows.forEach((r) => {
                     divTotal.totalCount += r.totalCount; divTotal.paidCount += r.paidCount; divTotal.paidAmount += r.paidAmount;
-                    divTotal.pendingCount += r.pendingCount; divTotal.pendingAmount += r.pendingAmount;
+                    divTotal.pendingCount += r.pendingCount; divTotal.pendingAmount += r.pendingAmount; divTotal.partCount += (r.partCount || 0); divTotal.partAmount += (r.partAmount || 0);
                 });
                 rows.push({ ...withPercents(divTotal), type: "SUB_TOTAL" });
                 grand.totalCount += divTotal.totalCount; grand.paidCount += divTotal.paidCount; grand.paidAmount += divTotal.paidAmount;
-                grand.pendingCount += divTotal.pendingCount; grand.pendingAmount += divTotal.pendingAmount;
+                grand.pendingCount += divTotal.pendingCount; grand.pendingAmount += divTotal.pendingAmount; grand.partCount += divTotal.partCount; grand.partAmount += divTotal.partAmount;
             });
             rows.push({ ...withPercents(grand), type: "GRAND_TOTAL" });
             return rows;
@@ -16709,8 +16700,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                         [totalCount, paidCount, `${paidPercent}%`, pendingCount, `${pendingPercent}%`], []];
                     if (activeViewLevel !== "DC") {
                         const summaryRows = scOmAttachNewCases_(getOmvigDownloadSummaryRows_(scopedRows, rowsWithStatus));
-                        rows.push(scOmSumHead_(omNewOn));
-                        summaryRows.forEach((r) => rows.push(scOmSumRow_(r, omNewOn)));
+                        rows.push(scOmSumHead_(omNewOn, summaryRows));
+                        summaryRows.forEach((r) => rows.push(scOmSumRow_(r, omNewOn, summaryRows)));
                         rows.push([]);
                     }
                     if (omNewRows.length) { rows.push(["NEW CASES - AFTER FREEZE (not included in freeze count, from freeze till now)", "CASES", "AMOUNT"], ...omNewRows, []); }
@@ -16811,8 +16802,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     const rowTypeFlags = summaryRows.map((r) => (r.type === "GRAND_TOTAL" ? 2 : (r.type === "SUB_TOTAL" ? 1 : 0)));
                     doc.autoTable({
                         startY: doc.lastAutoTable.finalY + 6,
-                        head: [scOmSumHead_(omNewOn)],
-                        body: summaryRows.map((r) => scOmSumRow_(r, omNewOn)),
+                        head: [scOmSumHead_(omNewOn, summaryRows)],
+                        body: summaryRows.map((r) => scOmSumRow_(r, omNewOn, summaryRows)),
                         theme: "grid", headStyles: { fillColor: [8, 145, 178], halign: "center" }, styles: { fontSize: 7, cellPadding: 1.5, halign: "center" },
                         didParseCell: function (hookData) {
                             if (hookData.section === "body") {
@@ -16902,8 +16893,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                         [totalCount, totalAmount], []];
                     if (activeViewLevel !== "DC") {
                         const summaryRows = scOmAttachNewCases_(getOmvigDailyDownloadSummaryRows_(rowsWithStatus, data.dcSummaryMap));
-                        rows.push(scOmSumHead_(omNewOn));
-                        summaryRows.forEach((r) => rows.push(scOmSumRow_(r, omNewOn)));
+                        rows.push(scOmSumHead_(omNewOn, summaryRows));
+                        summaryRows.forEach((r) => rows.push(scOmSumRow_(r, omNewOn, summaryRows)));
                         rows.push([]);
                     }
                     if (omNewRows.length) { rows.push([`NEW CASES - YESTERDAY (${data.date}) (not included in freeze count)`, "CASES", "AMOUNT"], ...omNewRows, []); }
@@ -16969,8 +16960,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     const rowTypeFlags = summaryRows.map((r) => (r.type === "GRAND_TOTAL" ? 2 : (r.type === "SUB_TOTAL" ? 1 : 0)));
                     doc.autoTable({
                         startY: doc.lastAutoTable.finalY + 6,
-                        head: [scOmSumHead_(omNewOn)],
-                        body: summaryRows.map((r) => scOmSumRow_(r, omNewOn)),
+                        head: [scOmSumHead_(omNewOn, summaryRows)],
+                        body: summaryRows.map((r) => scOmSumRow_(r, omNewOn, summaryRows)),
                         theme: "grid", headStyles: { fillColor: [8, 145, 178], halign: "center" }, styles: { fontSize: 7, cellPadding: 1.5, halign: "center" },
                         didParseCell: function (hookData) {
                             if (hookData.section === "body") {
