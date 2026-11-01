@@ -16036,23 +16036,27 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     <button type="button" onclick="setOmvigSelDate('')" style="height:36px; padding:0 10px; border-radius:10px; border:2px solid #0d9488; background:${omvigSelDate ? "#fff" : "#0d9488"}; color:${omvigSelDate ? "#0d9488" : "#fff"}; font-size:0.66rem; font-weight:900;">YESTERDAY</button>
                 </div>`;
             }
-            let opts = `<option value="">Since Report Start Date${omvigKnownStartIso_ ? ` (${escapeHtml(scOmDmy_(omvigKnownStartIso_))})` : ""}</option>`;
-            if (startIso) {
-                const nowIso = getTodayIsoDate();
-                let y = Number(startIso.slice(0, 4)), m = Number(startIso.slice(5, 7));
-                const endKey = nowIso.slice(0, 7);
-                const keys = [];
-                for (let guard = 0; guard < 60; guard++) {
-                    const k = `${y}-${String(m).padStart(2, "0")}`;
-                    keys.push(k);
-                    if (k >= endKey) break;
-                    m += 1; if (m > 12) { m = 1; y += 1; }
+            // UPDATE 144: Year + Month selection (2020 se current month tak, koi limit nahi)
+            const nowIso = getTodayIsoDate();
+            const firstKey = startIso ? startIso.slice(0, 7) : nowIso.slice(0, 7);
+            const lastKey = nowIso.slice(0, 7);
+            const firstYear = Number(firstKey.slice(0, 4)), lastYear = Number(lastKey.slice(0, 4));
+            const selYear = omvigSelMonth ? Number(omvigSelMonth.slice(0, 4)) : 0;
+            let yOpts = `<option value="">Since Report Start Date${omvigKnownStartIso_ ? ` (${escapeHtml(scOmDmy_(omvigKnownStartIso_))})` : ""}</option>`;
+            for (let y = lastYear; y >= firstYear; y--) yOpts += `<option value="${y}" ${selYear === y ? "selected" : ""}>${y}</option>`;
+            let mOpts = "";
+            if (selYear) {
+                const names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+                for (let m = 1; m <= 12; m++) {
+                    const k = `${selYear}-${String(m).padStart(2, "0")}`;
+                    if (k < firstKey || k > lastKey) continue;
+                    mOpts += `<option value="${k}" ${omvigSelMonth === k ? "selected" : ""}>${names[m - 1]}</option>`;
                 }
-                keys.reverse().forEach((k) => { opts += `<option value="${k}" ${omvigSelMonth === k ? "selected" : ""}>${escapeHtml(omvigMonthLabel_(k))}</option>`; });
             }
             return `<div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
-                <span style="font-size:0.66rem; font-weight:900; color:#0f172a;">MONTH</span>
-                <select onchange="setOmvigSelMonth(this.value)" style="${inpStyle}">${opts}</select>
+                <span style="font-size:0.66rem; font-weight:900; color:#0f172a;">YEAR</span>
+                <select onchange="setOmvigSelYear(this.value)" style="${inpStyle}">${yOpts}</select>
+                ${selYear ? `<span style="font-size:0.66rem; font-weight:900; color:#0f172a;">MONTH</span><select onchange="setOmvigSelMonth(this.value)" style="${inpStyle}">${mOpts}</select>` : ""}
             </div>`;
         }
 
@@ -16072,6 +16076,18 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         }
 
         // UPDATE 138: Monthly month picker / Daily date picker
+        function setOmvigSelYear(y) {
+            if (!/^\d{4}$/.test(y || "")) { setOmvigSelMonth(""); return; }
+            const startIso = omvigHistoryFrom_ || omvigKnownStartIso_ || "";
+            const firstKey = startIso ? startIso.slice(0, 7) : "0000-00";
+            const lastKey = getTodayIsoDate().slice(0, 7);
+            const mm = omvigSelMonth ? omvigSelMonth.slice(5, 7) : lastKey.slice(5, 7); // same month number if possible, else latest allowed
+            let k = `${y}-${mm}`;
+            if (k > lastKey) k = lastKey;
+            if (k < firstKey) k = firstKey;
+            if (k.slice(0, 4) !== y) k = (`${y}-12` <= lastKey ? `${y}-12` : lastKey);
+            setOmvigSelMonth(k);
+        }
         function setOmvigSelMonth(v) {
             const k = /^\d{4}-\d{2}$/.test(v || "") ? v : "";
             if (omvigSelMonth === k) return;
