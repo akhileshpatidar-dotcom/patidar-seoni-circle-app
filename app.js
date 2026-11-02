@@ -11551,6 +11551,40 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // Revenue/TD = Live-Revenue "Paid by Staff" (Daily/Monthly), Mobile = Updated Mobile No
         // (getProgressAggregate Daily/Monthly), O&M/VIG = O&M/VIG report (Daily + Monthly/since freeze),
         // Cash list = uploaded cash list (public copy).
+        // UPDATE 152: Arrears Pump consumers (Freeze report jaisa hi: Master LV5 + bakaya>0, NORMAL/AG metering rule),
+        // lekin Paid sirf CHALU MAHINE ki payment se (cash list me jin ki payment date is mahine ki hai).
+        async function scBriefPumpArrears_(dcs) {
+            const list = Array.from(new Set((dcs || []).map(normalizeDcName).filter(Boolean)));
+            if (!list.length) return null;
+            const ym = getTodayIsoDate().slice(0, 7);
+            await Promise.all([ensureRevenueCategoryMasterDataLoaded(list), warmRevenueFreezePaidSummaryCache_()]);
+            const base = buildArrears1LBaseRowsFromMaster_(list, true, false);
+            const idx = {};
+            getRevenueCategoryPaymentSourceRows().forEach((row) => {
+                const dc = getRevenueUploadedPaidRowDcName(row), ivrs = getRevenueUploadedPaidRowIvrs(row);
+                if (!dc || !ivrs) return;
+                const dk = revenueDateSortKey_(normalizeRevenueReportDate(getRevenueUploadedPaidRowDate(row)));
+                if (!dk || dk.slice(0, 7) !== ym) return; // sirf is mahine ki payment
+                const key = dc + "|" + ivrs;
+                const o = idx[key] || (idx[key] = { all: 0, normal: 0, ag: 0 });
+                const amt = getRevenueUploadedPaidRowAmount(row);
+                const srcT = String(row.sourceType || row.source_type || "").toUpperCase();
+                const isAg = /\bAG\b/.test(srcT) && !/NORMAL/.test(srcT);
+                o.all += amt; if (isAg) o.ag += amt; else o.normal += amt;
+            });
+            const t = { total: 0, paidCnt: 0, paidAmt: 0, partCnt: 0, partAmt: 0, pendCnt: 0, pendAmt: 0, monthPaidCnt: 0 };
+            base.forEach((r) => {
+                const o = idx[r.dcName + "|" + normalizeRevenueIvrs(r.ivrsNo)];
+                let raw = 0;
+                if (o) raw = (r.metering === "METERED") ? o.normal : ((r.metering === "UNMETERED" && o.ag > 0) ? o.ag : o.all);
+                const paid = Math.min(r.netBill, Math.max(0, Number.isFinite(raw) ? raw : 0));
+                const bal = Math.max(0, r.netBill - paid);
+                t.total += 1;
+                if (paid > 0) { t.paidAmt += paid; t.monthPaidCnt += 1; if (bal <= 0.5) t.paidCnt += 1; else { t.partCnt += 1; t.partAmt += paid; } }
+                if (bal > 0.5) { t.pendCnt += 1; t.pendAmt += bal; }
+            });
+            return t;
+        }
         async function scBriefLoad_(forceLive = false) {
             const token = ++scBriefToken_;
             const levelAtStart = activeViewLevel, dcAtStart = activeDC, divAtStart = activeDiv;
@@ -11633,6 +11667,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 // ke mahine se ginte the (4,029 vs report 4,890). Fail ho to purana tareeka.
                 // COLLECTION 2026-10-05: ek hi recon fetch (public cache) - Collection aur (PSUM miss par) exact ginti dono share karte hain.
                 const reconDcs_ = Array.from(new Set(dcs.map(normalizeDcName).filter(Boolean))).sort();
+                const pPump = Promise.race([scBriefPumpArrears_(dcs), new Promise((res) => setTimeout(() => res(null), 45000))]).catch(() => null); // UPDATE 152
                 const pRecon = reconDcs_.length ? fetchRevenueCategoryReconciliationBatch_(reconDcs_, "MONTHLY", ym).catch(() => null) : Promise.resolve(null);
                 const pColl = (async () => {
                     try {
@@ -11677,7 +11712,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                         return out;
                     } catch (_) { return null; }
                 })();
-                const [revOk, mobDay, mobMonth, omDay, omMonth, master, paid, paidExact, coll] = await Promise.all([pRevenue, pMobDay, pMobMonth, pOmDay, pOmMonth, pMaster, pPaid, pPaidExact, pColl]);
+                const [revOk, mobDay, mobMonth, omDay, omMonth, master, paid, paidExact, coll, pumpData] = await Promise.all([pRevenue, pMobDay, pMobMonth, pOmDay, pOmMonth, pMaster, pPaid, pPaidExact, pColl, pPump]);
                 if (isStale()) return;
 
                 const dcSet = new Set(dcs.map(normalizeDcName));
@@ -11830,7 +11865,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     dataAt: scRevenueLiveFromPublicAt_ ? scRevenueLiveFromPublicAt_ : Date.now(),
                     fromPublic: !!scRevenueLiveFromPublicAt_,
                     revOk, mobOk: !!mobDay, mobMOk: !!mobMonth, omOk: !!(omDay && omDay.dcSummaryMap), omMOk: omMonthOk,
-                    omDate: (omDay && omDay.date) || "", omNew: null, // UPDATE 146: NEW CASE logic hata di
+                    omDate: (omDay && omDay.date) || "", omNew: null, pump: pumpData, // UPDATE 146: NEW CASE logic hata di; UPDATE 152 pump arrears
                     omFreeze: "", omMLabel: "This Month", paidOk: paid.metaOk || !!coll, collOk: !!coll,
                     totals, divRows, subRows, subTitle, subHead, per: all,
                     dataStatus: all.map((p) => ({ dc: p.dc, cashDate: scBriefDateOf_(p.cashTs), cashDays: p.cashDays, cashToday: p.cashToday, master: p.master })),
@@ -11904,7 +11939,9 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 ${box("✅", "Paid as per Cash List", `${r.collOk ? "Every payment in the cash list (1st to today)" : "Uploaded cash list"} · ${escapeHtml(r.monthLabel)}${t.lastPay ? " · till " + escapeHtml(t.lastPay) : ""}`, [MONTH], [["Count", `${nm(r.paidOk, t.paidCnt)}`], ["Amount", `${rs(r.paidOk, t.paidAmt)}`]], "#db2777",
                     `<div style="margin-top:4px; padding:5px 7px; background:#f0fdf4; border-radius:8px; font-size:0.58rem; font-weight:800; color:#166534;">(Of this, manual entry by staff: ${nm(r.revOk, t.revMCnt)} consumers · ${rs(r.revOk, t.revMAmt)})</div>`)}
                 ${box("🛡️", "O&M / VIG", `Panchnama cases${r.omFreeze ? " · freeze " + escapeHtml(r.omFreeze) : ""}`, [`Paid ${r.omDate ? "(" + escapeHtml(r.omDate.slice(0, 5)) + ")" : "(Last day)"}`, `Paid (${escapeHtml(r.omMLabel || "This Month")})`], [["Consumers", nm(r.omOk, t.omDCnt), nm(r.omMOk, t.omMCnt)], ["Amount", rs(r.omOk, t.omDAmt), rs(r.omMOk, t.omMAmt)]], "#334155",
-                    `<div style="margin-top:4px; padding:5px 7px; background:#f1f5f9; border-radius:8px; font-size:0.58rem; font-weight:800; color:#334155;">Pending: ${nm(r.omMOk, t.omPendCnt)} consumers · ${rs(r.omMOk, t.omPendAmt)}</div>${(r.omNew && (r.omNew.m.newCnt || r.omNew.d.newCnt)) ? `<div style="margin-top:4px; padding:5px 7px; background:#fff7ed; border:1px dashed #fb923c; border-radius:8px; font-size:0.58rem; font-weight:800; color:#9a3412;">🆕 New cases after Freeze (separate): Yesterday ${r.omNew.d.newCnt} · ₹ ${scBriefLakh_(r.omNew.d.newAmt)} | ${escapeHtml(r.omMLabel || "This Month")} ${r.omNew.m.newCnt} · ₹ ${scBriefLakh_(r.omNew.m.newAmt)}</div>` : ""}`)}`;
+                    `<div style="margin-top:4px; padding:5px 7px; background:#f1f5f9; border-radius:8px; font-size:0.58rem; font-weight:800; color:#334155;">Pending: ${nm(r.omMOk, t.omPendCnt)} consumers · ${rs(r.omMOk, t.omPendAmt)}</div>${(r.omNew && (r.omNew.m.newCnt || r.omNew.d.newCnt)) ? `<div style="margin-top:4px; padding:5px 7px; background:#fff7ed; border:1px dashed #fb923c; border-radius:8px; font-size:0.58rem; font-weight:800; color:#9a3412;">🆕 New cases after Freeze (separate): Yesterday ${r.omNew.d.newCnt} · ₹ ${scBriefLakh_(r.omNew.d.newAmt)} | ${escapeHtml(r.omMLabel || "This Month")} ${r.omNew.m.newCnt} · ₹ ${scBriefLakh_(r.omNew.m.newAmt)}</div>` : ""}`)}
+                ${box("🚜", "Arrears Pump Consumers", `LV5 pump consumers with arrears · Paid = this month's payments only`, [`This Month (${escapeHtml(r.monthLabel)})`], [["Total consumers", nm(!!r.pump, r.pump && r.pump.total)], ["Paid (full)", nm(!!r.pump, r.pump && r.pump.paidCnt)], ["Amount received", rs(!!r.pump, r.pump && r.pump.paidAmt)]], "#7c3aed",
+                    `<div style="margin-top:4px; padding:5px 7px; background:#f5f3ff; border-radius:8px; font-size:0.58rem; font-weight:800; color:#5b21b6;">Part paid: ${nm(!!r.pump, r.pump && r.pump.partCnt)} consumers · Pending (incl. balance of part paid): ${nm(!!r.pump, r.pump && r.pump.pendCnt)} consumers · ${rs(!!r.pump, r.pump && r.pump.pendAmt)}</div>`)}`;
 
             const dCells = (x, st) => [scBriefInr_(x.revCnt), scBriefLakh_(x.revAmt), scBriefInr_(x.revMCnt), scBriefLakh_(x.revMAmt), `${x.td} / ${x.tdM}`, x.noMob ? "-" : `${x.mobile} / ${x.mobileM}`, x.noPaid ? "-" : scBriefInr_(x.paidCnt), x.noPaid ? "-" : scBriefLakh_(x.paidAmt)].map((v, i) => { const groupStyle = i < 4 ? " background:#ecfdf5; color:#166534;" : i === 4 ? " background:#fef2f2; color:#b91c1c;" : i === 5 ? " background:#f0f9ff; color:#0369a1;" : " background:#fdf2f8; color:#be185d;"; return `<td style="${td}${groupStyle}${st || ""}">${v}</td>`; }).join("");
             const divTable = r.divRows.length ? secTitle("Division Summary", "#0f766e") + tableWrap(`
@@ -12005,7 +12042,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     { label: "LINE TD (BY STAFF)", src: "Amount = arrears of TD consumers", cols: [TD_, MO_], rows: [["Consumers", NM(r.revOk, t.td), NM(r.revOk, t.tdM)], ["Arrears", RS(r.revOk, t.tdAmt), RS(r.revOk, t.tdMAmt)]], c: [185, 28, 28] },
                     { label: "MOBILE UPDATED (BY STAFF)", src: "Corrected mobile numbers", cols: [TD_, MO_], rows: [["Consumers", NM(r.mobOk, t.mobile), NM(r.mobMOk, t.mobileM)]], c: [2, 132, 199] },
                     { label: "PAID AS PER CASH LIST", src: `${r.collOk ? "Cash list payments (1st to today)" : "Uploaded cash list"}${t.lastPay ? " till " + t.lastPay : ""}`, cols: [MO_], rows: [["Count", NM(r.paidOk, t.paidCnt)], ["Amount", RS(r.paidOk, t.paidAmt)]], note: `(Staff entry: ${NM(r.revOk, t.revMCnt)} | ${RS(r.revOk, t.revMAmt)})`, c: [219, 39, 119] },
-                    { label: "O&M / VIG", src: r.omFreeze ? `Freeze ${r.omFreeze}` : "Panchnama cases", cols: [r.omDate ? `PAID ${r.omDate.slice(0, 5)}` : "PAID LAST DAY", (r.omMLabel || "This Month").toUpperCase()], rows: [["Consumers", NM(r.omOk, t.omDCnt), NM(r.omMOk, t.omMCnt)], ["Amount", RS(r.omOk, t.omDAmt), RS(r.omMOk, t.omMAmt)]], note: `Pending: ${NM(r.omMOk, t.omPendCnt)} | ${RS(r.omMOk, t.omPendAmt)}`, note2: (r.omNew && (r.omNew.m.newCnt || r.omNew.d.newCnt)) ? `New cases (separate): Yesterday ${r.omNew.d.newCnt} | ${scBriefLakh_(r.omNew.d.newAmt)} · ${r.omMLabel || "Month"} ${r.omNew.m.newCnt} | ${scBriefLakh_(r.omNew.m.newAmt)}` : "", c: [51, 65, 85] }
+                    { label: "O&M / VIG", src: r.omFreeze ? `Freeze ${r.omFreeze}` : "Panchnama cases", cols: [r.omDate ? `PAID ${r.omDate.slice(0, 5)}` : "PAID LAST DAY", (r.omMLabel || "This Month").toUpperCase()], rows: [["Consumers", NM(r.omOk, t.omDCnt), NM(r.omMOk, t.omMCnt)], ["Amount", RS(r.omOk, t.omDAmt), RS(r.omMOk, t.omMAmt)]], note: `Pending: ${NM(r.omMOk, t.omPendCnt)} | ${RS(r.omMOk, t.omPendAmt)}`, note2: (r.omNew && (r.omNew.m.newCnt || r.omNew.d.newCnt)) ? `New cases (separate): Yesterday ${r.omNew.d.newCnt} | ${scBriefLakh_(r.omNew.d.newAmt)} · ${r.omMLabel || "Month"} ${r.omNew.m.newCnt} | ${scBriefLakh_(r.omNew.m.newAmt)}` : "", c: [51, 65, 85] },
+                    { label: "ARREARS PUMP CONSUMERS", src: "LV5 pump arrears - this month's payments", cols: [MO_], rows: [["Total", NM(!!r.pump, r.pump && r.pump.total)], ["Paid", `${NM(!!r.pump, r.pump && r.pump.paidCnt)} | ${RS(!!r.pump, r.pump && r.pump.paidAmt)}`]], note: `Part paid: ${NM(!!r.pump, r.pump && r.pump.partCnt)}`, note2: `Pending: ${NM(!!r.pump, r.pump && r.pump.pendCnt)} | ${RS(!!r.pump, r.pump && r.pump.pendAmt)}`, c: [124, 58, 237] }
                 ];
                 const gap = 3, bx = 8, bw = (W - 2 * bx - gap * (boxes.length - 1)) / boxes.length;
                 // 2026-10-16 (USER REQUEST): Today = NEELA, This Month = BAINGANI khana, bade ank - turant samajh aaye.
