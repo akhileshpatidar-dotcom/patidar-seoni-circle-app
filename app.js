@@ -11572,13 +11572,16 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 const isAg = /\bAG\b/.test(srcT) && !/NORMAL/.test(srcT);
                 o.all += amt; if (isAg) o.ag += amt; else o.normal += amt;
             });
-            const t = { total: 0, paidCnt: 0, paidAmt: 0, partCnt: 0, partAmt: 0, pendCnt: 0, pendAmt: 0, monthPaidCnt: 0 };
+            const t = { total: 0, paidCnt: 0, paidAmt: 0, partCnt: 0, partAmt: 0, pendCnt: 0, pendAmt: 0, monthPaidCnt: 0, byDc: {} };
             base.forEach((r) => {
                 const o = idx[r.dcName + "|" + normalizeRevenueIvrs(r.ivrsNo)];
                 let raw = 0;
                 if (o) raw = (r.metering === "METERED") ? o.normal : ((r.metering === "UNMETERED" && o.ag > 0) ? o.ag : o.all);
                 const paid = Math.min(r.netBill, Math.max(0, Number.isFinite(raw) ? raw : 0));
                 const bal = Math.max(0, r.netBill - paid);
+                const bd = t.byDc[r.dcName] || (t.byDc[r.dcName] = { paidCnt: 0, paidAmt: 0, pendCnt: 0, pendAmt: 0 });
+                if (paid > 0) { bd.paidCnt += 1; bd.paidAmt += paid; } // Paid = jis consumer ki is mahine payment aayi (part paid bhi)
+                if (bal > 0.5) { bd.pendCnt += 1; bd.pendAmt += bal; }
                 t.total += 1;
                 if (paid > 0) { t.paidAmt += paid; t.monthPaidCnt += 1; if (bal <= 0.5) t.paidCnt += 1; else { t.partCnt += 1; t.partAmt += paid; } }
                 if (bal > 0.5) { t.pendCnt += 1; t.pendAmt += bal; }
@@ -11722,7 +11725,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     per[k] = { dc, key: k, div: scBriefDivOf_(dc), master: master[k] || "FAIL",
                         revAmt: 0, revCnt: 0, revMAmt: 0, revMCnt: 0, td: 0, tdAmt: 0, tdM: 0, tdMAmt: 0, mobile: 0, mobileM: 0,
                         paidCnt: null, paidAmt: 0, lastPay: "", cashTs: 0,
-                        omDCnt: 0, omDAmt: 0, omMCnt: 0, omMAmt: 0, omPendCnt: 0, omPendAmt: 0 };
+                        omDCnt: 0, omDAmt: 0, omMCnt: 0, omMAmt: 0, omPendCnt: 0, omPendAmt: 0, pumpPaidCnt: 0, pumpPaidAmt: 0, pumpPendCnt: 0, pumpPendAmt: 0 };
                 });
                 if (revOk) {
                     getRevenueLiveEntries().forEach((row) => {
@@ -11805,7 +11808,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     p.red = red; p.orange = orange;
                 });
 
-                const F = ["revAmt", "revCnt", "revMAmt", "revMCnt", "td", "tdAmt", "tdM", "tdMAmt", "mobile", "mobileM", "paidAmt", "omDCnt", "omDAmt", "omMCnt", "omMAmt", "omPendCnt", "omPendAmt"];
+                const F = ["revAmt", "revCnt", "revMAmt", "revMCnt", "td", "tdAmt", "tdM", "tdMAmt", "mobile", "mobileM", "paidAmt", "omDCnt", "omDAmt", "omMCnt", "omMAmt", "omPendCnt", "omPendAmt", "pumpPaidCnt", "pumpPaidAmt", "pumpPendCnt", "pumpPendAmt"];
+                if (pumpData && pumpData.byDc) Object.keys(per).forEach((k) => { const b = pumpData.byDc[k]; if (b) { per[k].pumpPaidCnt = b.paidCnt; per[k].pumpPaidAmt = b.paidAmt; per[k].pumpPendCnt = b.pendCnt; per[k].pumpPendAmt = b.pendAmt; } });
                 const sum = (list) => {
                     const a = { paidCnt: 0, paidMissing: 0, lastPay: "" };
                     F.forEach((f) => { a[f] = 0; });
@@ -11940,19 +11944,19 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     `<div style="margin-top:4px; padding:5px 7px; background:#f0fdf4; border-radius:8px; font-size:0.58rem; font-weight:800; color:#166534;">(Of this, manual entry by staff: ${nm(r.revOk, t.revMCnt)} consumers · ${rs(r.revOk, t.revMAmt)})</div>`)}
                 ${box("🛡️", "O&M / VIG", `Panchnama cases${r.omFreeze ? " · freeze " + escapeHtml(r.omFreeze) : ""}`, [`Paid ${r.omDate ? "(" + escapeHtml(r.omDate.slice(0, 5)) + ")" : "(Last day)"}`, `Paid (${escapeHtml(r.omMLabel || "This Month")})`], [["Consumers", nm(r.omOk, t.omDCnt), nm(r.omMOk, t.omMCnt)], ["Amount", rs(r.omOk, t.omDAmt), rs(r.omMOk, t.omMAmt)]], "#334155",
                     `<div style="margin-top:4px; padding:5px 7px; background:#f1f5f9; border-radius:8px; font-size:0.58rem; font-weight:800; color:#334155;">Pending: ${nm(r.omMOk, t.omPendCnt)} consumers · ${rs(r.omMOk, t.omPendAmt)}</div>${(r.omNew && (r.omNew.m.newCnt || r.omNew.d.newCnt)) ? `<div style="margin-top:4px; padding:5px 7px; background:#fff7ed; border:1px dashed #fb923c; border-radius:8px; font-size:0.58rem; font-weight:800; color:#9a3412;">🆕 New cases after Freeze (separate): Yesterday ${r.omNew.d.newCnt} · ₹ ${scBriefLakh_(r.omNew.d.newAmt)} | ${escapeHtml(r.omMLabel || "This Month")} ${r.omNew.m.newCnt} · ₹ ${scBriefLakh_(r.omNew.m.newAmt)}</div>` : ""}`)}
-                ${box("🚜", "Arrears Pump Consumers", `LV5 pump consumers with arrears · Paid = this month's payments only`, [`This Month (${escapeHtml(r.monthLabel)})`], [["Total consumers", nm(!!r.pump, r.pump && r.pump.total)], ["Paid (full)", nm(!!r.pump, r.pump && r.pump.paidCnt)], ["Amount received", rs(!!r.pump, r.pump && r.pump.paidAmt)]], "#7c3aed",
-                    `<div style="margin-top:4px; padding:5px 7px; background:#f5f3ff; border-radius:8px; font-size:0.58rem; font-weight:800; color:#5b21b6;">Part paid: ${nm(!!r.pump, r.pump && r.pump.partCnt)} consumers · Pending (incl. balance of part paid): ${nm(!!r.pump, r.pump && r.pump.pendCnt)} consumers · ${rs(!!r.pump, r.pump && r.pump.pendAmt)}</div>`)}`;
+                ${box("🚜", "Arrears Pump Consumers", `LV5 pump consumers with arrears · Paid = this month's payments only`, [`This Month (${escapeHtml(r.monthLabel)})`], [["Total consumers", nm(!!r.pump, r.pump && r.pump.total)], ["Paid (incl. part paid)", nm(!!r.pump, r.pump && r.pump.monthPaidCnt)], ["Amount received", rs(!!r.pump, r.pump && r.pump.paidAmt)]], "#7c3aed",
+                    `<div style="margin-top:4px; padding:5px 7px; background:#f5f3ff; border-radius:8px; font-size:0.58rem; font-weight:800; color:#5b21b6;">Of which part paid: ${nm(!!r.pump, r.pump && r.pump.partCnt)} consumers · Pending (incl. balance of part paid): ${nm(!!r.pump, r.pump && r.pump.pendCnt)} consumers · ${rs(!!r.pump, r.pump && r.pump.pendAmt)}</div>`)}`;
 
-            const dCells = (x, st) => [scBriefInr_(x.revCnt), scBriefLakh_(x.revAmt), scBriefInr_(x.revMCnt), scBriefLakh_(x.revMAmt), `${x.td} / ${x.tdM}`, x.noMob ? "-" : `${x.mobile} / ${x.mobileM}`, x.noPaid ? "-" : scBriefInr_(x.paidCnt), x.noPaid ? "-" : scBriefLakh_(x.paidAmt)].map((v, i) => { const groupStyle = i < 4 ? " background:#ecfdf5; color:#166534;" : i === 4 ? " background:#fef2f2; color:#b91c1c;" : i === 5 ? " background:#f0f9ff; color:#0369a1;" : " background:#fdf2f8; color:#be185d;"; return `<td style="${td}${groupStyle}${st || ""}">${v}</td>`; }).join("");
+            const dCells = (x, st) => [scBriefInr_(x.revCnt), scBriefLakh_(x.revAmt), scBriefInr_(x.revMCnt), scBriefLakh_(x.revMAmt), `${x.td} / ${x.tdM}`, x.noMob ? "-" : `${x.mobile} / ${x.mobileM}`, x.noPaid ? "-" : scBriefInr_(x.paidCnt), x.noPaid ? "-" : scBriefLakh_(x.paidAmt)].concat(r.pump ? (x.pumpPaidCnt === undefined ? ["-", "-"] : [`${scBriefInr_(x.pumpPaidCnt)} | ${scBriefLakh_(x.pumpPaidAmt)}`, `${scBriefInr_(x.pumpPendCnt)} | ${scBriefLakh_(x.pumpPendAmt)}`]) : []).map((v, i) => { const groupStyle = i < 4 ? " background:#ecfdf5; color:#166534;" : i === 4 ? " background:#fef2f2; color:#b91c1c;" : i === 5 ? " background:#f0f9ff; color:#0369a1;" : i < 8 ? " background:#fdf2f8; color:#be185d;" : " background:#f5f3ff; color:#6d28d9;"; return `<td style="${td}${groupStyle}${st || ""}">${v}</td>`; }).join("");
             const divTable = r.divRows.length ? secTitle("Division Summary", "#0f766e") + tableWrap(`
-                <tr><td style="${th} text-align:left;" rowspan="2">Division</td><td style="${th}" colspan="2">Staff Revenue Today</td><td style="${th}" colspan="2">Staff Revenue Month</td><td style="${th}" rowspan="2">TD<br>Today / Month</td><td style="${th}" rowspan="2">Mobile<br>Today / Month</td><td style="${th}" colspan="2">Cash List Paid (Month)</td></tr>
-                <tr><td style="${th}">Count</td><td style="${th}">AMT (LAKH)</td><td style="${th}">Count</td><td style="${th}">AMT (LAKH)</td><td style="${th}">Count</td><td style="${th}">AMT (LAKH)</td></tr>
+                <tr><td style="${th} text-align:left;" rowspan="2">Division</td><td style="${th}" colspan="2">Staff Revenue Today</td><td style="${th}" colspan="2">Staff Revenue Month</td><td style="${th}" rowspan="2">TD<br>Today / Month</td><td style="${th}" rowspan="2">Mobile<br>Today / Month</td><td style="${th}" colspan="2">Cash List Paid (Month)</td>${r.pump ? `<td style="${th} background:#7c3aed;" colspan="2">Arrears Pump (Month)</td>` : ""}</tr>
+                <tr><td style="${th}">Count</td><td style="${th}">AMT (LAKH)</td><td style="${th}">Count</td><td style="${th}">AMT (LAKH)</td><td style="${th}">Count</td><td style="${th}">AMT (LAKH)</td>${r.pump ? `<td style="${th} background:#7c3aed;">Paid<br>Count | AMT (L)</td><td style="${th} background:#7c3aed;">Pending<br>Count | AMT (L)</td>` : ""}</tr>
                 ${r.divRows.map((d) => `<tr><td style="${td} text-align:left;">${escapeHtml(d.name)}</td>${dCells(d.t)}</tr>`).join("")}
                 <tr style="background:#eff6ff;"><td style="${td} text-align:left; color:#1e3a8a;">TOTAL</td>${dCells(t, " color:#1e3a8a;")}</tr>`) : "";
 
             const subTable = (r.subRows && r.subRows.length) ? secTitle(r.subTitle, "#0369a1") + tableWrap(`
-                <tr><td style="${th} text-align:left;" rowspan="2">${r.subHead}</td><td style="${th}" colspan="2">Staff Revenue Today</td><td style="${th}" colspan="2">Staff Revenue Month</td><td style="${th}" rowspan="2">TD<br>Today / Month</td><td style="${th}" rowspan="2">Mobile<br>Today / Month</td><td style="${th}" colspan="2">Cash List Paid (Month)</td></tr>
-                <tr><td style="${th}">Count</td><td style="${th}">AMT (LAKH)</td><td style="${th}">Count</td><td style="${th}">AMT (LAKH)</td><td style="${th}">Count</td><td style="${th}">AMT (LAKH)</td></tr>
+                <tr><td style="${th} text-align:left;" rowspan="2">${r.subHead}</td><td style="${th}" colspan="2">Staff Revenue Today</td><td style="${th}" colspan="2">Staff Revenue Month</td><td style="${th}" rowspan="2">TD<br>Today / Month</td><td style="${th}" rowspan="2">Mobile<br>Today / Month</td><td style="${th}" colspan="2">Cash List Paid (Month)</td>${r.pump ? `<td style="${th} background:#7c3aed;" colspan="2">Arrears Pump (Month)</td>` : ""}</tr>
+                <tr><td style="${th}">Count</td><td style="${th}">AMT (LAKH)</td><td style="${th}">Count</td><td style="${th}">AMT (LAKH)</td><td style="${th}">Count</td><td style="${th}">AMT (LAKH)</td>${r.pump ? `<td style="${th} background:#7c3aed;">Paid<br>Count | AMT (L)</td><td style="${th} background:#7c3aed;">Pending<br>Count | AMT (L)</td>` : ""}</tr>
                 ${r.subRows.map((d) => `<tr><td style="${td} text-align:left;">${escapeHtml(d.name)}</td>${dCells(d.t)}</tr>`).join("")}
                 ${r.level === "DC" ? "" : `<tr style="background:#eff6ff;"><td style="${td} text-align:left; color:#1e3a8a;">TOTAL</td>${dCells(t, " color:#1e3a8a;")}</tr>`}`)
                 + (r.level === "DC" ? `<div style="font-size:0.56rem; font-weight:700; color:#64748b; margin:4px 4px 0;">HQ-wise Cash List data is not available (shown as -).</div>` : "") : "";
@@ -12043,7 +12047,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     { label: "MOBILE UPDATED (BY STAFF)", src: "Corrected mobile numbers", cols: [TD_, MO_], rows: [["Consumers", NM(r.mobOk, t.mobile), NM(r.mobMOk, t.mobileM)]], c: [2, 132, 199] },
                     { label: "PAID AS PER CASH LIST", src: `${r.collOk ? "Cash list payments (1st to today)" : "Uploaded cash list"}${t.lastPay ? " till " + t.lastPay : ""}`, cols: [MO_], rows: [["Count", NM(r.paidOk, t.paidCnt)], ["Amount", RS(r.paidOk, t.paidAmt)]], note: `(Staff entry: ${NM(r.revOk, t.revMCnt)} | ${RS(r.revOk, t.revMAmt)})`, c: [219, 39, 119] },
                     { label: "O&M / VIG", src: r.omFreeze ? `Freeze ${r.omFreeze}` : "Panchnama cases", cols: [r.omDate ? `PAID ${r.omDate.slice(0, 5)}` : "PAID LAST DAY", (r.omMLabel || "This Month").toUpperCase()], rows: [["Consumers", NM(r.omOk, t.omDCnt), NM(r.omMOk, t.omMCnt)], ["Amount", RS(r.omOk, t.omDAmt), RS(r.omMOk, t.omMAmt)]], note: `Pending: ${NM(r.omMOk, t.omPendCnt)} | ${RS(r.omMOk, t.omPendAmt)}`, note2: (r.omNew && (r.omNew.m.newCnt || r.omNew.d.newCnt)) ? `New cases (separate): Yesterday ${r.omNew.d.newCnt} | ${scBriefLakh_(r.omNew.d.newAmt)} · ${r.omMLabel || "Month"} ${r.omNew.m.newCnt} | ${scBriefLakh_(r.omNew.m.newAmt)}` : "", c: [51, 65, 85] },
-                    { label: "ARREARS PUMP CONSUMERS", src: "LV5 pump arrears - this month's payments", cols: [MO_], rows: [["Total", NM(!!r.pump, r.pump && r.pump.total)], ["Paid", `${NM(!!r.pump, r.pump && r.pump.paidCnt)} | ${RS(!!r.pump, r.pump && r.pump.paidAmt)}`]], note: `Part paid: ${NM(!!r.pump, r.pump && r.pump.partCnt)}`, note2: `Pending: ${NM(!!r.pump, r.pump && r.pump.pendCnt)} | ${RS(!!r.pump, r.pump && r.pump.pendAmt)}`, c: [124, 58, 237] }
+                    { label: "ARREARS PUMP CONSUMERS", src: "LV5 pump arrears - this month's payments", cols: [MO_], rows: [["Total", NM(!!r.pump, r.pump && r.pump.total)], ["Paid", `${NM(!!r.pump, r.pump && r.pump.monthPaidCnt)} | ${RS(!!r.pump, r.pump && r.pump.paidAmt)}`]], note: `Of which part paid: ${NM(!!r.pump, r.pump && r.pump.partCnt)}`, note2: `Pending: ${NM(!!r.pump, r.pump && r.pump.pendCnt)} | ${RS(!!r.pump, r.pump && r.pump.pendAmt)}`, c: [124, 58, 237] }
                 ];
                 const gap = 3, bx = 8, bw = (W - 2 * bx - gap * (boxes.length - 1)) / boxes.length;
                 // 2026-10-16 (USER REQUEST): Today = NEELA, This Month = BAINGANI khana, bade ank - turant samajh aaye.
@@ -12094,21 +12098,22 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 const common = { margin: { left: 8, right: 8 }, styles: { fontSize: 7.2, cellPadding: 1.4, halign: "center" } };
                 if (r.divRows.length) {
                     y = sec("DIVISION SUMMARY", y, [15, 118, 110]);
-                    const row = (n, x) => [n, NM(r.revOk, x.revCnt), RS(r.revOk, x.revAmt), NM(r.revOk, x.revMCnt), RS(r.revOk, x.revMAmt), `${x.td} / ${x.tdM}`, `${x.mobile} / ${x.mobileM}`, NM(r.paidOk, x.paidCnt), RS(r.paidOk, x.paidAmt), `${scBriefInr_(x.omMCnt)} | Rs ${scBriefLakh_(x.omMAmt)}`, `${scBriefInr_(x.omPendCnt)} | Rs ${scBriefLakh_(x.omPendAmt)}`];
+                    const pj = (ok, c, a) => (ok ? `${scBriefInr_(c)} | ${scBriefLakh_(a)}` : NA);
+                    const row = (n, x) => [n, `${NM(r.revOk, x.revCnt)} | ${RS(r.revOk, x.revAmt)}`, `${NM(r.revOk, x.revMCnt)} | ${RS(r.revOk, x.revMAmt)}`, `${x.td} / ${x.tdM}`, `${x.mobile} / ${x.mobileM}`, `${NM(r.paidOk, x.paidCnt)} | ${RS(r.paidOk, x.paidAmt)}`, `${scBriefInr_(x.omMCnt)} | Rs ${scBriefLakh_(x.omMAmt)}`, `${scBriefInr_(x.omPendCnt)} | Rs ${scBriefLakh_(x.omPendAmt)}`, pj(!!r.pump, x.pumpPaidCnt, x.pumpPaidAmt), pj(!!r.pump, x.pumpPendCnt, x.pumpPendAmt)];
                     doc.autoTable({ ...common, startY: y,
-                        head: [["DIVISION", "STAFF REV. TODAY\nCOUNT", "STAFF REV. TODAY\nAMT (LAKH)", "STAFF REV. MONTH\nCOUNT", "STAFF REV. MONTH\nAMT (LAKH)", "LINE TD\nTODAY / MONTH", "MOBILE\nTODAY / MONTH", "CASH LIST PAID\nCOUNT (MONTH)", "CASH LIST PAID\nAMOUNT (L, MONTH)", "O&M PAID\nMONTH", "O&M\nPENDING"]],
+                        head: [["DIVISION", "STAFF REV. TODAY\nCOUNT | AMT (L)", "STAFF REV. MONTH\nCOUNT | AMT (L)", "LINE TD\nTODAY / MONTH", "MOBILE\nTODAY / MONTH", "CASH LIST PAID (MONTH)\nCOUNT | AMT (L)", "O&M PAID\nMONTH", "O&M\nPENDING", "PUMP ARREARS PAID\nMONTH", "PUMP ARREARS\nPENDING"]],
                         body: [...r.divRows.map((d) => row(d.name, d.t)), row("CIRCLE TOTAL", t)], columnStyles: { 0: { halign: "left", fontStyle: "bold" } },
-                        // Today / Month / TD-Mobile / Cash list / O&M - har group ke beech halki gehri line
+                        styles: { ...common.styles, fontSize: 6.6, cellPadding: 1.2 },
                         didParseCell: (d) => {
                             if (d.section !== "head" && d.section !== "body") return;
                             const c = d.column.index;
-                            const palette = c < 1 ? [[15, 23, 42], [248, 250, 252]] : c < 5 ? [[21, 128, 61], [220, 252, 231]] : c === 5 ? [[185, 28, 28], [254, 226, 226]] : c === 6 ? [[2, 132, 199], [224, 242, 254]] : c < 9 ? [[219, 39, 119], [252, 231, 243]] : [[51, 65, 85], [226, 232, 240]];
+                            const palette = c < 1 ? [[15, 23, 42], [248, 250, 252]] : c < 3 ? [[21, 128, 61], [220, 252, 231]] : c === 3 ? [[185, 28, 28], [254, 226, 226]] : c === 4 ? [[2, 132, 199], [224, 242, 254]] : c === 5 ? [[219, 39, 119], [252, 231, 243]] : c < 8 ? [[51, 65, 85], [226, 232, 240]] : [[124, 58, 237], [237, 233, 254]];
                             d.cell.styles.fillColor = d.section === "head" ? palette[0] : palette[1];
                             d.cell.styles.textColor = d.section === "head" ? [255, 255, 255] : palette[0];
                             if (d.section === "head") d.cell.styles.fontStyle = "bold";
                         },
                         didDrawCell: (d) => {
-                            if (![3, 5, 7, 9].includes(d.column.index)) return;
+                            if (![3, 5, 6, 8].includes(d.column.index)) return;
                             doc.setDrawColor(100, 116, 139); doc.setLineWidth(0.45);
                             doc.line(d.cell.x, d.cell.y, d.cell.x, d.cell.y + d.cell.height);
                             doc.setLineWidth(0.2);
@@ -12117,15 +12122,17 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 }
                 if (r.subRows && r.subRows.length) {
                     y = sec(r.subTitle.toUpperCase(), y, [3, 105, 161]);
-                    const srow = (n, x) => [n, NM(r.revOk, x.revCnt), RS(r.revOk, x.revAmt), NM(r.revOk, x.revMCnt), RS(r.revOk, x.revMAmt), `${x.td} / ${x.tdM}`, x.noMob ? "-" : `${x.mobile} / ${x.mobileM}`, x.noPaid ? "-" : NM(r.paidOk, x.paidCnt), x.noPaid ? "-" : RS(r.paidOk, x.paidAmt)];
+                    const showPump_ = !!r.pump && r.level !== "DC";
+                    const pj2 = (c, a) => `${scBriefInr_(c)} | ${scBriefLakh_(a)}`;
+                    const srow = (n, x) => [n, `${NM(r.revOk, x.revCnt)} | ${RS(r.revOk, x.revAmt)}`, `${NM(r.revOk, x.revMCnt)} | ${RS(r.revOk, x.revMAmt)}`, `${x.td} / ${x.tdM}`, x.noMob ? "-" : `${x.mobile} / ${x.mobileM}`, x.noPaid ? "-" : `${NM(r.paidOk, x.paidCnt)} | ${RS(r.paidOk, x.paidAmt)}`].concat(showPump_ ? [pj2(x.pumpPaidCnt || 0, x.pumpPaidAmt || 0), pj2(x.pumpPendCnt || 0, x.pumpPendAmt || 0)] : []);
                     doc.autoTable({ ...common, startY: y, styles: { ...common.styles, fontSize: 6.4, cellPadding: 0.8 },
-                        head: [[r.subHead, "STAFF REV. TODAY\nCOUNT", "STAFF REV. TODAY\nAMT (LAKH)", "STAFF REV. MONTH\nCOUNT", "STAFF REV. MONTH\nAMT (LAKH)", "LINE TD\nTODAY / MONTH", "MOBILE\nTODAY / MONTH", "CASH LIST PAID\nCOUNT (MONTH)", "CASH LIST PAID\nAMOUNT (L, MONTH)"]],
+                        head: [[r.subHead, "STAFF REV. TODAY\nCOUNT | AMT (L)", "STAFF REV. MONTH\nCOUNT | AMT (L)", "LINE TD\nTODAY / MONTH", "MOBILE\nTODAY / MONTH", "CASH LIST PAID (MONTH)\nCOUNT | AMT (L)"].concat(showPump_ ? ["PUMP ARREARS PAID\nMONTH", "PUMP ARREARS\nPENDING"] : [])],
                         body: [...r.subRows.map((d) => srow(d.name, d.t)), ...(r.level === "DC" ? [] : [srow(r.level === "DIVISION" ? "DIVISION TOTAL" : "CIRCLE TOTAL", t)])],
                         columnStyles: { 0: { halign: "left", fontStyle: "bold" } },
                         didParseCell: (d) => {
                             if (d.section !== "head" && d.section !== "body") return;
                             const c = d.column.index;
-                            const palette = c < 1 ? [[15, 23, 42], [248, 250, 252]] : c < 5 ? [[21, 128, 61], [220, 252, 231]] : c === 5 ? [[185, 28, 28], [254, 226, 226]] : c === 6 ? [[2, 132, 199], [224, 242, 254]] : [[219, 39, 119], [252, 231, 243]];
+                            const palette = c < 1 ? [[15, 23, 42], [248, 250, 252]] : c < 3 ? [[21, 128, 61], [220, 252, 231]] : c === 3 ? [[185, 28, 28], [254, 226, 226]] : c === 4 ? [[2, 132, 199], [224, 242, 254]] : c === 5 ? [[219, 39, 119], [252, 231, 243]] : [[124, 58, 237], [237, 233, 254]];
                             d.cell.styles.fillColor = d.section === "head" ? palette[0] : palette[1];
                             d.cell.styles.textColor = d.section === "head" ? [255, 255, 255] : palette[0];
                             if (d.section === "head") d.cell.styles.fontStyle = "bold";
