@@ -91,7 +91,6 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         const lokAdalatScriptUrl = "https://script.google.com/macros/s/AKfycbzS1xRgKs5HyUjnCGt7l9d3D33rscPaFhtucyH63KAfFabfIu67loo1Yd-uGSIffJieIg/exec";
         const lokAdalatDistributedCsvUrl = "https://docs.google.com/spreadsheets/d/1l-IJkL7aylyjxpdYtHlwJzUhFS8OPtg4RzhXfLlJWjQ/export?format=csv&gid=0";
         const stockSubmitScriptUrl = "https://script.google.com/macros/s/AKfycbwdjxhm7IyGlV8RACo3zIIZogwyu8HNLsWgtFp-XkSzDac4SeN_rlKDgrxsbDj6pdfK/exec";
-        const shmsSubmitScriptUrl = "https://script.google.com/macros/s/AKfycbyoMfuaxupxeZip7DoSoTkjCIM-43Ns4EkR-t5TX0ud222TIMbj9FdlbV0l8q-B8z8/exec";
         const stmComplaintScriptUrl = "https://script.google.com/macros/s/AKfycby9ZIXl5g_690kavCweIkYfGAz2NnAEiqgJzct5xhKaBjyCF08ELpguYTbgvTV_lAN6UQ/exec";
         // NEW MODULE (2026-09-14): O&M/VIG Report - DC/Division/Circle "Daily
         // Progress" ka 4th tile (Mobile/Live-Revenue/Freeze-Revenue ke saath).
@@ -161,7 +160,6 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // 2026-10-27 (USER REQUEST): purani per-DC master sheet links hata di - master ab sirf Division Master (META) se aata hai.
         const revenueCollectionCsvUrls = {};
         const stockMaterialsCsvUrl = "https://docs.google.com/spreadsheets/d/1OfrU7ZuN5LV9f_3hqORv66BVLYKFGIBBjDyeSXHwldA/export?format=csv&gid=641545139";
-        const shmsCsvUrl = "https://docs.google.com/spreadsheets/d/1GXnTMBqq7BidUTIOdDeTXGjNgzL5UljOSJt3yeBxHxo/export?format=csv&gid=0";
         const lokAdalatFallbackTotals = {
             "ADEGAON": 752,
             "CHHAPARA-1": 564,
@@ -303,7 +301,6 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         let progressSummaryDownloadInProgress = false;
         let selectedStockReceiveItem = null, selectedStockIssueItem = null, pendingReceiveItems = [], pendingIssueItems = [];
         let activeIssueDc = "";
-        let shmsRows = [], shmsSubstations = [], selectedShmsRow = null, shmsDataLoaded = false, selectedShmsSubstation = "", selectedShmsEventType = "", shmsPendingEntries = [];
         let gpsCameraGeoData = null, gpsCameraPhotoDataUrl = "", gpsCameraPhotoFileName = "", gpsCameraGeoPromise = null, gpsCameraGeoCapturedAt = 0, gpsCameraOpeningInProgress = false, gpsCameraTarget = "home";
         let selectedVehicleNo = "", vehiclePhotoDataUrl = "", vehiclePhotoName = "", vehicleReadingEntries = [], vehicleReadingSubmitInProgress = false;
         let revenueCollectionRowsByDc = {};
@@ -450,15 +447,9 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         let feederHistorySyncingFor_ = "";
         let selectedFeederSubstation = "";
         let activeFeederOperator = null;
-        let activeShmsOperator = null;
         let activeStmComplaintOperator = null;
-        let shmsProgressRows = [];
-        let shmsProgressLoaded = false;
-        let shmsProgressStale = false; // ITEM-8 FIX (2026-09-15): true jab fresh fetch fail hokar purana cached data dikha rahe hain
         let shmsProgressMode = "DAILY";
-        let progressReportSource = "SHMS";
-        let shmsPendingTrackerRows = [];
-        let shmsRecentSubmittedEntries = [];
+        let progressReportSource = "FEEDER"; // UPDATE 157: SHMS removed
         let summaryRefreshToken = 0;
         let activePeakLoadOperator = null;
         let selectedPeakLoadSubstation = "";
@@ -475,8 +466,6 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         const courtServedStorageKey = "seoni-circle-lok-adalat-served";
         const courtCaseCacheStorageKey = "seoni-circle-lok-adalat-csv-cache";
         const dcCsvCacheStoragePrefix = "seoni-circle-dc-csv-";
-        const shmsRecentSubmittedStorageKey = "seoni-circle-shms-recent-submitted";
-        const shmsRecentSubmittedTtlMs = 2 * 60 * 1000;
         const feederRecentSubmittedStorageKey = "seoni-circle-feeder-recent-submitted";
         const feederOperatorStorageKey = "feederOperatorProfile";
         const feederAlertStartDateKey = "2026-05-04";
@@ -13108,34 +13097,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             }
         }
 
-        async function loadShmsData(forceRefresh = false) {
-            if (!forceRefresh && shmsDataLoaded && shmsRows.length) return true;
-            try {
-                const csvText = await loadRemoteText(shmsCsvUrl);
-                shmsRows = parseShmsCsv(csvText);
-                shmsSubstations = Array.from(new Set(shmsRows.map((row) => row.substation).filter(Boolean)));
-                shmsDataLoaded = shmsRows.length > 0;
-                return shmsDataLoaded;
-            } catch (_) {
-                shmsRows = [];
-                shmsSubstations = [];
-                shmsDataLoaded = false;
-                return false;
-            }
-        }
 
-        function parseShmsCsv(csvText) {
-            const lines = (csvText || "").split(/\r?\n/).filter((line) => line.trim());
-            if (lines.length < 2) return [];
-            return lines.slice(1).map((line) => {
-                const cols = splitCsvLine(line);
-                const substation = String(cols[0] || "").replace(/\s+/g, " ").trim();
-                const feeder = String(cols[1] || "").replace(/\s+/g, " ").trim();
-                const meterNo = String(cols[2] || "").trim();
-                if (!substation || !feeder) return null;
-                return { substation, feeder, meterNo };
-            }).filter(Boolean);
-        }
 
         // BUG FIX (2026-09-14) - USER-REPORTED: Feeder Reading me ek substation
         // (jaise Chhapara ke substation) khud karte hi saari purani dates "Entry
@@ -16564,80 +16526,9 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             }).filter(Boolean);
         }
 
-        function getSavedShmsOperator() {
-            try {
-                const raw = localStorage.getItem("shmsOperatorProfile");
-                if (!raw) return null;
-                const parsed = JSON.parse(raw);
-                const fullName = String(parsed?.fullName || "").replace(/\s+/g, " ").trim();
-                const mobileNo = String(parsed?.mobileNo || "").replace(/\D/g, "");
-                if (!fullName || mobileNo.length < 10) return null;
-                return { fullName, mobileNo, remember: true };
-            } catch (_) {
-                return null;
-            }
-        }
 
-        function updateShmsOperatorUi() {
-            const loginBlock = document.getElementById("shms-operator-login-block");
-            const summaryBlock = document.getElementById("shms-operator-summary-block");
-            const summaryText = document.getElementById("shms-operator-summary");
-            const flowBlock = document.getElementById("shms-flow-block");
-            const rememberInput = document.getElementById("shms-remember-operator");
 
-            if (activeShmsOperator) {
-                if (loginBlock) loginBlock.style.display = "none";
-                if (summaryBlock) summaryBlock.style.display = "block";
-                if (flowBlock) flowBlock.style.display = "block";
-                if (summaryText) summaryText.innerText = `${activeShmsOperator.fullName} | ${activeShmsOperator.mobileNo}`;
-            } else {
-                if (loginBlock) loginBlock.style.display = "block";
-                if (summaryBlock) summaryBlock.style.display = "none";
-                if (flowBlock) flowBlock.style.display = "none";
-                if (summaryText) summaryText.innerText = "";
-                if (rememberInput) rememberInput.checked = true;
-            }
-        }
 
-        function saveShmsOperator() {
-            const nameInput = document.getElementById("shms-operator-name");
-            const mobileInput = document.getElementById("shms-operator-mobile");
-            const rememberInput = document.getElementById("shms-remember-operator");
-
-            const fullName = String(nameInput?.value || "").replace(/\s+/g, " ").trim();
-            const mobileNo = String(mobileInput?.value || "").replace(/\D/g, "");
-
-            if (!fullName) return showToast("Please enter the operator's full name", false);
-            if (mobileNo.length < 10) return showToast("Please enter a valid mobile number", false);
-
-            activeShmsOperator = {
-                fullName,
-                mobileNo,
-                remember: !!rememberInput?.checked
-            };
-
-            if (activeShmsOperator.remember) {
-                localStorage.setItem("shmsOperatorProfile", JSON.stringify(activeShmsOperator));
-            } else {
-                localStorage.removeItem("shmsOperatorProfile");
-            }
-
-            updateShmsOperatorUi();
-            showToast("Operator login saved", true);
-        }
-
-        function editShmsOperator() {
-            const nameInput = document.getElementById("shms-operator-name");
-            const mobileInput = document.getElementById("shms-operator-mobile");
-            const rememberInput = document.getElementById("shms-remember-operator");
-
-            if (nameInput) nameInput.value = activeShmsOperator?.fullName || "";
-            if (mobileInput) mobileInput.value = activeShmsOperator?.mobileNo || "";
-            if (rememberInput) rememberInput.checked = activeShmsOperator?.remember !== false;
-
-            activeShmsOperator = null;
-            updateShmsOperatorUi();
-        }
 
         function getSavedFeederOperator() {
             try {
@@ -17495,83 +17386,6 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             updateStmComplaintProgressiveUi();
         }
 
-        async function loadShmsProgressData(forceRefresh = false) {
-            if (!forceRefresh && shmsProgressLoaded && shmsProgressRows.length) return true;
-            loadRecentShmsSubmittedEntries_();
-            const previousShmsProgressRows = Array.isArray(shmsProgressRows) ? shmsProgressRows.slice() : [];
-            // SPEED/RELIABILITY FIX (2026-09-15, USER-REPORTED): pehle yahan bare
-            // fetch().json() tha - koi timeout na hone ki wajah se weak network par
-            // yeh request hamesha ke liye "latak" sakti thi (Feeder/STM/PeakLoad
-            // jaisi 45s-timeout + 2-retry safety yahan nahi thi). Ab wahi proven
-            // loadRemoteJson(...,45000) + 2-attempt pattern reuse kiya hai.
-            let data = null, lastShmsProgressErr = null;
-            for (let attempt = 1; attempt <= 2 && data === null; attempt++) {
-                try {
-                    data = await loadRemoteJson(`${shmsSubmitScriptUrl}?action=getSummary&t=${Date.now()}`, 45000);
-                } catch (err) {
-                    lastShmsProgressErr = err;
-                    if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 2000));
-                }
-            }
-            try {
-                if (data === null) throw lastShmsProgressErr || new Error("SHMS summary load fail");
-                const summaryRows = Array.isArray(data)
-                    ? data
-                    : Array.isArray(data?.data)
-                        ? data.data
-                        : Array.isArray(data?.rows)
-                            ? data.rows
-                            : Array.isArray(data?.result)
-                                ? data.result
-                                : [];
-                shmsProgressRows = summaryRows.map((row) => {
-                    const submittedAt = normalizeShmsSubmittedAt_(row.submitted_at || row.submittedAt || "");
-                    const resolvedDate = resolveShmsEffectiveDate_(row.date, submittedAt);
-                    const dateKey = buildShmsDateKey_(resolvedDate);
-                    const expectedDateKey = getShmsExpectedDateKeyFromSubmittedAt_(submittedAt);
-                    return {
-                        substation: String(row.substation || row.sub_station || row.station || "").trim(),
-                        feeder: String(row.feeder || "").trim(),
-                        eventType: String(row.event_type || row.eventType || "").trim(),
-                        date: resolvedDate,
-                        timeFrom: normalizeShmsTime_(row.time_from || row.timeFrom || ""),
-                        timeTo: normalizeShmsTime_(row.time_to || row.timeTo || ""),
-                        totalDuration: String(row.total_duration || row.totalDuration || "").trim(),
-                        reason: String(row.reason || "").trim(),
-                        meterNo: String(row.meter_no || row.meterNo || "").trim(),
-                        operatorName: String(row.operator_name || row.operatorName || "").trim(),
-                        operatorMobile: String(row.operator_mobile || row.operatorMobile || "").trim(),
-                        submittedAt: submittedAt,
-                        dateKey,
-                        expectedDateKey
-                    };
-                });
-                reconcileRecentShmsSubmittedEntries_(shmsProgressRows);
-                shmsProgressRows = mergeShmsProgressRows_(shmsProgressRows, getRecentShmsSubmittedRows_());
-                shmsPendingTrackerRows = shmsProgressRows.slice();
-                shmsProgressLoaded = true;
-                shmsProgressStale = false; // ITEM-8 FIX (2026-09-15): fresh fetch safal
-                return true;
-            } catch (_) {
-                // RELIABILITY FIX (2026-09-15, USER-FLAGGED risk): pehle fetch fail
-                // hone par pichla successfully-loaded data bhi khaali kar diya jaata
-                // tha (screen par pehle se sahi dikh raha data bhi gayab ho jaata
-                // tha). Ab agar pehle se koi valid data tha, use hi wapas rakhte
-                // hain - sirf tab khaali karte hain jab kabhi koi data mila hi na ho.
-                if (previousShmsProgressRows.length) {
-                    shmsProgressRows = previousShmsProgressRows;
-                    shmsPendingTrackerRows = shmsProgressRows.slice();
-                    shmsProgressLoaded = true;
-                    shmsProgressStale = true; // ITEM-8 FIX (2026-09-15): purana cached data dikha rahe hain
-                    return true;
-                }
-                shmsProgressRows = [];
-                shmsPendingTrackerRows = [];
-                shmsProgressLoaded = false;
-                shmsProgressStale = false;
-                return false;
-            }
-        }
 
         function normalizeShmsSheetDate_(value) {
             const raw = String(value || "").trim();
@@ -17588,88 +17402,10 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             return raw;
         }
 
-        function parseShmsDateCandidates_(value) {
-            const raw = String(value || "").trim();
-            if (!raw) return [];
 
-            const normalized = normalizeShmsSheetDate_(raw);
-            const match = normalized.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-            if (!match) {
-                const fallback = new Date(raw);
-                return Number.isNaN(fallback.getTime()) ? [] : [fallback];
-            }
 
-            const first = Number(match[1]);
-            const second = Number(match[2]);
-            const year = Number(match[3]);
-            const candidates = [];
 
-            const ddmmyyyy = new Date(year, second - 1, first);
-            if (!Number.isNaN(ddmmyyyy.getTime())) candidates.push(ddmmyyyy);
 
-            if (first <= 12 && second <= 12 && first !== second) {
-                const mmddyyyy = new Date(year, first - 1, second);
-                if (!Number.isNaN(mmddyyyy.getTime())) candidates.push(mmddyyyy);
-            }
-
-            return candidates;
-        }
-
-        function formatShmsDateObject_(dateObj) {
-            if (!(dateObj instanceof Date) || Number.isNaN(dateObj.getTime())) return "";
-            const day = String(dateObj.getDate()).padStart(2, "0");
-            const month = String(dateObj.getMonth() + 1).padStart(2, "0");
-            const year = dateObj.getFullYear();
-            return `${day}/${month}/${year}`;
-        }
-
-        function resolveShmsEffectiveDate_(dateValue, submittedAtValue) {
-            const candidates = parseShmsDateCandidates_(dateValue);
-            if (!candidates.length) return normalizeShmsSheetDate_(dateValue);
-
-            const submittedRaw = normalizeShmsSubmittedAt_(submittedAtValue || "");
-            if (submittedRaw) {
-                const submittedDate = new Date(submittedRaw);
-                if (!Number.isNaN(submittedDate.getTime())) {
-                    const submittedOnly = new Date(
-                        submittedDate.getFullYear(),
-                        submittedDate.getMonth(),
-                        submittedDate.getDate()
-                    ).getTime();
-                    const best = candidates
-                        .map((candidate) => ({
-                            candidate,
-                            diff: Math.abs(
-                                new Date(candidate.getFullYear(), candidate.getMonth(), candidate.getDate()).getTime() - submittedOnly
-                            )
-                        }))
-                        .sort((a, b) => a.diff - b.diff)[0];
-                    if (best?.candidate) return formatShmsDateObject_(best.candidate);
-                }
-            }
-
-            return formatShmsDateObject_(candidates[0]);
-        }
-
-        function normalizeShmsTime_(value) {
-            const raw = String(value || "").trim();
-            if (!raw) return "";
-            if (/^\d{2}:\d{2}$/.test(raw)) return raw;
-            if (/^\d{2}:\d{2}:\d{2}$/.test(raw)) return raw.slice(0, 5);
-            const isoMatch = raw.match(/T(\d{2}):(\d{2})/);
-            if (isoMatch) {
-                return `${isoMatch[1]}:${isoMatch[2]}`;
-            }
-            const directMatch = raw.match(/(\d{1,2}):(\d{2})/);
-            if (directMatch) {
-                return `${String(directMatch[1]).padStart(2, "0")}:${directMatch[2]}`;
-            }
-            return raw;
-        }
-
-        function normalizeShmsSubstationKey_(value) {
-            return String(value || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
-        }
 
         function buildShmsDateKey_(value) {
             const raw = String(value || "").trim();
@@ -17689,13 +17425,6 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             return normalized;
         }
 
-        function buildShmsDateKeyFromDateObj_(dateObj) {
-            if (!(dateObj instanceof Date) || Number.isNaN(dateObj.getTime())) return "";
-            const day = String(dateObj.getDate()).padStart(2, "0");
-            const month = String(dateObj.getMonth() + 1).padStart(2, "0");
-            const year = dateObj.getFullYear();
-            return `${year}-${month}-${day}`;
-        }
 
         function buildShmsMonthKeyFromDateKey_(dateKey) {
             const raw = String(dateKey || "").trim();
@@ -17704,220 +17433,19 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             return `${match[2]}/${match[1]}`;
         }
 
-        function getShmsExpectedDateKeyFromSubmittedAt_(value) {
-            const raw = String(value || "").trim();
-            if (!raw) return "";
-            const submitted = new Date(raw);
-            if (Number.isNaN(submitted.getTime())) return "";
-            const expected = new Date(submitted.getFullYear(), submitted.getMonth(), submitted.getDate() - 1);
-            return buildShmsDateKeyFromDateObj_(expected);
-        }
 
-        function getShmsCurrentDateTimeLabel() {
-            const now = new Date();
-            const day = String(now.getDate()).padStart(2, "0");
-            const month = String(now.getMonth() + 1).padStart(2, "0");
-            const year = now.getFullYear();
-            const hours = String(now.getHours()).padStart(2, "0");
-            const minutes = String(now.getMinutes()).padStart(2, "0");
-            return `${day}/${month}/${year} ${hours}:${minutes}`;
-        }
 
-        function parseShmsSubmittedAtDate_(value) {
-            const raw = String(value || "").trim();
-            if (!raw) return null;
 
-            const directDateTimeMatch = raw.match(
-                /^(\d{2})[\/-](\d{2})[\/-](\d{4})(?:\s*(?:-\s*)?(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?)?$/i
-            );
-            if (directDateTimeMatch) {
-                let hours = Number(directDateTimeMatch[4] || 0);
-                const minutes = Number(directDateTimeMatch[5] || 0);
-                const seconds = Number(directDateTimeMatch[6] || 0);
-                const meridiem = String(directDateTimeMatch[7] || "").toUpperCase();
-                if (meridiem === "PM" && hours < 12) hours += 12;
-                if (meridiem === "AM" && hours === 12) hours = 0;
-                const parsed = new Date(
-                    Number(directDateTimeMatch[3]),
-                    Number(directDateTimeMatch[2]) - 1,
-                    Number(directDateTimeMatch[1]),
-                    Number.isNaN(hours) ? 0 : hours,
-                    Number.isNaN(minutes) ? 0 : minutes,
-                    Number.isNaN(seconds) ? 0 : seconds,
-                    0
-                );
-                if (!Number.isNaN(parsed.getTime())) return parsed;
-            }
 
-            const isoDateTimeMatch = raw.match(
-                /^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{1,2}):(\d{2})(?::(\d{2}))?)?/
-            );
-            if (isoDateTimeMatch) {
-                const parsed = new Date(raw);
-                if (!Number.isNaN(parsed.getTime())) return parsed;
-            }
 
-            const fallback = new Date(raw);
-            if (!Number.isNaN(fallback.getTime())) return fallback;
-            return null;
-        }
 
-        function normalizeShmsSubmittedAt_(value) {
-            const parsed = parseShmsSubmittedAtDate_(value);
-            return parsed ? parsed.toISOString() : String(value || "").trim();
-        }
 
-        function formatShmsSubmittedAtDisplay(value) {
-            const raw = String(value || "").trim();
-            if (!raw) return "";
-            const date = parseShmsSubmittedAtDate_(raw) || new Date(raw);
-            if (Number.isNaN(date.getTime())) return raw;
-            const day = String(date.getDate()).padStart(2, "0");
-            const month = String(date.getMonth() + 1).padStart(2, "0");
-            const year = date.getFullYear();
-            const hours = String(date.getHours()).padStart(2, "0");
-            const minutes = String(date.getMinutes()).padStart(2, "0");
-            return `${day}/${month}/${year} ${hours}:${minutes}`;
-        }
 
-        function buildShmsLocalProgressRows_(entries) {
-            return (Array.isArray(entries) ? entries : []).map((entry) => {
-                const submittedAt = normalizeShmsSubmittedAt_(entry.submitted_at || entry.submittedAt || "");
-                const resolvedDate = resolveShmsEffectiveDate_(entry.date || entry.eventDate || "", submittedAt);
-                const dateKey = buildShmsDateKey_(resolvedDate);
-                const expectedDateKey = getShmsExpectedDateKeyFromSubmittedAt_(submittedAt);
-                return {
-                    substation: String(entry.substation || "").trim(),
-                    feeder: String(entry.feeder || "").trim(),
-                    eventType: String(entry.event_type || entry.eventType || "").trim(),
-                    date: resolvedDate,
-                    timeFrom: normalizeShmsTime_(entry.time_from || entry.timeFrom || ""),
-                    timeTo: normalizeShmsTime_(entry.time_to || entry.timeTo || ""),
-                    totalDuration: String(entry.total_duration || entry.totalDuration || "").trim(),
-                    reason: String(entry.reason || "").trim(),
-                    meterNo: String(entry.meter_no || entry.meterNo || "").trim(),
-                    operatorName: String(entry.operator_name || entry.operatorName || "").trim(),
-                    operatorMobile: String(entry.operator_mobile || entry.operatorMobile || "").trim(),
-                    submittedAt: submittedAt,
-                    dateKey,
-                    expectedDateKey
-                };
-            }).filter((row) => row.substation && row.date);
-        }
 
-        function getShmsProgressRowKey_(row) {
-            return [
-                normalizeShmsSubstationKey_(row.substation),
-                String(row.feeder || "").trim().toUpperCase(),
-                buildShmsDateKey_(row.date),
-                String(row.timeFrom || "").trim(),
-                String(row.timeTo || "").trim(),
-                String(row.reason || "").trim().toUpperCase(),
-                String(row.submittedAt || "").trim()
-            ].join("|");
-        }
 
-        function getShmsProgressSyncKey_(row) {
-            if (!row) return "";
-            const dateKey = String(row.dateKey || buildShmsDateKey_(row.date) || "").trim();
-            const expectedDateKey = String(
-                row.expectedDateKey || getShmsExpectedDateKeyFromSubmittedAt_(row.submittedAt || "")
-            ).trim();
-            const effectiveDateKey = dateKey || expectedDateKey || getShmsSubmittedDateKey_(row.submittedAt || "");
-            return [
-                normalizeShmsSubstationKey_(row.substation),
-                String(row.feeder || "").trim().toUpperCase(),
-                String(row.eventType || "").trim().toUpperCase(),
-                effectiveDateKey,
-                String(row.timeFrom || "").trim(),
-                String(row.timeTo || "").trim(),
-                String(row.reason || "").trim().toUpperCase()
-            ].join("|");
-        }
 
-        function mergeShmsProgressRows_(baseRows, extraRows) {
-            const merged = [];
-            const seen = new Set();
-            [...(Array.isArray(baseRows) ? baseRows : []), ...(Array.isArray(extraRows) ? extraRows : [])].forEach((row) => {
-                if (!row || !row.substation) return;
-                const key = getShmsProgressRowKey_(row);
-                if (seen.has(key)) return;
-                seen.add(key);
-                merged.push(row);
-            });
-            return merged;
-        }
 
-        function loadRecentShmsSubmittedEntries_() {
-            try {
-                const raw = localStorage.getItem(shmsRecentSubmittedStorageKey);
-                const parsed = JSON.parse(raw || "[]");
-                const nowTs = Date.now();
-                shmsRecentSubmittedEntries = Array.isArray(parsed)
-                    ? parsed.filter((entry) => {
-                        const submittedRaw = normalizeShmsSubmittedAt_(entry.submitted_at || entry.submittedAt || "");
-                        const submittedTs = submittedRaw ? new Date(submittedRaw).getTime() : NaN;
-                        return !Number.isNaN(submittedTs) && (nowTs - submittedTs) <= shmsRecentSubmittedTtlMs;
-                    }).slice(-200)
-                    : [];
-                persistRecentShmsSubmittedEntries_();
-            } catch (_) {
-                shmsRecentSubmittedEntries = [];
-            }
-        }
 
-        function persistRecentShmsSubmittedEntries_() {
-            try {
-                localStorage.setItem(shmsRecentSubmittedStorageKey, JSON.stringify(shmsRecentSubmittedEntries.slice(-200)));
-            } catch (_) {}
-        }
-
-        function getRecentShmsSubmittedRows_() {
-            if (!Array.isArray(shmsRecentSubmittedEntries) || !shmsRecentSubmittedEntries.length) {
-                loadRecentShmsSubmittedEntries_();
-            }
-            return buildShmsLocalProgressRows_(shmsRecentSubmittedEntries);
-        }
-
-        function saveRecentShmsSubmittedEntries_(entries) {
-            if (Array.isArray(entries) && entries.length) {
-                const nextEntries = shmsRecentSubmittedEntries.concat(entries);
-                const deduped = [];
-                const seen = new Set();
-                nextEntries.slice().reverse().forEach((entry) => {
-                    const row = buildShmsLocalProgressRows_([entry])[0];
-                    const key = getShmsProgressSyncKey_(row) || getShmsProgressRowKey_(row || {});
-                    if (!key || seen.has(key)) return;
-                    seen.add(key);
-                    deduped.unshift(entry);
-                });
-                shmsRecentSubmittedEntries = deduped.slice(-200);
-            }
-            persistRecentShmsSubmittedEntries_();
-        }
-
-        function reconcileRecentShmsSubmittedEntries_(serverRows) {
-            const serverKeys = new Set((Array.isArray(serverRows) ? serverRows : []).map((row) => getShmsProgressSyncKey_(row)).filter(Boolean));
-            if (!serverKeys.size) return;
-
-            const localRows = buildShmsLocalProgressRows_(shmsRecentSubmittedEntries);
-            const nextEntries = [];
-
-            shmsRecentSubmittedEntries.forEach((entry, index) => {
-                const localRow = localRows[index];
-                if (!localRow) {
-                    nextEntries.push(entry);
-                    return;
-                }
-                const key = getShmsProgressSyncKey_(localRow);
-                if (!serverKeys.has(key)) {
-                    nextEntries.push(entry);
-                }
-            });
-
-            shmsRecentSubmittedEntries = nextEntries.slice(-200);
-            persistRecentShmsSubmittedEntries_();
-        }
 
         function getYesterdayDateParts() {
             const now = new Date();
@@ -17932,159 +17460,14 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             };
         }
 
-        function getTodayDateParts() {
-            const now = new Date();
-            const day = String(now.getDate()).padStart(2, "0");
-            const month = String(now.getMonth() + 1).padStart(2, "0");
-            const year = now.getFullYear();
-            return {
-                label: `${day}/${month}/${year}`,
-                iso: `${year}-${month}-${day}`,
-                dateObj: new Date(now.getFullYear(), now.getMonth(), now.getDate())
-            };
-        }
 
-        function getShmsPendingCutoff() {
-            const now = new Date();
-            return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 9, 30, 0, 0);
-        }
 
-        function setShmsPendingStatus(message) {
-            const node = document.getElementById("shms-pending-status");
-            if (!node) return;
-            if (message === "SYNCING DATA... PLEASE WAIT") {
-                node.style.display = "block";
-                renderSyncingProgress(node, () => node.isConnected && document.getElementById("shms-pending-status") === node);
-                return;
-            }
-            node.innerText = message || "";
-            node.style.display = message ? "block" : "none";
-        }
 
-        function getShmsPendingTrackerRows() {
-            const baseRows = shmsPendingTrackerRows.length ? shmsPendingTrackerRows : shmsProgressRows;
-            const localRows = getRecentShmsSubmittedRows_();
-            return mergeShmsProgressRows_(baseRows, localRows);
-        }
 
-        function getShmsSubmittedDateKey_(value) {
-            const submitted = parseShmsSubmittedAtDate_(value || "");
-            if (Number.isNaN(submitted.getTime())) return "";
-            return buildShmsDateKeyFromDateObj_(submitted);
-        }
 
-        function getShmsPendingSubstations() {
-            const source = shmsSubstations.length ? shmsSubstations : shmsRows.map((row) => row.substation).filter(Boolean);
-            return Array.from(new Set(source.map((item) => String(item || "").trim()).filter(Boolean)));
-        }
 
-        function buildShmsPendingStatuses() {
-            const today = getTodayDateParts();
-            const cutoff = getShmsPendingCutoff();
-            const now = new Date();
-            const progressRows = getShmsPendingTrackerRows();
-            const substations = getShmsPendingSubstations();
-            const targetDateKey = buildShmsDateKey_(today.label);
 
-            return substations.map((substation) => {
-                const substationKey = normalizeShmsSubstationKey_(substation);
-                const entries = progressRows.filter((row) => {
-                    if (normalizeShmsSubstationKey_(row.substation) !== substationKey) return false;
-                    const submittedDateKey = getShmsSubmittedDateKey_(row.submittedAt || "");
-                    return submittedDateKey === targetDateKey;
-                });
-                if (!entries.length) {
-                    return {
-                        substation,
-                        status: now <= cutoff ? "Pending" : "Pending",
-                        badgeClass: now <= cutoff ? "background:#fef3c7; color:#92400e;" : "background:#fee2e2; color:#b91c1c;",
-                        meta: now <= cutoff ? "Entry is expected today before 09:30 AM" : "Make Entry by 09:30 AM",
-                        count: 0
-                    };
-                }
 
-                const submittedTimes = entries
-                    .map((row) => {
-                        if (!row.submittedAt) return null;
-                        const submitted = parseShmsSubmittedAtDate_(row.submittedAt) || new Date(row.submittedAt);
-                        return Number.isNaN(submitted.getTime()) ? null : submitted;
-                    })
-                    .filter(Boolean);
-
-                const firstSubmitted = submittedTimes.length
-                    ? submittedTimes.sort((a, b) => a.getTime() - b.getTime())[0]
-                    : null;
-
-                const hasLate = firstSubmitted ? firstSubmitted > cutoff : false;
-
-                return {
-                    substation,
-                    status: hasLate ? "Late" : "Done",
-                    badgeClass: hasLate ? "background:#ffedd5; color:#c2410c;" : "background:#dcfce7; color:#166534;",
-                    meta: hasLate ? "Today's entry was submitted after 09:30 AM" : "Today's entry received",
-                    count: entries.length
-                };
-            });
-        }
-
-        function renderShmsPendingDashboard() {
-            const targetNode = document.getElementById("shms-pending-target-label");
-            const deadlineNode = document.getElementById("shms-pending-deadline-label");
-            const summaryNode = document.getElementById("shms-pending-summary-cards");
-            const listNode = document.getElementById("shms-pending-list");
-            if (!targetNode || !deadlineNode || !summaryNode || !listNode) return;
-
-            const today = getTodayDateParts();
-            const statuses = buildShmsPendingStatuses();
-            const done = statuses.filter((item) => item.status === "Done").length;
-            const late = statuses.filter((item) => item.status === "Late").length;
-            const pending = statuses.filter((item) => item.status === "Pending").length;
-
-            targetNode.innerText = `Expected Entry Date: ${today.label}`;
-            deadlineNode.innerText = "Today's entry is expected before 09:30 AM";
-
-            summaryNode.innerHTML = [
-                { label: "Done", value: done, bg: "#dcfce7", color: "#166534" },
-                { label: "Late", value: late, bg: "#ffedd5", color: "#c2410c" },
-                { label: "Pending", value: pending, bg: "#fee2e2", color: "#b91c1c" }
-            ].map((item) => `
-                <div style="background:${item.bg}; color:${item.color}; border-radius:16px; padding:12px 8px; text-align:center; font-weight:900;">
-                    <div style="font-size:12px; text-transform:uppercase;">${item.label}</div>
-                    <div style="font-size:24px; line-height:1.1; margin-top:4px;">${item.value}</div>
-                </div>
-            `).join("");
-
-            listNode.innerHTML = statuses.map((item) => `
-                <div style="background:#ffffff; border:1.5px solid #ccfbf1; border-radius:18px; padding:12px 14px; box-shadow:0 8px 20px rgba(13,148,136,0.08);">
-                    <div style="display:flex; justify-content:space-between; gap:10px; align-items:flex-start;">
-                        <div>
-                            <div style="font-size:14px; font-weight:900; color:#0f172a;">${item.substation}</div>
-                            <div style="font-size:11px; font-weight:800; color:#475569; margin-top:4px;">${item.meta}</div>
-                        </div>
-                        <div style="${item.badgeClass} border-radius:999px; padding:6px 12px; font-size:11px; font-weight:900; text-transform:uppercase; white-space:nowrap;">${item.status}</div>
-                    </div>
-                    <div style="font-size:11px; font-weight:800; color:#0d9488; margin-top:8px;">Entries Found: ${item.count}</div>
-                </div>
-            `).join("");
-        }
-
-        async function initShmsPendingDashboard() {
-            setShmsPendingStatus("SYNCING DATA... PLEASE WAIT");
-            const [masterLoaded, progressLoaded] = await Promise.all([
-                loadShmsData(true),
-                loadShmsProgressData(true)
-            ]);
-            if (!masterLoaded) {
-                setShmsPendingStatus("SHMS feeder master could not be loaded");
-                return;
-            }
-            if (!progressLoaded) {
-                setShmsPendingStatus("SHMS submitted data could not be loaded");
-                return;
-            }
-            setShmsPendingStatus("");
-            renderShmsPendingDashboard();
-        }
 
         async function initShmsProgressDashboard() {
             const input = document.getElementById("shms-progress-date");
@@ -18094,19 +17477,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 input.value = yesterday.iso;
                 input.max = getTodayIsoDate();
             }
-            setShmsProgressStatus("SYNCING DATA... PLEASE WAIT");
-            const loaded = await loadShmsProgressData(true);
-            if (!loaded) {
-                setShmsProgressStatus("SHMS progress data could not be loaded");
-                const summary = document.getElementById("shms-progress-summary");
-                if (summary) summary.style.display = "none";
-                return;
-            }
-            setShmsProgressStatus("");
-            // setReportSource() neeche khud renderShmsProgressSummary(true) call
-            // karta hai (tab-switch/dashboard-open par fresh fetch ke liye) - pehle
-            // yahan ek redundant extra call bhi hota tha (double network hit ka
-            // risk), ab hata diya (2026-09-15).
+            // UPDATE 157 (2026-11-03): SHMS hata diya - ab SHMS data load nahi hota (Feeder/STM/Peak Load apna data khud laate hain).
             setReportSource(progressReportSource);
         }
 
@@ -18148,34 +17519,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             renderShmsProgressSummary();
         }
 
-        function getShmsProgressFilterLabel() {
-            const raw = document.getElementById("shms-progress-date")?.value || "";
-            if (!raw) return "";
-            if (shmsProgressMode === "MONTHLY") {
-                const [year, month] = raw.split("-");
-                return `${month}/${year}`;
-            }
-            return formatShmsDateDisplay(raw);
-        }
 
-        function getFilteredShmsProgressRows() {
-            const label = getShmsProgressFilterLabel();
-            if (!label) return [];
-            const sourceRows = mergeShmsProgressRows_(shmsProgressRows, getRecentShmsSubmittedRows_());
-            if (shmsProgressMode === "MONTHLY") {
-                return sourceRows.filter((row) => {
-                    const rowMonthKey = buildShmsMonthKeyFromDateKey_(row.dateKey || buildShmsDateKey_(row.date));
-                    const expectedMonthKey = buildShmsMonthKeyFromDateKey_(row.expectedDateKey || getShmsExpectedDateKeyFromSubmittedAt_(row.submittedAt));
-                    return rowMonthKey === label || expectedMonthKey === label;
-                });
-            }
-            const labelKey = buildShmsDateKey_(label);
-            return sourceRows.filter((row) => {
-                const rowDateKey = row.dateKey || buildShmsDateKey_(row.date);
-                const submittedExpectedKey = row.expectedDateKey || getShmsExpectedDateKeyFromSubmittedAt_(row.submittedAt);
-                return rowDateKey === labelKey || submittedExpectedKey === labelKey;
-            });
-        }
 
         // STALE-RENDER PROTECTION (2026-09-15, USER-REPORTED): pehle report
         // source (SHMS/FEEDER/STM/PEAKLOAD) fast switch karne par, purani tab ki
@@ -18206,16 +17550,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 await renderStmComplaintReportSummary(forceRefresh, isShmsProgressRenderValid);
                 return;
             }
-            const filtered = getFilteredShmsProgressRows();
-            if (!isShmsProgressRenderValid()) return;
-            const label = getShmsProgressFilterLabel();
-            summary.style.display = label ? "block" : "none";
-            // ITEM-8 FIX (2026-09-15): naya fetch fail hone par purana (cached)
-            // data dikhne par chhota staleness note - sirf display text.
-            const staleSuffix = (filtered.length && shmsProgressStale)
-                ? " (⚠ new data could not be loaded, showing the previously loaded data)"
-                : "";
-            summary.innerText = label ? `${filtered.length} entries ready for ${label}${staleSuffix}` : "";
+            // UPDATE 157 (2026-11-03): SHMS hata diya - ab default Feeder Reading.
+            await renderFeederReportSummary(forceRefresh, isShmsProgressRenderValid);
         }
 
         async function saveShmsBlob(fileName, blob, mimeType) {
@@ -18916,9 +18252,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             // USER REQUEST (2026-09-14): pehle sirf SHMS/FEEDER 2 option the, ab
             // STM Complaint aur Daily Hourly Peak Load bhi (Sub DN Chhapara ke
             // menu ke sabhi 4 module) isi Daily Progress toggle me add kiye.
-            const validSources = ["SHMS", "FEEDER", "STM", "PEAKLOAD"];
-            progressReportSource = validSources.includes(source) ? source : "SHMS";
-            document.getElementById("progress-shms-btn")?.classList.toggle("active", progressReportSource === "SHMS");
+            const validSources = ["FEEDER", "STM", "PEAKLOAD"]; // UPDATE 157 (2026-11-03): SHMS removed
+            progressReportSource = validSources.includes(source) ? source : "FEEDER";
             document.getElementById("progress-feeder-btn")?.classList.toggle("active", progressReportSource === "FEEDER");
             document.getElementById("progress-stm-btn")?.classList.toggle("active", progressReportSource === "STM");
             document.getElementById("progress-peakload-btn")?.classList.toggle("active", progressReportSource === "PEAKLOAD");
@@ -18929,7 +18264,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     STM: "STM COMPLAINT REPORT",
                     PEAKLOAD: "DAILY HOURLY PEAK LOAD REPORT"
                 };
-                titleNode.innerText = titleMap[progressReportSource] || "SHMS DAILY PROGRESS";
+                titleNode.innerText = titleMap[progressReportSource] || "FEEDER READING REPORT";
             }
             // Tab (SHMS/Feeder/STM/PeakLoad) switch karna ek explicit "fresh data
             // do" signal hai - isliye yahi ek jagah hai jahan force refresh hota
@@ -19116,457 +18451,24 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             if (progressReportSource === "STM") {
                 return downloadStmComplaintReport(fmt);
             }
-            try {
-                setShmsProgressStatus("SYNCING DATA... PLEASE WAIT");
-                const loaded = await loadShmsProgressData(true);
-                setShmsProgressStatus("");
-                if (!loaded) return showToast("SHMS progress data could not be loaded", false);
-
-                const filtered = getFilteredShmsProgressRows();
-                const label = getShmsProgressFilterLabel();
-                if (!label) return showToast("Please select a date or month first", false);
-
-                const headers = [
-                    "S.NO",
-                    "33/11 KV Substation",
-                    "33 or 11 KV Feeder",
-                    "Un-Planned/Planned",
-                    "Date",
-                    "Time From",
-                    "Time To",
-                    "Total Duration",
-                    "Reason",
-                    "Meter No",
-                    "NAME OF OPERATOR",
-                    "MOBILE NO",
-                    "SUBMITTED AT"
-                ];
-
-                const rows = filtered.map((row, index) => [
-                    index + 1,
-                    row.substation,
-                    row.feeder,
-                    row.eventType,
-                    row.date,
-                    row.timeFrom,
-                    row.timeTo,
-                    row.totalDuration,
-                    row.reason,
-                    row.meterNo,
-                    row.operatorName,
-                    row.operatorMobile,
-                    formatShmsSubmittedAtDisplay(row.submittedAt)
-                ]);
-
-                const safeLabel = label.replace(/[\/\s]/g, "_");
-
-                if (fmt === "XLS") {
-                    const csvRows = [
-                        ["SHMS DAILY PROGRESS REPORT"],
-                        [shmsProgressMode === "MONTHLY" ? `MONTH - ${label}` : `DATE - ${label}`],
-                        [],
-                        headers,
-                        ...rows
-                    ];
-                    const csv = csvRows.map((row) => row.map((cell) => {
-                        const value = String(cell ?? "");
-                        return /[",\n]/.test(value) ? `"${value.replace(/"/g, "\"\"")}"` : value;
-                    }).join(",")).join("\n");
-                    await saveShmsBlob(
-                        `SHMS_${shmsProgressMode}_${safeLabel}.csv`,
-                        new Blob([csv], { type: "text/csv;charset=utf-8" }),
-                        "text/csv;charset=utf-8"
-                    );
-                    return showToast(rows.length ? "Excel report request has been sent. If the file does not appear in preview, please check in the browser or GitHub version." : "Blank Excel report request has been sent. If the file does not appear in preview, please check in the browser or GitHub version.", true);
-                }
-
-                if (!window.jspdf || !window.jspdf.jsPDF) {
-                    return showToast("PDF library could not be loaded", false);
-                }
-
-                const { jsPDF } = window.jspdf;
-                const doc = new jsPDF("l", "mm", "a4");
-                scPdfHeader_(doc, { title: "SHMS DAILY PROGRESS REPORT", lines: [shmsProgressMode === "MONTHLY" ? `MONTH - ${label}` : `DATE - ${label}`], color: SC_PDF_THEME.progress }); // SC PDF KIT (scShmsProgressDownloadCore_)
-                doc.autoTable({
-                    startY: 32,
-                    head: [headers],
-                    body: rows.length ? rows : [["", "", "", "", "", "", "", "", "", "", "", ""]],
-                    theme: "grid",
-                    headStyles: { fillColor: [17, 24, 39], halign: "center" },
-                    styles: { fontSize: 7, cellPadding: 2, halign: "center" },
-                    columnStyles: {
-                        0: { halign: "left" },
-                        1: { halign: "left" },
-                        7: { halign: "left" },
-                        9: { halign: "left" },
-                        11: { halign: "left" }
-                    }
-                });
-                scPdfFinalize_(doc); const pdfBlob = doc.output("blob");
-                await saveShmsBlob(
-                    `SHMS_${shmsProgressMode}_${safeLabel}.pdf`,
-                    pdfBlob,
-                    "application/pdf"
-                );
-                showToast(rows.length ? "PDF report request has been sent. If the file does not appear in preview, please check in the browser or GitHub version." : "Blank PDF report request has been sent. If the file does not appear in preview, please check in the browser or GitHub version.", true);
-            } catch (error) {
-                setShmsProgressStatus("");
-                showToast(error?.message || "Download failed", false);
-            }
+            return downloadFeederReport(fmt); // UPDATE 157: SHMS removed
         }
 
-        async function initShmsEntry() {
-            resetShmsForm();
-            activeShmsOperator = getSavedShmsOperator();
-            updateShmsOperatorUi();
-            setShmsStatus("SYNCING DATA... PLEASE WAIT");
-            const substationMenu = document.getElementById("shms-substation-menu");
-            const feederMenu = document.getElementById("shms-feeder-menu");
-            const dateInput = document.getElementById("shms-event-date");
-            if (!substationMenu || !feederMenu) return;
-            if (dateInput) {
-                dateInput.max = getTodayIsoDate();
-            }
 
-            const loaded = await loadShmsData(true);
-            substationMenu.innerHTML = "";
-            feederMenu.innerHTML = "";
 
-            if (!loaded) {
-                setShmsStatus("SHMS CSV could not be loaded");
-                return;
-            }
 
-            shmsSubstations.forEach((substation) => {
-                const item = document.createElement("div");
-                item.className = "option-item";
-                item.innerText = substation;
-                item.onclick = () => selectShmsSubstation(substation);
-                substationMenu.appendChild(item);
-            });
 
-            setShmsStatus("");
-        }
 
-        function selectShmsSubstation(substation) {
-            const feederMenu = document.getElementById("shms-feeder-menu");
-            const feederLabel = document.getElementById("shms-feeder-label");
-            const eventLabel = document.getElementById("shms-event-label");
-            const substationLabel = document.getElementById("shms-substation-label");
-            const feederBlock = document.getElementById("shms-feeder-block");
-            const eventBlock = document.getElementById("shms-event-block");
-            const dateBlock = document.getElementById("shms-date-block");
-            const timeBlock = document.getElementById("shms-time-block");
-            const noteBlock = document.getElementById("shms-note-block");
-            selectedShmsSubstation = substation || "";
-            selectedShmsRow = null;
-            selectedShmsEventType = "";
-            if (substationLabel) substationLabel.innerText = selectedShmsSubstation || "Select 33/11 KV Substation";
-            if (feederLabel) feederLabel.innerText = "Select 33KV or 11KV Feeder";
-            if (eventLabel) eventLabel.innerText = "Select Event Type";
-            if (eventBlock) eventBlock.style.display = "none";
-            if (dateBlock) dateBlock.style.display = "none";
-            if (timeBlock) timeBlock.style.display = "none";
-            if (noteBlock) noteBlock.style.display = "none";
-            resetShmsDateTimeInputs();
-            if (!feederMenu) return;
-            toggleShmsDropdown("substation", false);
 
-            feederMenu.innerHTML = "";
-            if (!selectedShmsSubstation) {
-                if (feederBlock) feederBlock.style.display = "none";
-                return;
-            }
 
-            if (feederBlock) feederBlock.style.display = "block";
 
-            const feeders = shmsRows.filter((row) => row.substation === selectedShmsSubstation);
-            const uniqueMap = new Map();
 
-            feeders.forEach((row) => {
-                const feederKey = String(row.feeder || "").replace(/\s+/g, " ").trim().toUpperCase();
-                if (!feederKey) return;
-                if (!uniqueMap.has(feederKey)) {
-                    uniqueMap.set(feederKey, row);
-                } else {
-                    const existing = uniqueMap.get(feederKey);
-                    if ((!existing.meterNo || existing.meterNo === "-") && row.meterNo) {
-                        uniqueMap.set(feederKey, row);
-                    }
-                }
-            });
 
-            const uniqueFeeders = Array.from(uniqueMap.values()).sort((a, b) => a.feeder.localeCompare(b.feeder));
 
-            uniqueFeeders.forEach((row) => {
-                const item = document.createElement("div");
-                item.className = "option-item";
-                item.innerText = row.feeder;
-                item.onclick = () => selectShmsFeeder(row);
-                feederMenu.appendChild(item);
-            });
-        }
 
-        function selectShmsFeeder(row) {
-            const feederLabel = document.getElementById("shms-feeder-label");
-            const eventBlock = document.getElementById("shms-event-block");
-            const dateBlock = document.getElementById("shms-date-block");
-            const timeBlock = document.getElementById("shms-time-block");
-            const noteBlock = document.getElementById("shms-note-block");
-            if (!row) {
-                selectedShmsRow = null;
-                if (eventBlock) eventBlock.style.display = "none";
-                if (dateBlock) dateBlock.style.display = "none";
-                if (timeBlock) timeBlock.style.display = "none";
-                if (noteBlock) noteBlock.style.display = "none";
-                resetShmsDateTimeInputs();
-                return;
-            }
 
-            selectedShmsRow = row;
-            if (feederLabel) feederLabel.innerText = row.feeder || "Select 33KV or 11KV Feeder";
-            toggleShmsDropdown("feeder", false);
-            if (eventBlock) eventBlock.style.display = selectedShmsRow ? "block" : "none";
-            if (dateBlock) dateBlock.style.display = "none";
-            if (timeBlock) timeBlock.style.display = "none";
-            if (noteBlock) noteBlock.style.display = "none";
-            resetShmsDateTimeInputs();
-        }
 
-        function selectShmsEventType(value) {
-            selectedShmsEventType = value || "";
-            const eventLabel = document.getElementById("shms-event-label");
-            const dateBlock = document.getElementById("shms-date-block");
-            const timeBlock = document.getElementById("shms-time-block");
-            const noteBlock = document.getElementById("shms-note-block");
-            const noteInput = document.getElementById("shms-note-input");
-            if (eventLabel) eventLabel.innerText = selectedShmsEventType || "Select Event Type";
-            if (dateBlock) dateBlock.style.display = selectedShmsEventType ? "block" : "none";
-            if (timeBlock) timeBlock.style.display = "none";
-            if (noteBlock) noteBlock.style.display = "none";
-            if (noteInput) {
-                noteInput.placeholder = selectedShmsEventType === "Breakdown"
-                    ? "Write the reason for the breakdown..."
-                    : selectedShmsEventType === "Shutdown"
-                        ? "Write by whom the shutdown was taken and the reason..."
-                        : "Write the details here...";
-            }
-            resetShmsDateTimeInputs();
-            toggleShmsDropdown("event", false);
-        }
 
-        function handleShmsDateChange() {
-            const dateValue = document.getElementById("shms-event-date")?.value || "";
-            const fullRunBlock = document.getElementById("shms-fullrun-block");
-            const timeBlock = document.getElementById("shms-time-block");
-            const durationBlock = document.getElementById("shms-duration-block");
-            const noteBlock = document.getElementById("shms-note-block");
-            const isFullRun = !!document.getElementById("shms-fullrun-check")?.checked;
-            if (fullRunBlock) fullRunBlock.style.display = dateValue ? "block" : "none";
-            if (timeBlock) timeBlock.style.display = dateValue && !isFullRun ? "block" : "none";
-            if (durationBlock) durationBlock.style.display = "none";
-            if (noteBlock) noteBlock.style.display = "none";
-            const fromTime = document.getElementById("shms-from-time");
-            const toTime = document.getElementById("shms-to-time");
-            const durationInput = document.getElementById("shms-duration");
-            if (fromTime) fromTime.value = "";
-            if (toTime) toTime.value = "";
-            if (durationInput) durationInput.value = "";
-            if (isFullRun) {
-                handleShmsFullRunToggle();
-            }
-        }
-
-        function isShmsFullRunChecked_() {
-            return !!document.getElementById("shms-fullrun-check")?.checked;
-        }
-
-        function handleShmsFullRunToggle() {
-            const isFullRun = isShmsFullRunChecked_();
-            const dateValue = document.getElementById("shms-event-date")?.value || "";
-            const timeBlock = document.getElementById("shms-time-block");
-            const durationBlock = document.getElementById("shms-duration-block");
-            const durationInput = document.getElementById("shms-duration");
-            const noteBlock = document.getElementById("shms-note-block");
-            const addBlock = document.getElementById("shms-add-block");
-            const fromInput = document.getElementById("shms-from-time");
-            const toInput = document.getElementById("shms-to-time");
-
-            if (fromInput && isFullRun) fromInput.value = "";
-            if (toInput && isFullRun) toInput.value = "";
-            if (timeBlock) timeBlock.style.display = dateValue && !isFullRun ? "block" : "none";
-            if (durationBlock) durationBlock.style.display = isFullRun ? "block" : "none";
-            if (durationInput) durationInput.value = isFullRun ? "No Interruption Today" : "";
-            if (noteBlock) noteBlock.style.display = isFullRun ? "block" : "none";
-            if (addBlock) addBlock.style.display = "none";
-        }
-
-        function normalizeShmsTimeInput(rawValue) {
-            const raw = String(rawValue || "").trim();
-            if (!raw) return "";
-
-            const digits = raw.replace(/\D/g, "").slice(0, 4);
-            if (!digits) return "";
-
-            if (raw.includes(":")) {
-                const parts = raw.split(":");
-                const hour = String(parts[0] || "").replace(/\D/g, "").slice(0, 2);
-                const minute = String(parts[1] || "").replace(/\D/g, "").slice(0, 2);
-                if (hour.length === 2 && minute.length === 2) {
-                    const h = Number(hour);
-                    const m = Number(minute);
-                    if (h >= 0 && h <= 23 && m >= 0 && m <= 59) return `${hour}:${minute}`;
-                }
-            }
-
-            if (digits.length <= 2) return digits;
-
-            let hour = digits.slice(0, 2);
-            let minute = digits.slice(2, 4);
-            if (minute.length < 2) return `${hour}:${minute}`;
-
-            let h = Number(hour);
-            let m = Number(minute);
-            if (Number.isNaN(h) || Number.isNaN(m)) return "";
-            if (h > 23 || m > 59) return `${hour}:${minute}`;
-            return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-        }
-
-        function isValidShmsTimeValue(value) {
-            const raw = String(value || "").trim();
-            if (!/^\d{2}:\d{2}$/.test(raw)) return false;
-            const [hours, minutes] = raw.split(":").map(Number);
-            if ([hours, minutes].some(Number.isNaN)) return false;
-            return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59;
-        }
-
-        function handleShmsTimeTyping(input) {
-            if (!input) return;
-            const normalized = normalizeShmsTimeInput(input.value);
-            input.value = normalized;
-            const durationBlock = document.getElementById("shms-duration-block");
-            const noteBlock = document.getElementById("shms-note-block");
-            const addBlock = document.getElementById("shms-add-block");
-            if (durationBlock) durationBlock.style.display = "none";
-            if (noteBlock) noteBlock.style.display = "none";
-            if (addBlock) addBlock.style.display = "none";
-        }
-
-        function handleShmsTimeChange() {
-            const fromInput = document.getElementById("shms-from-time");
-            const toInput = document.getElementById("shms-to-time");
-            const fromTime = normalizeShmsTimeInput(fromInput?.value || "");
-            const toTime = normalizeShmsTimeInput(toInput?.value || "");
-            const durationBlock = document.getElementById("shms-duration-block");
-            const durationInput = document.getElementById("shms-duration");
-            const noteBlock = document.getElementById("shms-note-block");
-            const addBlock = document.getElementById("shms-add-block");
-            if (fromInput) fromInput.value = fromTime;
-            if (toInput) toInput.value = toTime;
-            if ((fromTime && !isValidShmsTimeValue(fromTime)) || (toTime && !isValidShmsTimeValue(toTime))) {
-                if (durationBlock) durationBlock.style.display = "none";
-                if (durationInput) durationInput.value = "";
-                if (noteBlock) noteBlock.style.display = "none";
-                if (addBlock) addBlock.style.display = "none";
-                showToast("Invalid time. Please enter in 24-hour format, from 00:00 to 23:59", false);
-                return;
-            }
-            const durationText = calculateShmsDuration(fromTime, toTime);
-            if (durationBlock) durationBlock.style.display = durationText ? "block" : "none";
-            if (durationInput) durationInput.value = durationText;
-            if (noteBlock) noteBlock.style.display = durationText ? "block" : "none";
-            if (addBlock) addBlock.style.display = "none";
-        }
-
-        function calculateShmsDuration(fromTime, toTime) {
-            if (!fromTime || !toTime) return "";
-            const [fromHour, fromMin] = fromTime.split(":").map(Number);
-            const [toHour, toMin] = toTime.split(":").map(Number);
-            if ([fromHour, fromMin, toHour, toMin].some(Number.isNaN)) return "";
-
-            let fromTotal = (fromHour * 60) + fromMin;
-            let toTotal = (toHour * 60) + toMin;
-            if (toTotal < fromTotal) {
-                toTotal += 24 * 60;
-            }
-
-            const diff = toTotal - fromTotal;
-            const hrs = Math.floor(diff / 60);
-            const mins = diff % 60;
-            return `${hrs} Hr ${mins} Min`;
-        }
-
-        function handleShmsNoteInput() {
-            const note = (document.getElementById("shms-note-input")?.value || "").trim();
-            const fromTime = document.getElementById("shms-from-time")?.value || "";
-            const toTime = document.getElementById("shms-to-time")?.value || "";
-            const isFullRun = isShmsFullRunChecked_();
-            const addBlock = document.getElementById("shms-add-block");
-            if (addBlock) addBlock.style.display = note && (isFullRun || (fromTime && toTime)) ? "block" : "none";
-        }
-
-        function resetShmsDateTimeInputs() {
-            const dateInput = document.getElementById("shms-event-date");
-            const fullRunCheck = document.getElementById("shms-fullrun-check");
-            const fromTime = document.getElementById("shms-from-time");
-            const toTime = document.getElementById("shms-to-time");
-            const durationInput = document.getElementById("shms-duration");
-            const noteInput = document.getElementById("shms-note-input");
-            const addBlock = document.getElementById("shms-add-block");
-            if (dateInput) dateInput.value = "";
-            if (fullRunCheck) fullRunCheck.checked = false;
-            if (fromTime) fromTime.value = "";
-            if (toTime) toTime.value = "";
-            if (durationInput) durationInput.value = "";
-            if (noteInput) noteInput.value = "";
-            if (addBlock) addBlock.style.display = "none";
-        }
-
-        function setShmsStatus(message) {
-            const statusNode = document.getElementById("shms-load-status");
-            if (!statusNode) return;
-            if (message === "SYNCING DATA... PLEASE WAIT") {
-                statusNode.style.display = "block";
-                renderSyncingProgress(statusNode, () => statusNode.isConnected && document.getElementById("shms-load-status") === statusNode);
-                return;
-            }
-            statusNode.innerText = message || "";
-            statusNode.style.display = message ? "block" : "none";
-        }
-
-        function resetShmsForm() {
-            selectedShmsRow = null;
-            selectedShmsSubstation = "";
-            selectedShmsEventType = "";
-            const substationLabel = document.getElementById("shms-substation-label");
-            const feederLabel = document.getElementById("shms-feeder-label");
-            const eventLabel = document.getElementById("shms-event-label");
-            const feederMenu = document.getElementById("shms-feeder-menu");
-            const feederBlock = document.getElementById("shms-feeder-block");
-            const eventBlock = document.getElementById("shms-event-block");
-            const dateBlock = document.getElementById("shms-date-block");
-            const fullRunBlock = document.getElementById("shms-fullrun-block");
-            const timeBlock = document.getElementById("shms-time-block");
-            const durationBlock = document.getElementById("shms-duration-block");
-            const noteBlock = document.getElementById("shms-note-block");
-            const addBlock = document.getElementById("shms-add-block");
-            if (substationLabel) substationLabel.innerText = "Select 33/11 KV Substation";
-            if (feederLabel) feederLabel.innerText = "Select 33KV or 11KV Feeder";
-            if (eventLabel) eventLabel.innerText = "Select Event Type";
-            if (feederMenu) feederMenu.innerHTML = "";
-            if (feederBlock) feederBlock.style.display = "none";
-            if (eventBlock) eventBlock.style.display = "none";
-            if (dateBlock) dateBlock.style.display = "none";
-            if (fullRunBlock) fullRunBlock.style.display = "none";
-            if (timeBlock) timeBlock.style.display = "none";
-            if (durationBlock) durationBlock.style.display = "none";
-            if (noteBlock) noteBlock.style.display = "none";
-            if (addBlock) addBlock.style.display = "none";
-            toggleShmsDropdown("substation", false);
-            toggleShmsDropdown("feeder", false);
-            toggleShmsDropdown("event", false);
-            resetShmsDateTimeInputs();
-        }
 
         function initFeederReading() {
             const substationMenu = document.getElementById("feeder-substation-menu");
@@ -19999,136 +18901,6 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             }
         }
 
-        function addShmsEntryToList() {
-            const note = (document.getElementById("shms-note-input")?.value || "").trim();
-            const eventDate = document.getElementById("shms-event-date")?.value || "";
-            const fromTime = document.getElementById("shms-from-time")?.value || "";
-            const toTime = document.getElementById("shms-to-time")?.value || "";
-            const totalDuration = document.getElementById("shms-duration")?.value || "";
-            const isFullRun = isShmsFullRunChecked_();
-
-            if (!activeShmsOperator) return showToast("Please save operator login first", false);
-            if (!selectedShmsSubstation) return showToast("Please select a substation", false);
-            if (!selectedShmsRow) return showToast("Please select a feeder", false);
-            if (!selectedShmsEventType) return showToast("Please select Event Type", false);
-            if (!eventDate) return showToast("Please select a date", false);
-            if (!isFullRun && (!fromTime || !toTime)) return showToast("Please select the time for which it remained off", false);
-            if (!isFullRun && (!isValidShmsTimeValue(fromTime) || !isValidShmsTimeValue(toTime))) {
-                return showToast("Invalid time. Please enter in 24-hour format, from 00:00 to 23:59", false);
-            }
-            if (!note) return showToast("Please enter details", false);
-
-            shmsPendingEntries.push({
-                substation: selectedShmsSubstation,
-                feeder: selectedShmsRow.feeder || "",
-                meterNo: selectedShmsRow.meterNo || "",
-                eventType: isFullRun ? "24 Hr Running" : selectedShmsEventType,
-                eventDate,
-                fromTime: isFullRun ? "NIL" : fromTime,
-                toTime: isFullRun ? "NIL" : toTime,
-                totalDuration: isFullRun ? "NIL" : totalDuration,
-                note,
-                isFullRun,
-                operatorName: activeShmsOperator.fullName,
-                operatorMobile: activeShmsOperator.mobileNo
-            });
-
-            renderShmsPendingList();
-            showToast("Entry added", true);
-            resetShmsForm();
-        }
-
-        function renderShmsPendingList() {
-            const listBlock = document.getElementById("shms-list-block");
-            const submitBlock = document.getElementById("shms-submit-block");
-            const listContent = document.getElementById("shms-list-content");
-            if (!listBlock || !submitBlock || !listContent) return;
-
-            if (!shmsPendingEntries.length) {
-                listBlock.style.display = "none";
-                submitBlock.style.display = "none";
-                listContent.innerHTML = "";
-                return;
-            }
-
-            listBlock.style.display = "block";
-            submitBlock.style.display = "block";
-            listContent.innerHTML = shmsPendingEntries.map((item, index) => `
-                <div style="background:#f8fafc; border:1.5px solid #cbd5e1; border-radius:14px; padding:10px 12px; text-align:left;">
-                    <div style="font-size:12px; font-weight:900; color:#0f172a;">${item.substation} | ${item.feeder}</div>
-                    <div style="font-size:11px; font-weight:800; color:#475569; margin-top:4px;">${item.eventType} | ${formatShmsDateDisplay(item.eventDate)} | ${item.isFullRun ? "24 Hr Running" : `${item.fromTime} - ${item.toTime}`}</div>
-                    <div style="font-size:11px; font-weight:800; color:#4338ca; margin-top:4px;">Duration: ${item.isFullRun ? "No Interruption Today" : (item.totalDuration || "-")}</div>
-                    <div style="font-size:11px; font-weight:700; color:#7c2d12; margin-top:4px;">${item.note}</div>
-                    <button onclick="removeShmsPendingEntry(${index})" style="margin-top:8px; background:#fee2e2; color:#b91c1c; border:none; border-radius:999px; padding:6px 10px; font-size:10px; font-weight:900; text-transform:uppercase;">Remove</button>
-                </div>
-            `).join("");
-        }
-
-        function removeShmsPendingEntry(index) {
-            shmsPendingEntries.splice(index, 1);
-            renderShmsPendingList();
-        }
-
-        async function submitShmsEntries() {
-            if (!shmsPendingEntries.length) {
-                return showToast("Please add an entry first", false);
-            }
-
-            const submitBtn = document.querySelector("#shms-submit-block button");
-            setActionButtonState(submitBtn, "processing", "Submit");
-
-            try {
-                const entries = shmsPendingEntries.map((item) => ({
-                    substation: item.substation || "",
-                    feeder: item.feeder || "",
-                    event_type: item.eventType || "",
-                    date: item.eventDate || "",
-                    time_from: item.fromTime || "",
-                    time_to: item.toTime || "",
-                    total_duration: item.totalDuration || "",
-                    reason: item.note || "",
-                    meter_no: item.meterNo || "",
-                    operator_name: item.operatorName || "",
-                    operator_mobile: item.operatorMobile || "",
-                    submitted_at: getShmsCurrentDateTimeLabel()
-                }));
-
-                const payload = new URLSearchParams();
-                payload.append("entries_json", JSON.stringify(entries));
-                // OFFLINE QUEUE 3: client_uuid - retry par backend dohri row nahi banata
-                const scOffqId = generateClientUuid_();
-                payload.append("client_uuid", scOffqId);
-                const scFirst = entries[0] || {};
-                const scRes = await scOffqLiveSubmit_("SHMS", `SHMS__${scOffqId}`, `${entries.length} entry - ${scFirst.substation || ""} / ${scFirst.feeder || ""} / ${scFirst.event_type || ""} (${scFirst.date || ""})`, shmsSubmitScriptUrl, "application/x-www-form-urlencoded;charset=UTF-8", payload.toString());
-                if (scRes.kind === "queuefail") throw new Error(SC_OFFQ_FAIL_MSG_);
-                if (scRes.kind === "rejected") throw new Error(scRes.message || "SHMS submit error occurred");
-                if (scRes.kind === "queued") {
-                    shmsPendingEntries = [];
-                    renderShmsPendingList();
-                    resetShmsForm();
-                    setActionButtonState(submitBtn, "done", "Submit");
-                    showToast(SC_OFFQ_SAVED_MSG_, true);
-                    return;
-                }
-
-                saveRecentShmsSubmittedEntries_(entries);
-                shmsProgressRows = mergeShmsProgressRows_(shmsProgressRows, buildShmsLocalProgressRows_(entries));
-                shmsPendingTrackerRows = shmsProgressRows.slice();
-                shmsProgressLoaded = true;
-                shmsPendingEntries = [];
-                renderShmsPendingList();
-                resetShmsForm();
-                renderShmsPendingDashboard();
-                renderShmsProgressSummary();
-                setActionButtonState(submitBtn, "done", "Submit");
-                showToast("SHMS entries submitted", true);
-            } catch (error) {
-                setActionButtonState(submitBtn, "failed", "Submit");
-                showToast(error?.message || "SHMS submit was blocked or a network issue occurred", false);
-            } finally {
-                setTimeout(() => setActionButtonState(submitBtn, "idle", "Submit"), 900);
-            }
-        }
 
         function formatShmsDateDisplay(value) {
             const raw = String(value || "").trim();
@@ -20141,27 +18913,6 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             return raw;
         }
 
-        function toggleShmsDropdown(type, forceState = null) {
-            const trigger = document.getElementById(`shms-${type}-trigger`);
-            const menu = document.getElementById(`shms-${type}-menu`);
-            if (!trigger || !menu) return;
-
-            if (type === "feeder" && !selectedShmsSubstation) return;
-            if (type === "event" && !selectedShmsRow) return;
-
-            const willShow = forceState === null ? !menu.classList.contains("show") : forceState;
-            ["substation", "feeder", "event"].forEach((name) => {
-                const otherTrigger = document.getElementById(`shms-${name}-trigger`);
-                const otherMenu = document.getElementById(`shms-${name}-menu`);
-                if (otherTrigger) otherTrigger.classList.remove("active");
-                if (otherMenu) otherMenu.classList.remove("show");
-            });
-
-            if (willShow) {
-                trigger.classList.add("active");
-                menu.classList.add("show");
-            }
-        }
 
         function toggleFeederDropdown(type, forceState = null) {
             const trigger = document.getElementById(`feeder-${type}-trigger`);
@@ -20183,18 +18934,6 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         }
 
         document.addEventListener("click", (event) => {
-            ["substation", "feeder", "event"].forEach((name) => {
-                const trigger = document.getElementById(`shms-${name}-trigger`);
-                const menu = document.getElementById(`shms-${name}-menu`);
-                if (!trigger || !menu) return;
-                const clickedInsideTrigger = trigger.contains(event.target);
-                const clickedInsideMenu = menu.contains(event.target);
-                if (!clickedInsideTrigger && !clickedInsideMenu) {
-                    trigger.classList.remove("active");
-                    menu.classList.remove("show");
-                }
-            });
-
             ["substation"].forEach((name) => {
                 const trigger = document.getElementById(`feeder-${name}-trigger`);
                 const menu = document.getElementById(`feeder-${name}-menu`);
@@ -34447,9 +33186,6 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 if (id === "staff-admin") {
                     initStaffAdmin();
                 }
-                if (id === "shms-entry") {
-                    initShmsEntry();
-                }
                 if (id === "feeder-reading") {
                     initFeederReading();
                 }
@@ -34470,9 +33206,6 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 }
                 if (id === "shms-progress") {
                     initShmsProgressDashboard();
-                }
-                if (id === "shms-pending") {
-                    initShmsPendingDashboard();
                 }
                 if (id === "dc-dashboard") {
                     try { prefetchStaffContacts_(activeDC); } catch (_) {} // 2026-09-24 staff contact speed
@@ -34517,9 +33250,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 if (id === "data-health") headerTitle = "DATA HEALTH REPORT";
                 if (id === "vr-download-log") headerTitle = "VR DOWNLOAD LOG";
                 if (id === "stock-material") headerTitle = "STOCK MATERIAL";
-                if (id === "shms-entry") headerTitle = "SHMS ENTRY";
                 if (id === "shms-progress") headerTitle = "DAILY PROGRESS";
-                if (id === "shms-pending") headerTitle = "PENDING ENTRY";
                 if (id === "court-case") headerTitle = "LOK ADALAT NOTICE";
                 if (id === "revenue-collection") headerTitle = "REVENUE COLLECTION";
                 if (id === "revenue-live-progress") headerTitle = "LIVE PROGRESS";
@@ -34599,17 +33330,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     if (searchBtn) searchBtn.style.background = "linear-gradient(135deg, #38bdf8 0%, #0369a1 100%)";
                 } else if (id === "staff-admin") {
                     header.className = "app-header bg-orange-grad";
-                } else if (id === "shms-entry") {
-                    document.documentElement.style.setProperty("--theme-color", "#4338ca");
-                    document.documentElement.style.setProperty("--theme-grad", "linear-gradient(135deg, #6366f1 0%, #312e81 100%)");
-                    header.className = "app-header bg-indigo-grad";
-                    if (searchBtn) searchBtn.style.background = "linear-gradient(135deg, #6366f1 0%, #312e81 100%)";
                 } else if (id === "shms-progress") {
-                    document.documentElement.style.setProperty("--theme-color", "#0d9488");
-                    document.documentElement.style.setProperty("--theme-grad", "linear-gradient(135deg, #0d9488 0%, #0f766e 100%)");
-                    header.className = "app-header bg-teal-grad";
-                    if (searchBtn) searchBtn.style.background = "linear-gradient(135deg, #0d9488 0%, #0f766e 100%)";
-                } else if (id === "shms-pending") {
                     document.documentElement.style.setProperty("--theme-color", "#0d9488");
                     document.documentElement.style.setProperty("--theme-grad", "linear-gradient(135deg, #0d9488 0%, #0f766e 100%)");
                     header.className = "app-header bg-teal-grad";
@@ -34682,10 +33403,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 switchView("dc-selection");
             } else if (act === "staff-admin-view" || act === "data-health-view") {
                 switchView("subdn-chhapara");
-            } else if (act === "stock-material-view" || act === "shms-entry-view" || act === "shms-progress-view" || act === "shms-pending-view" || act === "feeder-reading-view" || act === "daily-hourly-peak-load-view" || act === "vehicle-reading-view" || act === "stm-complaint-view") {
-                if (act === "shms-entry-view") {
-                    resetShmsForm();
-                }
+            } else if (act === "stock-material-view" || act === "shms-progress-view" || act === "feeder-reading-view" || act === "daily-hourly-peak-load-view" || act === "vehicle-reading-view" || act === "stm-complaint-view") {
                 if (act === "feeder-reading-view") {
                     resetFeederReading();
                 }
