@@ -227,8 +227,6 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // teeno DC/Division/Circle scope automatically activeViewLevel se hi follow karte
         // hain (jaisa is view ka baaki sab data already karta hai), koi alag scoping nahi.
         let progressRevenueReportType = "STAFF";
-        let progressRevenueDefaultersLimit = 20;
-        let progressDefaultersGovtFilter = "";
         // USER REQUEST (2026-08-13): Daily Progress -> Revenue -> "Target vs
         // Achievement" dropdown me bhi Govt/Non-Govt filter chahiye (jaisa Top
         // Defaulters me pehle se hai).
@@ -5637,80 +5635,6 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             return "PENDING";
         }
 
-        // USER REQUEST (2026-09-12): NP3 / NP6 / Since Connection ki list nikalते
-        // waqt, list ke UPAR ek chhota summary bhi dikhe - DC scope me HQ-wise,
-        // Division scope me DC-wise, aur Circle scope me DC-wise + har Division
-        // ka Division Total + sabse aakhir me ek Grand Total row. Yeh ek hi
-        // shared builder/renderer hai jo Live Non-Payee report aur Freeze Report
-        // (NP3/NP6/Since Connection categories) dono me reuse hota hai - caller
-        // sirf normalizedRows [{dcName, hqName, pendingAmount}] pass karta hai.
-        function buildRevenueNonPayeeGroupSummary(normalizedRows, selectedDc) {
-            const sumByKey = (list, keyFn) => {
-                const map = {};
-                (list || []).forEach((r) => {
-                    const key = keyFn(r) || "-";
-                    if (!map[key]) map[key] = { name: key, count: 0, pendingTotal: 0 };
-                    map[key].count += 1;
-                    map[key].pendingTotal += Number(r.pendingAmount || 0);
-                });
-                return map;
-            };
-            // BUG FIX (2026-09-13) - ASLI ROOT CAUSE: yahan pehle "normalizeHqName(...)"
-            // call ho raha tha, jo kahin bhi is function ke scope me defined nahi tha
-            // (sirf buildProgressRevenueSummaryRows() ke ANDAR ek alag local const ke
-            // roop me tha) - isliye DC-level par (jab bhi yeh group-summary banti thi)
-            // seedha "ReferenceError: normalizeHqName is not defined" throw ho jaata
-            // tha, jo upar loadRevenueProgressFreezeData() ke try/catch tak jaakar
-            // generic "Freeze data load nahi ho payi" dikhata tha - DIVISION/CIRCLE
-            // par yeh line kabhi chalti hi nahi thi (wo normalizeDcName use karte hain,
-            // jo globally defined hai), isliye sirf DC hamesha fail hoti thi, Division/
-            // Circle hamesha chal jaate the. Ab yahin ek local helper define kar diya.
-            const normalizeHqNameLocal_ = (value) => String(value || "GENERAL").trim().toUpperCase() || "GENERAL";
-
-            // ISOLATED FIX (2026-09-22, USER-REPORTED): Division/Circle level par jab
-            // "All DC" dropdown se ek specific DC chun liya jaata tha, "normalizedRows"
-            // (jo caller pehle se hi is DC tak filter karke bhejta hai) to sahi tha,
-            // lekin neeche CIRCLE/DIVISION branch hamesha apni Division/Circle ki
-            // SAARI DC names ki list par map banata tha (isliye sirf selected DC ka
-            // data dikhta tha, baaki 23 DC "0" ke saath dikhti thin - ek single DC
-            // row, HQ-wise breakdown kabhi nahi) - aur download bhi isi (shared)
-            // function se banta hai, isliye wahan bhi yahi problem thi. Ab jab koi
-            // specific DC select ho (activeViewLevel DC na ho tab bhi), DC-level jaisa
-            // hi HQ-wise summary banate hain - jaisa app ke baaki reports (Category
-            // Wise/HQ-Village) me DC select karne par hota hai.
-            if (activeViewLevel === "DC" || selectedDc) {
-                const map = sumByKey(normalizedRows, (r) => normalizeHqNameLocal_(r.hqName) || "GENERAL");
-                const rows = Object.values(map).sort((a, b) => String(a.name).localeCompare(String(b.name)));
-                return { colLabel: revenueHqLabelUpper(), rows };
-            }
-
-            if (activeViewLevel === "DIVISION") {
-                const map = sumByKey(normalizedRows, (r) => normalizeDcName(r.dcName) || "-");
-                const rows = getDivisionDcNames(activeDiv).map((dcName) => {
-                    const key = normalizeDcName(dcName);
-                    return map[key] || { name: key, count: 0, pendingTotal: 0 };
-                });
-                return { colLabel: "DC NAME", rows };
-            }
-
-            // CIRCLE: DC-wise, division-wise SUB_TOTAL rows, aur last me GRAND TOTAL.
-            const map = sumByKey(normalizedRows, (r) => normalizeDcName(r.dcName) || "-");
-            const rows = [];
-            let grandCount = 0, grandPending = 0;
-            Object.keys(divisionConfigs).forEach((divisionName) => {
-                const dcRows = getDivisionDcNames(divisionName).map((dcName) => {
-                    const key = normalizeDcName(dcName);
-                    return map[key] || { name: key, count: 0, pendingTotal: 0 };
-                });
-                rows.push(...dcRows);
-                const divCount = dcRows.reduce((s, r) => s + r.count, 0);
-                const divPending = dcRows.reduce((s, r) => s + r.pendingTotal, 0);
-                grandCount += divCount; grandPending += divPending;
-                rows.push({ name: getDivisionTotalLabel(divisionName), count: divCount, pendingTotal: divPending, type: "SUB_TOTAL" });
-            });
-            rows.push({ name: "GRAND TOTAL", count: grandCount, pendingTotal: grandPending, type: "GRAND_TOTAL" });
-            return { colLabel: "DC NAME", rows };
-        }
 
         // USER REQUEST (2026-09-13): Freeze Report (NP3/NP6/Since Connection) ka
         // Division/Circle DOWNLOAD ab bhi poori consumer-list de raha tha, jabki
@@ -6069,27 +5993,6 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             }
         }
 
-        function renderRevenueNonPayeeGroupSummaryHtml(normalizedRows) {
-            const summary = buildRevenueNonPayeeGroupSummary(normalizedRows, progressNonPayeeFilterState.dc);
-            let html = `<div style="font-size:0.62rem; font-weight:900; color:#9f1239; text-align:center; margin-top:10px;">${escapeHtml(summary.colLabel)} WISE SUMMARY</div>
-                <div class="summary-wrapper" style="margin-top:6px;"><div class="summary-table-header" style="grid-template-columns: 1.5fr 0.75fr 1fr;"><div>${escapeHtml(summary.colLabel)}</div><div>COUNT</div><div>PENDING (L)</div></div>`;
-            if (!summary.rows.length) {
-                html += `${scEmptyState_(`No data found.`)}`;
-            } else {
-                summary.rows.forEach((row) => {
-                    // USER REQUEST (2026-09-14): SUB_TOTAL (Division total) aur GRAND_TOTAL
-                    // row pehle dono hi "blue-bold" (same colour) the - ab Freeze Report
-                    // jaisa hi alag TEXT COLOUR se alag pehchane jaate hain (app ke apne
-                    // existing subdn-bold/blue-bold classes reuse kiye - SUB_TOTAL = orange,
-                    // GRAND_TOTAL = blue, jaisa baaki reports me DIV_TOTAL/SUBDN_TOTAL ke
-                    // liye pehle se istemal hota hai).
-                    const rowClass = row.type === "GRAND_TOTAL" ? " blue-bold" : (row.type === "SUB_TOTAL" ? " subdn-bold" : "");
-                    html += `<div class="summary-table-row${rowClass}" style="grid-template-columns: 1.5fr 0.75fr 1fr;"><div>${escapeHtml(row.name)}</div><div class="font-black">${row.count}</div><div class="text-rose-700 font-black">${formatProgressReportDisplayAmount(row.pendingTotal)}</div></div>`;
-                });
-            }
-            html += `</div>`;
-            return html;
-        }
 
         // 2026-10-25 (USER REQUEST #9): har freeze report me ek hi "Download" box - Kya (Summary/List) + Kis roop me (Excel/PDF).
         var scFzDlActions_ = [];
@@ -6857,80 +6760,6 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             return paidInfoByDc;
         }
 
-        // ISOLATED ADDITION (2026-09-17, USER-APPROVED): optional `rows` (already-
-        // built buildRevenueCategorySummaryRows() output) - jab diya jaata hai to
-        // OTHER-bucket (missing/unknown tariff category, valid Master consumer)
-        // ke Paid/Unpaid count+amount bhi diagnostic me judte hain, taaki Grand
-        // Total aur LV1-LV5 column-sum ke beech ka antar (agar ho) kis wajah se
-        // hai yeh pata chal sake. `rows` na diya jaaye to bilkul purana behaviour
-        // (koi other* field object me nahi aata) - is function ka ek hi caller
-        // hai, isliye backward-compat sirf documentation ke liye hai.
-        function buildRevenueCategoryDiagnostic(mode, filterValue, rows = null) {
-            const targetDcs = new Set(getRevenueCategoryTargetDcs().map((dcName) => normalizeDcName(dcName)).filter(Boolean));
-            const masterIvrsByDc = {};
-            targetDcs.forEach((dcName) => {
-                masterIvrsByDc[dcName] = new Set(getRevenueMasterRowsForDc(dcName).map((row) => normalizeRevenueIvrs(row.ivrsNo)).filter(Boolean));
-            });
-
-            let uploadedRows = 0;
-            let selectedMonthRows = 0;
-            let matchedMasterRows = 0;
-            let outOfMonthRows = 0;
-            let masterNotMatchedRows = 0;
-            let missingDate = 0;
-
-            getRevenueCategoryPaymentSourceRows().forEach((paymentRow) => {
-                    const dcName = getRevenueUploadedPaidRowDcName(paymentRow);
-                    const ivrs = getRevenueUploadedPaidRowIvrs(paymentRow);
-                    if (!dcName || !ivrs || !targetDcs.has(dcName)) return;
-
-                    uploadedRows += 1;
-                    const targetMonthKey = mode === "MONTHLY"
-                        ? normalizeRevenueMonthFilterKey(filterValue)
-                        : getRevenueMonthKey(filterValue || getCurrentDateDDMMYYYY());
-                    const paidDate = normalizeRevenuePaidDate(getRevenueUploadedPaidRowDate(paymentRow), targetMonthKey);
-                    if (!paidDate) {
-                        missingDate += 1;
-                        return;
-                    }
-
-                    if (!isRevenueUploadedPaidInCategoryPeriod(paymentRow, mode, filterValue)) {
-                        outOfMonthRows += 1;
-                        return;
-                    }
-
-                    selectedMonthRows += 1;
-                    if (masterIvrsByDc[dcName]?.has(ivrs)) {
-                        matchedMasterRows += 1;
-                    } else {
-                        masterNotMatchedRows += 1;
-                    }
-            });
-
-            let otherPaidCount = 0, otherUnpaidCount = 0, otherPaidAmount = 0, otherUnpaidAmount = 0;
-            (rows || []).forEach((row) => {
-                if (row.type === "SUB_TOTAL" || row.type === "SUBDN_TOTAL") return;
-                const other = row.categories?.OTHER;
-                if (!other) return;
-                otherPaidCount += Number(other.paid || 0);
-                otherUnpaidCount += Number(other.unpaid || 0);
-                otherPaidAmount += Number(other.paidAmount || 0);
-                otherUnpaidAmount += Number(other.unpaidAmount || 0);
-            });
-
-            return {
-                uploadedUnique: uploadedRows,
-                selectedMonth: selectedMonthRows,
-                matchedMaster: matchedMasterRows,
-                outOfMonth: outOfMonthRows,
-                masterNotMatched: masterNotMatchedRows,
-                missingDate,
-                otherPaidCount,
-                otherUnpaidCount,
-                otherPaidAmount,
-                otherUnpaidAmount
-            };
-        }
 
         function buildRevenueCategorySummaryRows(mode, filterValue, govtFilter = "") {
             const paidInfoByDc = buildRevenueCategoryUploadedPaidInfo(mode, filterValue);
@@ -7278,62 +7107,13 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         }
 
 
-        async function downloadProgressRevenueCategorySummary(fmt) {
-            const downloadTypeLabel = fmt === "PDF" ? "PDF" : "Excel";
-            setProgressCategoryDownloadState(true, `${downloadTypeLabel} download in progress... please wait`);
-            try {
-                const rawVal = document.getElementById("report-date").value;
-                const parsed = parseSummarySelection(rawVal, summaryMode);
-                const reportType = summaryMode === "MONTHLY" ? "MONTHLY" : "DAILY";
-                const filterValue = getRevenueProgressFilterValue(parsed.daily, parsed.monthly);
-                const reconciliation = await prepareRevenueCategoryReportData_(
-                    getRevenueCategoryTargetDcs(), reportType, filterValue
-                );
-                const rows = buildRevenueCategorySummaryRows(reportType, filterValue, progressCategoryGovtFilter);
-                // USER-APPROVED correction #8: invariant mismatch mile to Excel/PDF
-                // silently nahi niklegi - saaf error (DC/HQ naam + difference) dikhega.
-                const invariantMismatches = checkRevenueCategorySummaryInvariant_(rows);
-                if (invariantMismatches.length) {
-                    const detail = invariantMismatches.slice(0, 5).map((m) => `${m.name} (${m.diff > 0 ? "+" : ""}${m.diff})`).join(", ");
-                    throw new Error(`Does not match Paid+Unpaid Unique Master Consumers - ${detail}${invariantMismatches.length > 5 ? " etc." : ""}`);
-                }
-                // ISOLATED ADDITION (2026-09-17, USER-APPROVED condition): backend abhi
-                // purana/reconciliation-unsupported hai to legacy fallback totals
-                // "normal/correct report" ki tarah SILENT nahi dikhte - report ke andar
-                // (additive line, existing layout/columns bilkul unchanged) aur download-
-                // complete toast dono me saaf "STALE/LEGACY" warning jaata hai.
-                const staleWarning = reconciliation && reconciliation.supported === false
-                    ? "STALE/LEGACY - totals may be inaccurate (backend update pending)"
-                    : null;
-                const diagnostic = buildRevenueCategoryDiagnostic(reportType, filterValue, rows);
-                exportRevenueCategorySummary(fmt, rows, parsed.label, reportType, diagnostic, staleWarning);
-                setTimeout(() => setProgressCategoryDownloadState(false, staleWarning ? `${downloadTypeLabel} downloaded - STALE/LEGACY, totals may be inaccurate` : `${downloadTypeLabel} downloaded`), 500);
-            } catch (error) {
-                setProgressCategoryDownloadState(false, "Download failed");
-                showToast(error?.message || "Arrears Category Wise report download failed", false);
-            }
-        }
 
-        // Dropdown se jo bhi report type (Category Wise / Target vs Achievement / Top
-        // 20-50 Defaulters) select hai, usi ke hisaab se sahi download function call karta
-        // hai. Category Wise ke liye purani, poori tarah test-ki-hui exportRevenueCategory-
-        // Summary() hi chalti hai - Target/Defaulters ke liye alag, seedhe simple export.
-        function downloadProgressRevenueReportBox(fmt, forceGroupSummary) {
+        // Live Revenue Report dropdown (Target vs Achievement / Paid Count Summary) ka download.
+        function downloadProgressRevenueReportBox(fmt) {
+            // 2026-11-03 (UPDATE 156): Live Revenue Report me ab sirf 3 report - Paid by Staff, Target vs Achievement, Paid Count Summary.
             if (progressRevenueReportType === "TARGET") return downloadProgressRevenueTargetSummary(fmt);
-            if (progressRevenueReportType === "DEFAULTERS") return downloadProgressRevenueDefaultersSummary(fmt);
-            // USER REQUEST (2026-09-14): Freeze Report jaisa hi pattern - NP3/NP6/Since
-            // Connection ke DC level par ab "Summary Download" (HQ-wise, forceGroupSummary=true
-            // wala naya button) aur "Full List Download" (bilkul pehle jaisa) dono alag
-            // milte hain. Division/Circle par (jahan screen par bhi sirf summary dikhti
-            // hai) ab download bhi summary hi deta hai - poori list nahi - taaki screen
-            // aur download consistent rahein (downloadProgressRevenueNonPayeeSummary khud
-            // is check ko andar bhi karta hai, forceGroupSummary sirf DC level ke naye
-            // Summary button ke liye explicit shortcut hai).
-            if (progressRevenueReportType === "NONPAYEE_3M") return downloadProgressRevenueNonPayeeSummary(fmt, "3M", forceGroupSummary);
-            if (progressRevenueReportType === "NONPAYEE_6M") return downloadProgressRevenueNonPayeeSummary(fmt, "6M", forceGroupSummary);
-            if (progressRevenueReportType === "NONPAYEE_SINCE_CONNECTION") return downloadProgressRevenueNonPayeeSummary(fmt, "SINCE_CONNECTION", forceGroupSummary);
             if (progressRevenueReportType === "PAIDCOUNT") return downloadProgressRevenuePaidCountSummary(fmt);
-            return downloadProgressRevenueCategorySummary(fmt);
+            return showToast("No data available for the report", false);
         }
 
         function downloadProgressRevenueTargetSummary(fmt) {
@@ -7380,51 +7160,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             }
         }
 
-        // USER REQUEST (2026-08-13): pehle yahan "!row.paid" filter se koi bhi
-        // consumer jo cash list me kisi bhi amount se match ho gaya ho (chahe
-        // partial payment hi kyun na ho) poori tarah is list se bahar ho jaata
-        // tha - matlab uska bacha hua bakaya kabhi Defaulters me nahi dikhta tha.
-        // Ab row.pendingAmount (buildRevenueHqVillageConsumerRows me pehle se hi
-        // Net Bill - Paid, sirf positive, nikala hua) use karte hain - partial
-        // payment wale consumer bhi ab apne bache hue bakaya amount ke saath is
-        // list me sahi se dikhenge.
-        // BUG FIX/USER REQUEST (2026-09-13): Pehle "All (Govt + Non Govt)" chunne
-        // par dono ko MILAKAR ek hi list banti thi, phir Top N kaata jaata tha -
-        // isse agar Non Govt consumers ka pending amount generally zyada hota
-        // (jaisa aksar hota hai), to Govt consumers Top N me jagah hi nahi bana
-        // paate the (chahe wo apni Govt category me sabse bade bakayadaar hi
-        // kyun na hon). Ab "All" par DONO group (Non Govt aur Govt) ki APNI-APNI
-        // ALAG Top N list nikalte hain (jaisa GOVT/NONGOVT akela chunne par pehle
-        // se hota hai) - total upto 2xN consumer, pehle poori Non Govt Top N,
-        // fir poori Govt Top N (render/download dono me ek divider ke saath alag
-        // dikhte hain). Return shape ab { rows, nonGovtCount } hai -
-        // nonGovtCount > 0 hone par render/download ko pata chal jaata hai kahan
-        // se Govt group shuru hota hai.
-        function getProgressDefaultersFilteredRows(mode, filterValue) {
-            const consumerRows = buildRevenueHqVillageConsumerRows(mode, filterValue, true).filter((row) => row.pendingAmount > 0); // USER RULE 2026-09-26: paid = cash list
-            const govtFilter = progressDefaultersGovtFilter;
-            const sortDesc = (list) => list.slice().sort((a, b) => b.pendingAmount - a.pendingAmount);
-            if (govtFilter === "GOVT") {
-                return { rows: sortDesc(consumerRows.filter((row) => !!row.govtFlag)).slice(0, progressRevenueDefaultersLimit), nonGovtCount: 0 };
-            }
-            if (govtFilter === "NONGOVT") {
-                return { rows: sortDesc(consumerRows.filter((row) => !row.govtFlag)).slice(0, progressRevenueDefaultersLimit), nonGovtCount: 0 };
-            }
-            // USER REQUEST (2026-10-05): "All" me Govt+Non Govt milakar sirf Top N (2xN nahi) - screen aur download dono.
-            return { rows: sortDesc(consumerRows).slice(0, progressRevenueDefaultersLimit), nonGovtCount: 0 };
-        }
 
-        function setProgressDefaultersGovtFilter(value) {
-            progressDefaultersGovtFilter = value || "";
-            const body = document.getElementById("progress-revenue-body");
-            if (body) body.innerHTML = renderProgressRevenueBodyInner();
-        }
 
-        function setProgressCategoryGovtFilter(value) {
-            progressCategoryGovtFilter = value === "GOVT" || value === "NONGOVT" ? value : "";
-            const body = document.getElementById("progress-revenue-body");
-            if (body) body.innerHTML = renderProgressRevenueBodyInner();
-        }
 
         // Govt/Non Govt summary is built once per loaded report and kept on the report object,
         // so flipping the dropdown back and forth is instant (no recompute).
@@ -7441,54 +7178,6 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             if (body) body.innerHTML = renderProgressRevenueBodyInner();
         }
 
-        function downloadProgressRevenueDefaultersSummary(fmt) {
-            if (!lastRevenueProgressBoxData) return showToast("No data available for the report", false);
-            const downloadTypeLabel = fmt === "PDF" ? "PDF" : "Excel";
-            setProgressCategoryDownloadState(true, `${downloadTypeLabel} download in progress... please wait`);
-            try {
-                const { mode, filterValue } = lastRevenueProgressBoxData;
-                const { rows, nonGovtCount } = getProgressDefaultersFilteredRows(mode, filterValue);
-                if (!rows.length) { setProgressCategoryDownloadState(false, "No data available for download"); return; }
-                const headers = ["S.NO", "IVRS NO", "CONSUMER NAME", revenueHqLabelUpper(), revenueVillageLabelUpper(), "GOVT/NON GOVT", "MOBILE NO", "PENDING AMOUNT"];
-                // USER REQUEST (2026-09-13): "All" me screen jaisa hi - pehle poori
-                // Non Govt Top N (1 se numbering), ek "NON GOVT"/"GOVT" divider row,
-                // fir poori Govt Top N (1 se dobara numbering).
-                const showSplit = !progressDefaultersGovtFilter && nonGovtCount > 0 && nonGovtCount < rows.length;
-                const bodyRows = [];
-                if (showSplit) bodyRows.push([`NON GOVT - TOP ${nonGovtCount}`, "", "", "", "", "", "", ""]);
-                rows.forEach((row, index) => {
-                    if (showSplit && index === nonGovtCount) bodyRows.push([`GOVT - TOP ${rows.length - nonGovtCount}`, "", "", "", "", "", "", ""]);
-                    const displayIndex = showSplit && index >= nonGovtCount ? (index - nonGovtCount + 1) : (index + 1);
-                    bodyRows.push([displayIndex, row.ivrsNo || "", row.consumerName || "", row.hqName || "", row.village || "", row.govtFlag ? "GOVT" : "NON GOVT", row.mobileNo || "", formatProgressReportAmount(row.pendingAmount)]);
-                });
-                const scope = activeViewLevel === "DC" ? `DC - ${activeDC}` : (activeViewLevel === "DIVISION" ? activeDiv : "SEONI CIRCLE");
-                const govtLabel = progressDefaultersGovtFilter === "GOVT" ? "Govt" : (progressDefaultersGovtFilter === "NONGOVT" ? "Non Govt" : "All");
-                const reportTitle = `Top ${progressRevenueDefaultersLimit} Defaulters - ${scope}`;
-                const rawVal = document.getElementById("report-date")?.value || "";
-                const parsed = parseSummarySelection(rawVal, summaryMode);
-                const periodLine = `Period: ${parsed.label || getTodayIsoDate()}  |  Type: ${govtLabel}`;
-                const fileName = `${reportTitle}-${parsed.label || getTodayIsoDate()}`.replace(/[\\/:*?"<>|]+/g, "_");
-                if (fmt === "PDF") {
-                    if (!window.jspdf?.jsPDF) { setProgressCategoryDownloadState(false, "PDF library could not be loaded"); return; }
-                    const { jsPDF } = window.jspdf;
-                    const doc = new jsPDF({ orientation: "landscape" });
-                    scPdfHeader_(doc, { title: reportTitle, lines: [`Scope: ${scope}`, periodLine] });
-                    doc.autoTable({ startY: 34, head: [headers], body: bodyRows, theme: "grid", styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" }, headStyles: { fillColor: [159, 18, 57] } });
-                    savePdfDocumentForDevice(doc, `${fileName}.pdf`);
-                } else {
-                    const csvSafe = (value) => { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
-                    const csv = [[reportTitle], [`Scope: ${scope}`], [periodLine], [], headers, ...bodyRows].map((row) => row.map(csvSafe).join(",")).join("\n");
-                    const link = document.createElement("a");
-                    link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-                    link.download = `${fileName}.csv`;
-                    link.click();
-                }
-                setTimeout(() => setProgressCategoryDownloadState(false, `${downloadTypeLabel} downloaded`), 500);
-            } catch (error) {
-                setProgressCategoryDownloadState(false, "Download failed");
-                showToast(error?.message || "Top Defaulters download failed", false);
-            }
-        }
 
         function setProgressSummaryDownloadState(isDownloading, message = "") {
             const status = document.getElementById("progress-summary-download-status");
@@ -7793,304 +7482,10 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         }
         // ===== End Paid Count Summary =====
 
-        // Top 20/50 Defaulters ka data buildRevenueHqVillageConsumerRows() se aata hai - isi
-        // function ka data "HQ / Village Wise Paid-Unpaid" list section aur dedicated "Top
-        // 20/50 Defaulters" report dono use karte hain. Yahan par (Daily/Progress Report ki
-        // Revenue tab me) bhi wahi consumer-level unpaid rows lekar, jo scope (DC/Division/
-        // Circle) abhi active hai usi ke hisaab se top defaulters nikalte hain.
-        function renderRevenueProgressDefaultersSummaryHtml(mode, filterValue) {
-            const { rows, nonGovtCount } = getProgressDefaultersFilteredRows(mode, filterValue);
-            let html = `
-                <div style="font-size:0.75rem; font-weight:950; color:#9f1239; text-align:center;">Top ${progressRevenueDefaultersLimit} Defaulters (Arrears after Cash List)</div>
-                <div style="display:flex; gap:8px; width:100%; margin:9px auto 0;">
-                    <div onclick="setProgressDefaultersLimit(20)" style="flex:1; height:28px; line-height:28px; text-align:center; border-radius:999px; cursor:pointer; font-size:0.6rem; font-weight:950; background:${progressRevenueDefaultersLimit === 20 ? "#9f1239" : "#ffe4e6"}; color:${progressRevenueDefaultersLimit === 20 ? "#ffffff" : "#9f1239"};">TOP 20</div>
-                    <div onclick="setProgressDefaultersLimit(50)" style="flex:1; height:28px; line-height:28px; text-align:center; border-radius:999px; cursor:pointer; font-size:0.6rem; font-weight:950; background:${progressRevenueDefaultersLimit === 50 ? "#9f1239" : "#ffe4e6"}; color:${progressRevenueDefaultersLimit === 50 ? "#ffffff" : "#9f1239"};">TOP 50</div>
-                </div>
-                <select onchange="setProgressDefaultersGovtFilter(this.value)" style="width:100%; height:38px; margin:5px auto 0; display:block; border:1.5px solid #fda4af; border-radius:12px; padding:0 12px; font-size:0.72rem; font-weight:900; color:#0f172a; background:#ffffff;">
-                    <option value="">All (Govt + Non Govt)</option>
-                    <option value="GOVT" ${progressDefaultersGovtFilter === "GOVT" ? "selected" : ""}>Govt</option>
-                    <option value="NONGOVT" ${progressDefaultersGovtFilter === "NONGOVT" ? "selected" : ""}>Non Govt</option>
-                </select>
-                <div class="summary-wrapper" style="margin-top:8px;"><div class="summary-table-header" style="grid-template-columns: 0.4fr 1.3fr 1fr;"><div>#</div><div>CONSUMER</div><div>PENDING</div></div>
-            `;
-            if (!rows.length) {
-                html += `${scEmptyState_(`No consumer with arrears found in this scope.`)}`;
-            } else {
-                // USER REQUEST (2026-09-13): "All" me dono group (Non Govt + Govt)
-                // alag-alag dikhte hain - ek divider line ke saath, aur har group
-                // ki apni numbering 1 se shuru (poori Non Govt Top N, phir poori
-                // Govt Top N).
-                const showSplit = !progressDefaultersGovtFilter && nonGovtCount > 0 && nonGovtCount < rows.length;
-                if (showSplit) {
-                    html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div style="text-align:center; font-weight:900; color:#166534; background:#f0fdf4; border-radius:8px; padding:5px;">NON GOVT - TOP ${nonGovtCount}</div></div>`;
-                }
-                rows.forEach((row, index) => {
-                    if (showSplit && index === nonGovtCount) {
-                        html += `<div class="summary-table-row" style="grid-template-columns: 1fr;"><div style="text-align:center; font-weight:900; color:#9f1239; background:#fff1f2; border-radius:8px; padding:5px; margin-top:6px;">GOVT - TOP ${rows.length - nonGovtCount}</div></div>`;
-                    }
-                    const displayIndex = showSplit && index >= nonGovtCount ? (index - nonGovtCount + 1) : (index + 1);
-                    html += `<div class="summary-table-row" style="grid-template-columns: 0.4fr 1.3fr 1fr;"><div class="font-black">${displayIndex}</div><div>${escapeHtml(row.consumerName || "-")}<br><span style="font-size:0.56rem; color:#64748b;">${escapeHtml(row.hqName)} / ${escapeHtml(row.village)}</span></div><div class="text-rose-700 font-black">${formatProgressReportAmount(row.pendingAmount)}</div></div>`;
-                });
-            }
-            html += `</div>`;
-            return html;
-        }
-
-        // "LAST PAYMENT DATE" master-data column ke aadhar par 3 naye Non Payee aging
-        // report types - purane STAFF/CATEGORY/TARGET/DEFAULTERS jaisa hi dropdown-driven
-        // flow, wahi lastRevenueProgressBoxData (mode/filterValue) reuse hota hai. Inke
-        // saath HQ/Village/Category/Net Bill Slab/Govt-NonGovt - "Pending DO List" jaisa
-        // filter set bhi rahega, taaki koi bhi combination nikal sake.
-        let progressNonPayeeFilterState = { dc: "", hq: "", village: "", category: "", slab: "", govt: "" };
-
-        function resetProgressNonPayeeFilterState() {
-            progressNonPayeeFilterState = { dc: "", hq: "", village: "", category: "", slab: "", govt: "" };
-        }
-
-        function setProgressNonPayeeFilter(key, value) {
-            if (!(key in progressNonPayeeFilterState)) return;
-            progressNonPayeeFilterState[key] = value || "";
-            // DC badalne par HQ/Village dono reset - warna purani DC ki HQ/Village select
-            // rah jaati hai jo nayi DC me exist hi nahi karti.
-            if (key === "dc") { progressNonPayeeFilterState.hq = ""; progressNonPayeeFilterState.village = ""; }
-            if (key === "hq") progressNonPayeeFilterState.village = "";
-            const body = document.getElementById("progress-revenue-body");
-            if (body) body.innerHTML = renderProgressRevenueBodyInner();
-        }
-
-        function isProgressNonPayeeNetBillInSlab(row, slabValue) {
-            if (!slabValue) return true;
-            const amount = Number(row.pendingAmount || 0);
-            if (slabValue === "0-500") return amount >= 0 && amount <= 500;
-            if (slabValue === "500-1000") return amount > 500 && amount <= 1000;
-            if (slabValue === "1000-5000") return amount > 1000 && amount <= 5000;
-            if (slabValue === "5000-10000") return amount > 5000 && amount <= 10000;
-            if (slabValue === "10000-25000") return amount > 10000 && amount <= 25000;
-            if (slabValue === "25000+") return amount > 25000;
-            return true;
-        }
-
-        function getProgressNonPayeeFilteredRows(mode, filterValue, bucket) {
-            const allRows = buildRevenueNonPayeeRows(mode, filterValue, bucket, true); // USER RULE 2026-09-26: paid = cash list
-            const f = progressNonPayeeFilterState;
-            const rows = allRows.filter((row) => (
-                (!f.dc || normalizeDcName(row.dcName) === normalizeDcName(f.dc))
-                && (!f.hq || normalizeLookupValue(row.hqName) === normalizeLookupValue(f.hq))
-                && (!f.village || normalizeLookupValue(row.village) === normalizeLookupValue(f.village))
-                && (!f.category || normalizeLookupValue(row.tariffCategory) === normalizeLookupValue(f.category))
-                && isProgressNonPayeeNetBillInSlab(row, f.slab)
-                && (!f.govt || (f.govt === "GOVT" ? !!row.govtFlag : !row.govtFlag))
-            ));
-            return { allRows, rows };
-        }
-
-        function buildProgressNonPayeeOptionsHtml(values, selectedValue, placeholder) {
-            const options = [`<option value="">${escapeHtml(placeholder)}</option>`].concat(
-                (values || []).map((v) => `<option value="${escapeHtml(v)}" ${v === selectedValue ? "selected" : ""}>${escapeHtml(v)}</option>`)
-            );
-            return options.join("");
-        }
-
-        function renderRevenueProgressNonPayeeSummaryHtml(mode, filterValue, bucket) {
-            const { allRows, rows } = getProgressNonPayeeFilteredRows(mode, filterValue, bucket);
-            const f = progressNonPayeeFilterState;
-            const bucketLabel = getRevenueNonPayeeBucketLabel(bucket);
-            const totalPending = rows.reduce((sum, r) => sum + Number(r.pendingAmount || 0), 0);
-            // Division/Circle level me ek hi HQ naam alag-alag DC me repeat ho sakta hai,
-            // isliye HQ/Village se pehle DC chunna zaroori hai - warna baaki dropdown sahi
-            // se kaam nahi karte. DC-level view me pehle se ek hi DC scope me hai, isliye
-            // wahan yeh extra dropdown dikhane ki zaroorat nahi.
-            const showDcDropdown = activeViewLevel !== "DC";
-            const dcScoped = allRows.filter((row) => !f.dc || normalizeDcName(row.dcName) === normalizeDcName(f.dc));
-            const villageScoped = dcScoped.filter((row) => !f.hq || normalizeLookupValue(row.hqName) === normalizeLookupValue(f.hq));
-            const dcOptionsHtml = buildProgressNonPayeeOptionsHtml(getRevenueUniqueValues(allRows, "dcName"), f.dc, "All DC");
-            const hqOptionsHtml = buildProgressNonPayeeOptionsHtml(getRevenueUniqueValues(dcScoped, "hqName"), f.hq, revenueHqAllLabel(f.dc || activeDC));
-            const villageOptionsHtml = buildProgressNonPayeeOptionsHtml(getRevenueUniqueValues(villageScoped, "village"), f.village, revenueVillageAllLabel(f.dc || activeDC));
-            const categoryOptionsHtml = buildProgressNonPayeeOptionsHtml(getRevenueUniqueValues(allRows, "tariffCategory"), f.category, "All Categories");
-            const selectStyle = "width:100%; height:38px; margin:5px auto 0; display:block; border:1.5px solid #fb923c; border-radius:14px; padding:0 12px; font-size:0.74rem; font-weight:900; color:#0f172a; background:#ffffff;";
-            let html = `
-                <div style="font-size:0.75rem; font-weight:950; color:#9f1239; text-align:center;">${escapeHtml(bucketLabel)}</div>
-                ${showDcDropdown ? `<select onchange="setProgressNonPayeeFilter('dc', this.value)" style="${selectStyle}">${dcOptionsHtml}</select>` : ""}
-                <select onchange="setProgressNonPayeeFilter('hq', this.value)" style="${selectStyle}">${hqOptionsHtml}</select>
-                <select onchange="setProgressNonPayeeFilter('village', this.value)" style="${selectStyle}">${villageOptionsHtml}</select>
-                <select onchange="setProgressNonPayeeFilter('category', this.value)" style="${selectStyle}">${categoryOptionsHtml}</select>
-                <select onchange="setProgressNonPayeeFilter('slab', this.value)" style="${selectStyle}">
-                    <option value="">All Net Bill Slabs</option>
-                    <option value="0-500" ${f.slab === "0-500" ? "selected" : ""}>₹0 - ₹500</option>
-                    <option value="500-1000" ${f.slab === "500-1000" ? "selected" : ""}>₹500 - ₹1,000</option>
-                    <option value="1000-5000" ${f.slab === "1000-5000" ? "selected" : ""}>₹1,000 - ₹5,000</option>
-                    <option value="5000-10000" ${f.slab === "5000-10000" ? "selected" : ""}>₹5,000 - ₹10,000</option>
-                    <option value="10000-25000" ${f.slab === "10000-25000" ? "selected" : ""}>₹10,000 - ₹25,000</option>
-                    <option value="25000+" ${f.slab === "25000+" ? "selected" : ""}>₹25,000 Above</option>
-                </select>
-                <select onchange="setProgressNonPayeeFilter('govt', this.value)" style="${selectStyle}">
-                    <option value="">All (Govt + Non Govt)</option>
-                    <option value="GOVT" ${f.govt === "GOVT" ? "selected" : ""}>Govt</option>
-                    <option value="NONGOVT" ${f.govt === "NONGOVT" ? "selected" : ""}>Non Govt</option>
-                </select>
-                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; width:100%; margin:10px auto 0;">
-                    <div style="background:#fff1f2; border-radius:12px; padding:8px 4px; text-align:center;"><div style="font-size:0.54rem; font-weight:850; color:#9f1239; text-transform:uppercase;">Consumers</div><div style="font-size:0.95rem; font-weight:950; color:#9f1239; margin-top:2px;">${rows.length}</div></div>
-                    <div style="background:#fff1f2; border-radius:12px; padding:8px 4px; text-align:center;"><div style="font-size:0.54rem; font-weight:850; color:#9f1239; text-transform:uppercase;">Total Pending Amt</div><div style="font-size:0.85rem; font-weight:950; color:#9f1239; margin-top:2px;">${formatProgressReportDisplayAmount(totalPending)}</div></div>
-                </div>
-                ${renderRevenueNonPayeeGroupSummaryHtml(rows)}
-                ${activeViewLevel === "DC" ? `
-                <div style="font-size:0.56rem; font-weight:850; color:#64748b; text-align:center; margin-top:10px;">SUMMARY DOWNLOAD (${escapeHtml(revenueHqLabelUpper())} WISE)</div>
-                <div class="btn-export-row" style="margin-top:4px;">
-                    <button class="btn-unique btn-excel-unique" onclick="downloadProgressRevenueReportBox('XLS', true)">Summary Excel</button>
-                    <button class="btn-unique btn-pdf-unique" onclick="downloadProgressRevenueReportBox('PDF', true)">Summary PDF</button>
-                </div>
-                <div style="font-size:0.56rem; font-weight:850; color:#64748b; text-align:center; margin-top:10px;">FULL LIST DOWNLOAD</div>
-                <div class="btn-export-row" style="margin-top:4px;">
-                    <button class="btn-unique btn-excel-unique" onclick="downloadProgressRevenueReportBox('XLS')">Full List Excel</button>
-                    <button class="btn-unique btn-pdf-unique" onclick="downloadProgressRevenueReportBox('PDF')">Full List PDF</button>
-                </div>
-                ` : `
-                <div class="btn-export-row" style="margin-top:10px;">
-                    <button class="btn-unique btn-excel-unique" onclick="downloadProgressRevenueReportBox('XLS')">${escapeHtml(getProgressRevenueReportTypeLabel())} Excel</button>
-                    <button class="btn-unique btn-pdf-unique" onclick="downloadProgressRevenueReportBox('PDF')">${escapeHtml(getProgressRevenueReportTypeLabel())} PDF</button>
-                </div>
-                `}
-                <div id="progress-category-download-status" style="display:none; text-align:center; font-weight:900; border-radius:14px; padding:8px 10px; width:100%; margin-top:8px;"></div>
-            `;
-            // USER REQUEST (2026-09-13): Division/Circle adhikari sirf SUMMARY
-            // dekhte hain - Non Payee 3M/6M/Since Connection ki poori consumer-
-            // list ab sirf DC level par hi dikhegi (upar wale "Consumers"/"Total
-            // Pending" tiles aur HQ/DC-wise summary table hi Division/Circle par
-            // dikhenge). DC level ka list-wala UI bilkul untouched hai.
-            if (activeViewLevel === "DC") {
-                html += `<div class="summary-wrapper" style="margin-top:10px;"><div class="summary-table-header" style="grid-template-columns: 1.3fr 0.7fr 1fr;"><div>CONSUMER</div><div>${bucket === "SINCE_CONNECTION" ? "TYPE" : "MONTHS"}</div><div>PENDING</div></div>`;
-                if (!rows.length) {
-                    html += `${scEmptyState_(`No consumer found in this filter (or LAST PAYMENT DATE column in master sheet is not updated yet).`)}`;
-                } else {
-                    const scLimNp_ = scListLimit_(200); // STATUS PACK 3a
-                    rows.slice(0, scLimNp_).forEach((row) => {
-                        const middleCell = bucket === "SINCE_CONNECTION" ? "Never Paid" : `${row.monthsSincePayment} mo`;
-                        html += `<div class="summary-table-row" style="grid-template-columns: 1.3fr 0.7fr 1fr;"><div>${escapeHtml(row.consumerName || "-")}<br><span style="font-size:0.56rem; color:#64748b;">${escapeHtml(row.hqName)} / ${escapeHtml(row.village)}</span></div><div class="font-black">${escapeHtml(middleCell)}</div><div class="text-rose-700 font-black">${formatProgressReportAmount(row.pendingAmount)}</div></div>`;
-                    });
-                    if (rows.length > scLimNp_) html += scListMoreNoteHtml_(rows.length, scLimNp_);
-                }
-                html += `</div>`;
-            }
-            return html;
-        }
-
-        // USER REQUEST (2026-09-14): Freeze Report jaisa hi pattern - Non Payee 3M/6M/
-        // Since Connection ke Division/Circle level par ab (jaisa screen par bhi sirf
-        // summary dikhti hai) download bhi HQ/DC-wise SUMMARY hi deta hai, poori
-        // consumer-list nahi (pehle yahan bhi poori list download hoti thi, jo screen
-        // se inconsistent tha). DC level pehle jaisa hi (poori list) - naye "Summary
-        // Download" button ke through wahan bhi yahi summary alag se milti hai.
-        function downloadProgressRevenueNonPayeeGroupSummary(fmt, bucket) {
-            if (!lastRevenueProgressBoxData) return showToast("No data available for the report", false);
-            const downloadTypeLabel = fmt === "PDF" ? "PDF" : "Excel";
-            setProgressCategoryDownloadState(true, `${downloadTypeLabel} download in progress... please wait`);
-            try {
-                const { mode, filterValue } = lastRevenueProgressBoxData;
-                const { rows } = getProgressNonPayeeFilteredRows(mode || "DAILY", filterValue || "", bucket);
-                if (!rows.length) { setProgressCategoryDownloadState(false, "No data available for download"); return; }
-                const summary = buildRevenueNonPayeeGroupSummary(rows, progressNonPayeeFilterState.dc);
-                const headers = [summary.colLabel, "TOTAL CONSUMER", "PENDING AMOUNT"];
-                const bodyRows = summary.rows.map((r) => [r.name, r.count, formatProgressReportAmount(r.pendingTotal)]);
-                const rowTypeFlags = summary.rows.map((r) => (r.type === "GRAND_TOTAL" ? 2 : (r.type === "SUB_TOTAL" ? 1 : 0)));
-                const showDcColumn = activeViewLevel !== "DC";
-                const scope = activeViewLevel === "DC" ? `DC - ${activeDC}` : (activeViewLevel === "DIVISION" ? activeDiv : "SEONI CIRCLE");
-                const f = progressNonPayeeFilterState;
-                const filterLine = `${showDcColumn ? `DC: ${f.dc || "All"}  |  ` : ""}HQ: ${f.hq || "All"}  |  Village: ${f.village || "All"}  |  Category: ${f.category || "All"}  |  Net Bill Slab: ${f.slab || "All"}  |  Type: ${f.govt === "GOVT" ? "Govt" : (f.govt === "NONGOVT" ? "Non Govt" : "All")}`;
-                const reportTitle = `${getRevenueNonPayeeBucketLabel(bucket)} - ${scope} - Summary`;
-                const asOfLine = `As of: ${formatRevenueDateIndian(normalizeRevenueReportDate(getCurrentDateDDMMYYYY()))}`;
-                const fileName = `${reportTitle}-${getTodayIsoDate()}`.replace(/[\\/:*?"<>|]+/g, "_");
-                if (fmt === "PDF") {
-                    if (!window.jspdf?.jsPDF) { setProgressCategoryDownloadState(false, "PDF library could not be loaded"); return; }
-                    const { jsPDF } = window.jspdf;
-                    const doc = new jsPDF({ orientation: "landscape" });
-                    const scNpY = scPdfHeader_(doc, { title: reportTitle, lines: [`Scope: ${scope}`, filterLine, asOfLine], focus: { dc: progressNonPayeeFilterState.dc, hq: progressNonPayeeFilterState.hq } });
-                    doc.autoTable({
-                        startY: scNpY, head: [headers], body: bodyRows, theme: "grid",
-                        ...scSummaryFitOnePage_(scNpY, bodyRows.length, 7, 1.5), // 2026-09-27: ek page
-                        headStyles: { fillColor: [159, 18, 57] },
-                        didParseCell: function (hookData) {
-                            if (hookData.section === "body") {
-                                const flag = rowTypeFlags[hookData.row.index];
-                                if (flag === 2) { hookData.cell.styles.fillColor = [219, 234, 254]; hookData.cell.styles.fontStyle = "bold"; hookData.cell.styles.textColor = [159, 18, 57]; }
-                                else if (flag === 1) { hookData.cell.styles.fontStyle = "bold"; hookData.cell.styles.textColor = [194, 65, 12]; }
-                            }
-                        }
-                    });
-                    savePdfDocumentForDevice(doc, `${fileName}.pdf`);
-                } else {
-                    const csvSafe = (value) => { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
-                    const csv = [[scPdfFocusTitle_(reportTitle, { dc: progressNonPayeeFilterState.dc, hq: progressNonPayeeFilterState.hq })], [`Scope: ${scope}`], [filterLine], [asOfLine], [], headers, ...bodyRows].map((row) => row.map(csvSafe).join(",")).join("\n");
-                    const link = document.createElement("a");
-                    link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-                    link.download = `${fileName}.csv`;
-                    link.click();
-                }
-                setTimeout(() => setProgressCategoryDownloadState(false, `${downloadTypeLabel} downloaded`), 500);
-            } catch (error) {
-                setProgressCategoryDownloadState(false, "Download failed");
-                showToast(error?.message || "Non Payee summary download failed", false);
-            }
-        }
-
-        function downloadProgressRevenueNonPayeeSummary(fmt, bucket, forceGroupSummary) {
-            if (forceGroupSummary || activeViewLevel !== "DC") return downloadProgressRevenueNonPayeeGroupSummary(fmt, bucket);
-            if (!lastRevenueProgressBoxData) return showToast("No data available for the report", false);
-            const downloadTypeLabel = fmt === "PDF" ? "PDF" : "Excel";
-            setProgressCategoryDownloadState(true, `${downloadTypeLabel} download in progress... please wait`);
-            try {
-                const { mode, filterValue } = lastRevenueProgressBoxData;
-                const { rows } = getProgressNonPayeeFilteredRows(mode || "DAILY", filterValue || "", bucket);
-                if (!rows.length) { setProgressCategoryDownloadState(false, "No data available for download"); return; }
-                const showDcColumn = activeViewLevel !== "DC";
-                const headers = [
-                    "S.NO",
-                    ...(showDcColumn ? ["DC NAME"] : []),
-                    "IVRS NO", "CONSUMER NAME", revenueHqLabelUpper(), revenueVillageLabelUpper(), "TARRIF CATEGORY", "GOVT/NON GOVT", "MOBILE NO",
-                    bucket === "SINCE_CONNECTION" ? "STATUS" : "MONTHS SINCE PAYMENT", "LAST PAYMENT DATE", "PENDING AMOUNT"
-                ];
-                const bodyRows = rows.map((row, index) => [
-                    index + 1,
-                    ...(showDcColumn ? [row.dcName || ""] : []),
-                    row.ivrsNo || "", row.consumerName || "", row.hqName || "", row.village || "", row.tariffCategory || "",
-                    row.govtFlag ? "GOVT" : "NON GOVT", row.mobileNo || "",
-                    bucket === "SINCE_CONNECTION" ? "Never Paid" : `${row.monthsSincePayment}`,
-                    row.lastPaymentDate || "Never Paid",
-                    formatProgressReportAmount(row.pendingAmount)
-                ]);
-                const scope = activeViewLevel === "DC" ? `DC - ${activeDC}` : (activeViewLevel === "DIVISION" ? activeDiv : "SEONI CIRCLE");
-                const f = progressNonPayeeFilterState;
-                const filterLine = `${showDcColumn ? `DC: ${f.dc || "All"}  |  ` : ""}HQ: ${f.hq || "All"}  |  Village: ${f.village || "All"}  |  Category: ${f.category || "All"}  |  Net Bill Slab: ${f.slab || "All"}  |  Type: ${f.govt === "GOVT" ? "Govt" : (f.govt === "NONGOVT" ? "Non Govt" : "All")}`;
-                const reportTitle = `${getRevenueNonPayeeBucketLabel(bucket)} - ${scope}`;
-                const asOfLine = `As of: ${formatRevenueDateIndian(normalizeRevenueReportDate(getCurrentDateDDMMYYYY()))}`;
-                const fileName = `${reportTitle}-${getTodayIsoDate()}`.replace(/[\\/:*?"<>|]+/g, "_");
-                if (fmt === "PDF") {
-                    if (!window.jspdf?.jsPDF) { setProgressCategoryDownloadState(false, "PDF library could not be loaded"); return; }
-                    const { jsPDF } = window.jspdf;
-                    const doc = new jsPDF({ orientation: "landscape" });
-                    scPdfHeader_(doc, { title: reportTitle, lines: [`Scope: ${scope}`, filterLine, asOfLine], focus: { dc: progressNonPayeeFilterState.dc, hq: progressNonPayeeFilterState.hq } });
-                    doc.autoTable({ startY: 39, head: [headers], body: bodyRows, theme: "grid", styles: { fontSize: 6, cellPadding: 1, overflow: "linebreak" }, headStyles: { fillColor: [159, 18, 57] } });
-                    savePdfDocumentForDevice(doc, `${fileName}.pdf`);
-                } else {
-                    const csvSafe = (value) => { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
-                    const csv = [[scPdfFocusTitle_(reportTitle, { dc: progressNonPayeeFilterState.dc, hq: progressNonPayeeFilterState.hq })], [`Scope: ${scope}`], [filterLine], [asOfLine], [], headers, ...bodyRows].map((row) => row.map(csvSafe).join(",")).join("\n");
-                    const link = document.createElement("a");
-                    link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-                    link.download = `${fileName}.csv`;
-                    link.click();
-                }
-                setTimeout(() => setProgressCategoryDownloadState(false, `${downloadTypeLabel} downloaded`), 500);
-            } catch (error) {
-                setProgressCategoryDownloadState(false, "Download failed");
-                showToast(error?.message || "Non Payee report download failed", false);
-            }
-        }
-
         function setProgressRevenueReportType(value) {
-            const validValues = ["STAFF", "CATEGORY", "TARGET", "DEFAULTERS", "NONPAYEE_3M", "NONPAYEE_6M", "NONPAYEE_SINCE_CONNECTION", "PAIDCOUNT", "ARREARS_1L"];
+            const validValues = ["STAFF", "TARGET", "PAIDCOUNT"]; // UPDATE 156
             progressRevenueReportType = validValues.includes(value) ? value : "STAFF";
             resetArrears1LLiveFilter_(); // ISOLATED ADDITION (2026-09-23): Arrears Above 1 Lakh filters
-            resetProgressNonPayeeFilterState();
-            progressDefaultersGovtFilter = "";
             progressTargetGovtFilter = "";
             progressCategoryGovtFilter = "";
             progressStaffTypeFilter = "";
@@ -8126,22 +7521,11 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             if (body) body.innerHTML = renderProgressRevenueBodyInner();
         }
 
-        function setProgressDefaultersLimit(limit) {
-            progressRevenueDefaultersLimit = limit === 50 ? 50 : 20;
-            const body = document.getElementById("progress-revenue-body");
-            if (body) body.innerHTML = renderProgressRevenueBodyInner();
-        }
 
         function getProgressRevenueReportTypeLabel() {
             if (progressRevenueReportType === "TARGET") return "Target vs Achievement";
-            if (progressRevenueReportType === "DEFAULTERS") return `Top ${progressRevenueDefaultersLimit} Defaulters`;
-            if (progressRevenueReportType === "STAFF") return "Paid by Staff";
-            if (progressRevenueReportType === "NONPAYEE_3M") return "Non Payee From 3 Month";
-            if (progressRevenueReportType === "NONPAYEE_6M") return "Non Payee From 6 Month";
-            if (progressRevenueReportType === "NONPAYEE_SINCE_CONNECTION") return "Non Payee From Date of Connection";
             if (progressRevenueReportType === "PAIDCOUNT") return "Paid Count Summary";
-            if (progressRevenueReportType === "ARREARS_1L") return "Arrears Above 1 Lakh"; // ISOLATED ADDITION (2026-09-23)
-            return "Category Wise";
+            return "Paid by Staff";
         }
 
         // Daily Progress (DC/Division/Circle) me sirf summary dikhani hai - koi drill-down
@@ -8726,28 +8110,6 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             return list.sort((a, b) => (a.dcName.localeCompare(b.dcName)) || ((isFreeze ? b.netBill - a.netBill : b.balance - a.balance)));
         }
 
-        // Live view me cash-list (Freeze paid-summary) cache is scope ke liye ek baar warm
-        // karte hain; tab tak "syncing" dikhta hai, fir body apne-aap dobara render hoti hai.
-        var arrears1LLiveWarmKey_ = "";
-        var arrears1LLiveWarming_ = false;
-        function renderArrears1LLiveHtml_() {
-            const scopeKey = `${activeViewLevel}|${activeDC}|${activeDiv}`;
-            if (arrears1LLiveWarmKey_ !== scopeKey) {
-                if (!arrears1LLiveWarming_) {
-                    arrears1LLiveWarming_ = true;
-                    Promise.resolve().then(() => warmRevenueFreezePaidSummaryCache_()).catch((err) => {
-                        console.error("[Arrears1L] Live cash-list warm failed:", err);
-                    }).then(() => {
-                        arrears1LLiveWarming_ = false;
-                        arrears1LLiveWarmKey_ = scopeKey;
-                        const body = document.getElementById("progress-revenue-body");
-                        if (body && progressRevenueReportType === "ARREARS_1L") body.innerHTML = renderProgressRevenueBodyInner();
-                    });
-                }
-                return `<div style="text-align:center; font-size:0.72rem; font-weight:900; color:#1d4ed8; padding:20px 0;">MATCHING CASH LIST... PLEASE WAIT<div class="app-sync-spinner"></div></div>`;
-            }
-            return renderArrears1LBodyHtml_(false, buildArrears1LLiveRows_());
-        }
 
         function setArrears1LLiveFilter(key, value) {
             if (!arrears1LLiveFilter_ || !(key in arrears1LLiveFilter_)) resetArrears1LLiveFilter_();
@@ -9219,14 +8581,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         function renderRevenueProgressNonStaffBoxHtml() {
             const data = lastRevenueProgressBoxData || {};
             let bodyHtml;
-            // Non Payee (3M/6M/Since Connection) me consumer list bahut lambi ho sakti hai
-            // (hazaaron rows) - isliye in teeno ke liye Excel/PDF buttons aur download-status
-            // ab renderRevenueProgressNonPayeeSummaryHtml() ke andar hi, summary cards (Consumers/
-            // Total Pending) ke turant baad, list se PEHLE render ho jaate hain - taki user ko
-            // download karne ke liye poori list scroll na karni pade. Isliye yahan (list ke baad)
-            // dobara buttons nahi jodte, warna do baar dikhte. Baaki Category/Target/Defaulters
-            // pehle jaisे hi (bodyHtml ke NEECHE) buttons rakhte hain - wahan list chhoti hoti hai.
-            const isNonPayeeType = ["NONPAYEE_3M", "NONPAYEE_6M", "NONPAYEE_SINCE_CONNECTION", "ARREARS_1L"].includes(progressRevenueReportType); // ARREARS_1L (2026-09-23): apne download buttons khud render karta hai
+            // UPDATE 156 (2026-11-03): Live me sirf Target vs Achievement + Paid Count Summary (Paid by Staff alag render hota hai).
             if (progressRevenueReportType === "TARGET") {
                 // USER REQUEST (2026-08-13): Govt/Non-Govt filter - jab select ho, tab
                 // hi tree ko us filter ke saath dobara (local, bina naye fetch ke)
@@ -9237,17 +8592,6 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     : data.hqVillageSummaryData;
                 lastRevenueProgressTargetSummaryData = targetSummaryData;
                 bodyHtml = targetSummaryData ? renderRevenueProgressTargetSummaryHtml(targetSummaryData) : `<div style="font-size:0.75rem; font-weight:950; color:#1d4ed8; text-align:center;">No data found.</div>`;
-            } else if (progressRevenueReportType === "DEFAULTERS") {
-                bodyHtml = renderRevenueProgressDefaultersSummaryHtml(data.mode || "DAILY", data.filterValue || "");
-            } else if (progressRevenueReportType === "NONPAYEE_3M") {
-                bodyHtml = renderRevenueProgressNonPayeeSummaryHtml(data.mode || "DAILY", data.filterValue || "", "3M");
-            } else if (progressRevenueReportType === "NONPAYEE_6M") {
-                bodyHtml = renderRevenueProgressNonPayeeSummaryHtml(data.mode || "DAILY", data.filterValue || "", "6M");
-            } else if (progressRevenueReportType === "NONPAYEE_SINCE_CONNECTION") {
-                bodyHtml = renderRevenueProgressNonPayeeSummaryHtml(data.mode || "DAILY", data.filterValue || "", "SINCE_CONNECTION");
-            } else if (progressRevenueReportType === "ARREARS_1L") {
-                // ISOLATED ADDITION (2026-09-23): Arrears Above 1 Lakh (Live)
-                bodyHtml = renderArrears1LLiveHtml_();
             } else if (progressRevenueReportType === "PAIDCOUNT") {
                 bodyHtml = renderRevenueProgressPaidCountSummaryHtml(buildProgressPaidCountSummaryData(
                     data.mode || "DAILY",
@@ -9256,16 +8600,10 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     progressPaidCountPaymentFilter
                 ));
             } else {
-                const catSummary_ = getProgressGovtSummaryData_(data, progressCategoryGovtFilter);
-                const catGovtSelect_ = `<select onchange="setProgressCategoryGovtFilter(this.value)" style="width:100%; height:38px; margin:0 auto 10px; display:block; border:1.5px solid #93c5fd; border-radius:12px; padding:0 12px; font-size:0.74rem; font-weight:900; color:#0f172a; background:#ffffff;">
-                    <option value="">All (Govt + Non Govt)</option>
-                    <option value="GOVT" ${progressCategoryGovtFilter === "GOVT" ? "selected" : ""}>Govt</option>
-                    <option value="NONGOVT" ${progressCategoryGovtFilter === "NONGOVT" ? "selected" : ""}>Non Govt</option>
-                </select>`;
-                bodyHtml = catGovtSelect_ + (catSummary_ ? renderRevenueProgressHqVillageSummaryHtml(catSummary_) : `<div style="font-size:0.75rem; font-weight:950; color:#1d4ed8; text-align:center;">Category Wise Paid/Unpaid Summary</div>`);
+                bodyHtml = `<div style="font-size:0.75rem; font-weight:950; color:#1d4ed8; text-align:center;">No data found.</div>`;
             }
             const typeLabel = getProgressRevenueReportTypeLabel();
-            const bottomButtonsHtml = isNonPayeeType ? "" : `
+            const bottomButtonsHtml = `
                     <div class="btn-export-row" style="margin-top:8px;">
                         <button class="btn-unique btn-excel-unique" onclick="downloadProgressRevenueReportBox('XLS')">${escapeHtml(typeLabel)} Excel</button>
                         <button class="btn-unique btn-pdf-unique" onclick="downloadProgressRevenueReportBox('PDF')">${escapeHtml(typeLabel)} PDF</button>
@@ -9279,7 +8617,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         }
 
         function renderProgressRevenueBodyInner() {
-            if (["CATEGORY", "TARGET", "DEFAULTERS", "NONPAYEE_3M", "NONPAYEE_6M", "NONPAYEE_SINCE_CONNECTION", "PAIDCOUNT", "ARREARS_1L"].includes(progressRevenueReportType)) {
+            if (["TARGET", "PAIDCOUNT"].includes(progressRevenueReportType)) {
                 return renderRevenueProgressNonStaffBoxHtml();
             }
             const staffData = lastRevenueProgressStaffData || { rows: [], label: "" };
@@ -9288,7 +8626,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
 
         function renderRevenueProgressSummary(rows, label, hqVillageSummaryData = null, revenueMode = "DAILY", revenueFilterValue = "") {
             // 2026-10-20 (USER REQUEST): Top 20/50, Non Payee 3M/6M/Since Connection, Arrears Above 1 Lakh ab sirf Freeze report me (Live me confusion tha)
-            if (["DEFAULTERS", "NONPAYEE_3M", "NONPAYEE_6M", "NONPAYEE_SINCE_CONNECTION", "ARREARS_1L", "CATEGORY"].includes(progressRevenueReportType)) progressRevenueReportType = "STAFF"; // CATEGORY: 2026-10-29 Freeze report me shift
+            if (!["STAFF", "TARGET", "PAIDCOUNT"].includes(progressRevenueReportType)) progressRevenueReportType = "STAFF"; // UPDATE 156 - // CATEGORY: 2026-10-29 Freeze report me shift
             lastRevenueProgressBoxData = { hqVillageSummaryData, mode: revenueMode, filterValue: revenueFilterValue };
             lastRevenueProgressStaffData = { rows, label };
             const selectHtml = `
@@ -31696,12 +31034,6 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 .sort((a, b) => (b.monthsSincePayment - a.monthsSincePayment) || (b.pendingAmount - a.pendingAmount));
         }
 
-        function getRevenueNonPayeeBucketLabel(bucket) {
-            if (bucket === "6M") return "Non Payee From 6 Month";
-            if (bucket === "5Y") return "Non Payee From 5 Years";
-            if (bucket === "SINCE_CONNECTION") return "Non Payee From Date of Connection";
-            return "Non Payee From 3 Month";
-        }
 
         function initRevenueHqVillageListDropdowns() {
             const hqSelect = document.getElementById("revenue-hq-village-list-hq");
