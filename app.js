@@ -13961,7 +13961,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 circle: idx(["Circle"]), division: idx(["Division"]), dc: idx(["DC"]),
                 pn: idx(["Panchanama_No", "Panchnama_No", "Panchanama Number", "Panchnama Number"]),
                 name: idx(["Consumer_Name", "Person Name"]), ez: idx(["EZ_no", "EZ Number"]), cno: idx(["Consumer_No"]),
-                insp: idx(["inspection_date", "Inspection Date"]), tariff: idx(["Tariff_Name"]), caseName: idx(["Case_Name"]),
+                insp: idx(["inspection_date", "Inspection Date"]), tariff: idx(["Tariff_Name"]), tcode: idx(["Tariff_Code"]), caseName: idx(["Case_Name"]),
                 billed: idx(["Billed_amount", "Billed Amount"]), rebate: idx(["Court_Rebate", "court_rebate"]),
                 pay: idx(["payment", "Payment amount", "Payment Received"]), status: idx(["Case_Status"]), statusDt: idx(["Case_Status_Dt"])
             };
@@ -13975,7 +13975,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 if (!pn) continue;
                 const status = txt(row, c.status);
                 if (/^disposed/i.test(status)) skippedDisposed++; // backend: naya Disposed case nahi jodta, purane ko band kar deta hai
-                rows.push([txt(row, c.circle), txt(row, c.division), txt(row, c.dc), pn, txt(row, c.name), txt(row, c.ez), txt(row, c.cno), txt(row, c.insp), txt(row, c.tariff), txt(row, c.caseName), cleanOmvigAmount_(row[c.billed]), c.rebate > -1 ? cleanOmvigAmount_(row[c.rebate]) : 0, cleanOmvigAmount_(row[c.pay]), status, (/^disposed/i.test(status) ? txt(row, c.statusDt) : "")]);
+                rows.push([txt(row, c.circle), txt(row, c.division), txt(row, c.dc), pn, txt(row, c.name), txt(row, c.ez), txt(row, c.cno), txt(row, c.insp), (txt(row, c.tariff) + (txt(row, c.tcode) ? "||" + txt(row, c.tcode) : "")), txt(row, c.caseName), cleanOmvigAmount_(row[c.billed]), c.rebate > -1 ? cleanOmvigAmount_(row[c.rebate]) : 0, cleanOmvigAmount_(row[c.pay]), status, (/^disposed/i.test(status) ? txt(row, c.statusDt) : "")]);
             }
             return { rows, skippedDisposed };
         }
@@ -14239,7 +14239,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 ez_no: String(row[6] || "").trim(),
                 consumer_name: String(row[7] || "").trim(),
                 consumer_no: String(row[8] || "").trim(),
-                tariff_name: String(row[9] || "").trim(),
+                tariff_name: String(row[9] || "").split("||")[0].trim(), // UPDATE 163: sheet cell may be "TARIFF NAME||TARIFF CODE"
+                tariff_code: (String(row[9] || "").split("||")[1] || "").replace(/\s+/g, " ").trim(),
                 case_name: String(row[10] || "").trim(),
                 balanced_amount: cleanOmvigAmount_(row[11]),
                 // UPDATE 139: history-mode rows carry billed/rebate/status/first_seen (index 12..15)
@@ -15021,6 +15022,19 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // USER REQUEST (2026-10-02): PART PAID case Pending hi rahega.
         // Sirf poori balanced amount cover hone par case Paid hoga; part payment
         // ki bachi hui rashi Pending amount me shamil rahegi.
+        // UPDATE 162 (2026-11-05, USER REQUEST): CATEGORY column (LV-1 .. LV-6) in the O&M/VIG download list, derived from Tariff Name.
+        function omvigCategoryFromTariff_(tariffName) {
+            const t = String(tariffName || "").toUpperCase();
+            if (!t.trim()) return "-";
+            if (/NON[\s-]*DOMESTIC/.test(t)) return "LV-2";
+            if (/DOMESTIC/.test(t)) return "LV-1";
+            if (/PUBLIC WATER|STREET/.test(t)) return "LV-3";
+            if (/INDUSTR/.test(t)) return "LV-4";
+            if (/AGRICULT/.test(t)) return "LV-5";
+            if (/VEHICLE|RICKSHAW/.test(t)) return "LV-6";
+            return "-";
+        }
+
         function filterOmvigRowsByStatus_(rows, status) {
             // UPDATE 140: PART PAID bhi Paid me (jitna aaya), bacha hua Pending me - Power BI se match.
             // UPDATE 158: result remembers the unfiltered rows (.allRows) so summaries can keep the true TOTAL.
@@ -16078,8 +16092,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 const reportTitle = `O&M-VIG Report - ${scope}`;
                 const fileName = `${reportTitle}-${getTodayIsoDate()}`.replace(/[\\/:*?"<>|]+/g, "_");
 
-                const listHeaders = ["S.NO", "CIRCLE", "DIVISION", "DC", "CHECKED BY", "INSPECTION DATE", "PANCHANAMA NO", "EZ NO", "CONSUMER NAME", "CONSUMER NO", "TARIFF NAME", "CASE NAME", "BALANCED AMOUNT", "STATUS", "PAID AMT", "PAID DATE"];
-                const statusColIndex = 13; // 0-based, matches listHeaders order above
+                const listHeaders = ["S.NO", "CIRCLE", "DIVISION", "DC", "CHECKED BY", "INSPECTION DATE", "PANCHANAMA NO", "EZ NO", "CONSUMER NAME", "CONSUMER NO", "TARIFF NAME", "CATEGORY", "CASE NAME", "BALANCED AMOUNT", "STATUS", "PAID AMT", "PAID DATE"];
+                const statusColIndex = 14; // 0-based (UPDATE 162: CATEGORY column added after TARIFF NAME), matches listHeaders order above
                 // USER REQUEST (2026-09-14): Freeze NP jaisa hi - PAID row GREEN
                 // (PDF), PART PAID row RED (PDF); CSV plain text hai (colour
                 // support nahi), isliye wahan "++ PAID ++"/"** PART PAID **"
@@ -16089,12 +16103,12 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 const paymentStateFlags = rowsWithStatus.map((r) => (r.isPaidNow ? 2 : (r.paidAmountNow > 0 ? 1 : 0)));
                 const listBodyRows = rowsWithStatus.map((r, index) => [
                     index + 1, r.circle, r.division, r.dc_name, r.checked_by, r.inspection_date, r.panchanama_no, r.ez_no,
-                    r.consumer_name, r.consumer_no, r.tariff_name, r.case_name, r.balanced_amount,
+                    r.consumer_name, r.consumer_no, r.tariff_name, (r.tariff_code || omvigCategoryFromTariff_(r.tariff_name)), r.case_name, r.balanced_amount,
                     r.isPaidNow ? "PAID" : (r.paidAmountNow > 0 ? "PART PAID" : "PENDING"),
                     r.isPaidNow ? r.balanced_amount : r.paidAmountNow, r.paidDateNow || ""
                 ]);
                 omNewList.forEach((nc) => { // NEW CASE rows (paid ke saath, alag rang)
-                    listBodyRows.push([listBodyRows.length + 1, "SEONI", nc.div, "-", "", "", nc.pn, "", "", "", "", nc.type === "NAYA" ? "NEW CASE (after freeze)" : "NEW CASE (not in freeze list)", "", "NEW CASE", Math.round(nc.amt * 100) / 100, nc.lastDmy]);
+                    listBodyRows.push([listBodyRows.length + 1, "SEONI", nc.div, "-", "", "", nc.pn, "", "", "", "", "", nc.type === "NAYA" ? "NEW CASE (after freeze)" : "NEW CASE (not in freeze list)", "", "NEW CASE", Math.round(nc.amt * 100) / 100, nc.lastDmy]);
                     paymentStateFlags.push(3);
                 });
 
@@ -16149,8 +16163,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 // value hamesha ek hi jagah se shuru ho (pehle CONSUMER NO jaisa
                 // column hamesha CENTER tha, isliye alag-alag length ki values
                 // "idhar-udhar" dikhti thi).
-                const LEFT_ALIGN_COLS_ = [4, 6, 7, 8, 9, 10, 11];
-                const RIGHT_ALIGN_COLS_ = [12, 14];
+                const LEFT_ALIGN_COLS_ = [4, 6, 7, 8, 9, 10, 12];
+                const RIGHT_ALIGN_COLS_ = [13, 15];
                 const omvigColumnStyles_ = {};
                 LEFT_ALIGN_COLS_.forEach((i) => { omvigColumnStyles_[i] = { halign: "left" }; });
                 RIGHT_ALIGN_COLS_.forEach((i) => { omvigColumnStyles_[i] = { halign: "right" }; });
