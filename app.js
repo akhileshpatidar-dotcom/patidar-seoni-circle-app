@@ -15023,9 +15023,12 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // ki bachi hui rashi Pending amount me shamil rahegi.
         function filterOmvigRowsByStatus_(rows, status) {
             // UPDATE 140: PART PAID bhi Paid me (jitna aaya), bacha hua Pending me - Power BI se match.
-            if (status === "PAID") return rows.filter((r) => Number(r.paidAmountNow || 0) > 0);
-            if (status === "PENDING") return rows.filter((r) => Number(r.remainingPending || 0) > 0.5);
-            return rows;
+            // UPDATE 158: result remembers the unfiltered rows (.allRows) so summaries can keep the true TOTAL.
+            let res = rows;
+            if (status === "PAID") res = rows.filter((r) => Number(r.paidAmountNow || 0) > 0);
+            else if (status === "PENDING") res = rows.filter((r) => Number(r.remainingPending || 0) > 0.5);
+            if (res !== rows) res.allRows = rows;
+            return res;
         }
 
         // DC/Division/Circle summaries me bhi wahi rule: fully settled = Paid,
@@ -15060,7 +15063,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // 0 rahega, sirf jo status choose kiya wahi count/amount dikhega,
         // niche ki list se exactly match karega.
         function buildOmvigStatusSummaryRow_(filteredRows, dcName, status) {
-            const g = { name: dcName || "-", totalCount: filteredRows.length, paidCount: 0, paidAmount: 0, pendingCount: 0, pendingAmount: 0, partCount: 0, partAmount: 0 };
+            const g = { name: dcName || "-", totalCount: (filteredRows.allRows || filteredRows).length, paidCount: 0, paidAmount: 0, pendingCount: 0, pendingAmount: 0, partCount: 0, partAmount: 0 };
             filteredRows.forEach((r) => {
                 if (omvigIsPartRow_(r)) { g.partCount += 1; g.partAmount += Number(r.paidAmountNow || 0); }
                 if (status === "PAID") { g.paidCount += 1; g.paidAmount += Number(r.paidAmountNow) || 0; }
@@ -15076,11 +15079,15 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         function buildOmvigDivisionDcSummaryRows_(rowsWithStatus, divisionName) {
             const emptyGroup = (key) => ({ name: key, totalCount: 0, paidCount: 0, paidAmount: 0, pendingCount: 0, pendingAmount: 0, partCount: 0, partAmount: 0 });
             const map = {};
+            (rowsWithStatus.allRows || rowsWithStatus).forEach((r) => { // UPDATE 158: TOTAL always from unfiltered rows
+                const key = normalizeDcName(r.dc_name) || "-";
+                if (!map[key]) map[key] = emptyGroup(key);
+                map[key].totalCount += 1;
+            });
             rowsWithStatus.forEach((r) => {
                 const key = normalizeDcName(r.dc_name) || "-";
                 if (!map[key]) map[key] = emptyGroup(key);
                 const g = map[key];
-                g.totalCount += 1;
                 if (omvigIsInPaidBucket_(r)) { g.paidCount += 1; g.paidAmount += omvigPaidBucketAmount_(r); }
                 if (omvigIsInPendingBucket_(r)) { g.pendingCount += 1; g.pendingAmount += Number(r.remainingPending || 0); }
                 if (omvigIsPartRow_(r)) { g.partCount += 1; g.partAmount += Number(r.paidAmountNow || 0); }
@@ -15107,11 +15114,15 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 pendingPercent: g.totalCount ? (100 - Number(((g.paidCount / g.totalCount) * 100).toFixed(1))).toFixed(1) : "0.0"
             });
             const map = {};
+            ((rowsWithStatus && rowsWithStatus.allRows) || rowsWithStatus || []).forEach((r) => { // UPDATE 158: TOTAL always from unfiltered rows
+                const key = normalizeDcName(r.dc_name) || "-";
+                if (!map[key]) map[key] = emptyGroup(key);
+                map[key].totalCount += 1;
+            });
             (rowsWithStatus || []).forEach((r) => {
                 const key = normalizeDcName(r.dc_name) || "-";
                 if (!map[key]) map[key] = emptyGroup(key);
                 const g = map[key];
-                g.totalCount += 1;
                 if (omvigIsInPaidBucket_(r)) { g.paidCount += 1; g.paidAmount += omvigPaidBucketAmount_(r); }
                 if (omvigIsInPendingBucket_(r)) { g.pendingCount += 1; g.pendingAmount += Number(r.remainingPending || 0); }
                 if (omvigIsPartRow_(r)) { g.partCount += 1; g.partAmount += Number(r.paidAmountNow || 0); }
@@ -15725,8 +15736,15 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         function omvigDailyDcSummaryGroupFiltered_(dcSummaryMap, dcName, status) {
             const base = omvigDailyDcSummaryGroup_(dcSummaryMap, dcName);
             if (!status) return base;
-            if (status === "PAID") return { ...base, totalCount: base.paidCount, pendingCount: 0, pendingAmount: 0 };
-            return { ...base, totalCount: base.pendingCount, paidCount: 0, paidAmount: 0 };
+            if (status === "PAID") return { ...base, pendingCount: 0, pendingAmount: 0 }; // UPDATE 158: TOTAL stays true total
+            return { ...base, paidCount: 0, paidAmount: 0 }; // UPDATE 158: TOTAL stays true total
+        }
+
+        // UPDATE 158: Daily single-DC row under Paid/Pending filter - TOTAL from backend dcSummaryMap (true total), not from the filtered list.
+        function omvigDailyStatusRow_(dcSummaryMap, filteredRows, dcName, status) {
+            const g = buildOmvigStatusSummaryRow_(filteredRows, dcName, status);
+            const t = omvigDailyDcSummaryGroup_(dcSummaryMap, dcName);
+            return { ...g, totalCount: t.totalCount };
         }
 
         function omvigDailyDivisionDcSummaryRows_(dcSummaryMap, divisionName, status) {
@@ -15845,7 +15863,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             let summaryHtml, listHtml = "";
             if (omvigFilterStatus) {
                 const filteredRows = filterOmvigRowsByStatus_(rowsWithStatus, omvigFilterStatus);
-                summaryHtml = scOmSummaryTableHtml_("DC NAME", [buildOmvigStatusSummaryRow_(filteredRows, activeDC, omvigFilterStatus)], `DC SUMMARY - ${omvigFilterStatus} (AMOUNT IN LAKH)`, omvigDailyPaidLbl_(), "PENDING");
+                summaryHtml = scOmSummaryTableHtml_("DC NAME", [omvigDailyStatusRow_(dcSummaryMap, filteredRows, activeDC, omvigFilterStatus)], `DC SUMMARY - ${omvigFilterStatus} (AMOUNT IN LAKH)`, omvigDailyPaidLbl_(), "PENDING");
                 listHtml = renderOmvigDcListHtml_(filteredRows);
             } else {
                 summaryHtml = scOmSummaryTableHtml_("DC NAME", [omvigDailyDcSummaryGroup_(dcSummaryMap, activeDC)], "DC SUMMARY (AMOUNT IN LAKH)", omvigDailyPaidLbl_(), "PENDING");
@@ -15870,7 +15888,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             } else {
                 const dcRows = rowsWithStatus.filter((r) => normalizeDcName(r.dc_name) === normalizeDcName(omvigFilterDc));
                 const filteredRows = filterOmvigRowsByStatus_(dcRows, omvigFilterStatus);
-                summaryHtml = scOmSummaryTableHtml_("DC NAME", [buildOmvigStatusSummaryRow_(filteredRows, omvigFilterDc, omvigFilterStatus)], `DC SUMMARY - ${omvigFilterStatus} (AMOUNT IN LAKH)`, omvigDailyPaidLbl_(), "PENDING");
+                summaryHtml = scOmSummaryTableHtml_("DC NAME", [omvigDailyStatusRow_(dcSummaryMap, filteredRows, omvigFilterDc, omvigFilterStatus)], `DC SUMMARY - ${omvigFilterStatus} (AMOUNT IN LAKH)`, omvigDailyPaidLbl_(), "PENDING");
             }
             return summaryHtml + dcSelectHtml + statusSelectHtml;
         }
@@ -15893,7 +15911,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 } else {
                     const dcRows = rowsWithStatus.filter((r) => normalizeDcName(r.dc_name) === normalizeDcName(omvigFilterDc));
                     const filteredRows = filterOmvigRowsByStatus_(dcRows, omvigFilterStatus);
-                    summaryHtml = scOmSummaryTableHtml_("DC NAME", [buildOmvigStatusSummaryRow_(filteredRows, omvigFilterDc, omvigFilterStatus)], `DC SUMMARY - ${omvigFilterStatus} (AMOUNT IN LAKH)`, omvigDailyPaidLbl_(), "PENDING");
+                    summaryHtml = scOmSummaryTableHtml_("DC NAME", [omvigDailyStatusRow_(dcSummaryMap, filteredRows, omvigFilterDc, omvigFilterStatus)], `DC SUMMARY - ${omvigFilterStatus} (AMOUNT IN LAKH)`, omvigDailyPaidLbl_(), "PENDING");
                 }
             }
             return summaryHtml + divSelectHtml + dcSelectHtml + statusSelectHtml;
@@ -15974,17 +15992,18 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // par TOTAL row).
         function getOmvigDownloadSummaryRows_(scopedRows, finalRows) {
             const dcInScope = activeViewLevel === "DC" ? activeDC : omvigFilterDc;
+            const sumRows = omvigFilterStatus ? filterOmvigRowsByStatus_(scopedRows, omvigFilterStatus) : scopedRows; // UPDATE 158: summary follows status filter, TOTAL stays true total
             let rows;
             if (dcInScope) {
                 rows = omvigFilterStatus
-                    ? [buildOmvigStatusSummaryRow_(finalRows, dcInScope, omvigFilterStatus)]
+                    ? [buildOmvigStatusSummaryRow_(sumRows, dcInScope, omvigFilterStatus)]
                     : [buildOmvigSingleDcSummaryRow_(scopedRows, dcInScope)];
             } else if (activeViewLevel === "CIRCLE" && omvigFilterDivision) {
-                rows = appendOmvigTotalRow_(buildOmvigDivisionDcSummaryRows_(scopedRows, omvigFilterDivision));
+                rows = appendOmvigTotalRow_(buildOmvigDivisionDcSummaryRows_(sumRows, omvigFilterDivision));
             } else if (activeViewLevel === "DIVISION") {
-                rows = appendOmvigTotalRow_(buildOmvigDivisionDcSummaryRows_(scopedRows, activeDiv));
+                rows = appendOmvigTotalRow_(buildOmvigDivisionDcSummaryRows_(sumRows, activeDiv));
             } else {
-                rows = buildOmvigCircleDcWiseSummaryRows_(scopedRows);
+                rows = buildOmvigCircleDcWiseSummaryRows_(sumRows);
             }
             return rows.map((r) => ({
                 ...r,
@@ -16003,7 +16022,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             let rows;
             if (dcInScope) {
                 rows = omvigFilterStatus
-                    ? [buildOmvigStatusSummaryRow_(finalRows, dcInScope, omvigFilterStatus)]
+                    ? [omvigDailyStatusRow_(dcSummaryMap, finalRows, dcInScope, omvigFilterStatus)]
                     : [omvigDailyDcSummaryGroup_(dcSummaryMap, dcInScope)];
             } else if (activeViewLevel === "CIRCLE" && omvigFilterDivision) {
                 rows = appendOmvigTotalRow_(omvigDailyDivisionDcSummaryRows_(dcSummaryMap, omvigFilterDivision));
