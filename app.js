@@ -17538,7 +17538,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             if (monthlyBtn) {
                 monthlyBtn.classList.toggle("active", shmsProgressMode === "MONTHLY");
             }
-            renderShmsProgressSummary();
+            // UPDATE 161 (2026-11-05, USER REQUEST): Daily/Monthly switch now shows the SYNCING indicator and fetches fresh data (like the other reports).
+            renderShmsProgressSummary(true);
         }
 
 
