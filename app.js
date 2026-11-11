@@ -13518,14 +13518,40 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             };
         }
 
+        // UPDATE 167 (2026-11-11, USER REQUEST - report slow): the full Peak Load history is ~1.7 lakh rows (~38 MB, ~27 sec).
+        // Now only the rows needed for the selected day/month are requested (backend "since" parameter). peakLoadReportSinceKey = "" means
+        // the full history is loaded; otherwise it is the lower bound (YYYY-MM-DD, submission date) of the loaded window.
+        let peakLoadReportSinceKey = "";
+        function peakLoadNeededSinceKey_() {
+            const label = getFeederReportFilterLabel();
+            let key = "";
+            if (label) {
+                if (shmsProgressMode === "MONTHLY") {
+                    const parts = label.split("/");
+                    if (parts.length === 2) key = `${parts[1]}-${parts[0]}-01`;
+                } else {
+                    key = buildFeederDateKey_(label);
+                }
+            }
+            if (!key) key = getTodayIsoDate();
+            return getPreviousIsoDateKey_(key) || key;
+        }
+        function peakLoadWindowCovers_() {
+            if (!peakLoadReportLoaded || !peakLoadReportRows.length) return false;
+            if (peakLoadReportSinceKey === "") return true;
+            return peakLoadReportSinceKey <= peakLoadNeededSinceKey_();
+        }
+
         async function loadPeakLoadReportData(forceRefresh = false) {
-            if (!forceRefresh && peakLoadReportLoaded && peakLoadReportRows.length) return true;
+            if (!forceRefresh && peakLoadWindowCovers_()) return true;
+            const scSinceKey_ = peakLoadNeededSinceKey_();
+            const scSinceParam_ = /^\d{4}-\d{2}-\d{2}$/.test(scSinceKey_) ? `&since=${scSinceKey_.split("-").reverse().join("-")}` : "";
             peakLoadReportLoadMessage = "";
             const previousPeakLoadReportRows = Array.isArray(peakLoadReportRows) ? peakLoadReportRows.slice() : [];
             let rawData = null, lastErr = null;
             for (let attempt = 1; attempt <= 2 && rawData === null; attempt++) {
                 try {
-                    rawData = await loadRemoteJson(`${peakLoadSubmitScriptUrl}?action=getSummary&t=${Date.now()}`, 45000);
+                    rawData = await loadRemoteJson(`${peakLoadSubmitScriptUrl}?action=getSummary${scSinceParam_}&t=${Date.now()}`, 45000);
                 } catch (err) {
                     lastErr = err;
                     if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -13542,6 +13568,9 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                             : [];
                 peakLoadReportRows = summaryRows.map(normalizePeakLoadReportRow_).filter((row) => row["33/11 KV SUBSTATION"] || row["11 KV FEEDER"]);
                 if (peakLoadReportRows.length) {
+                    // old backend (no "since" support) returns the full history: first row is older than the requested window
+                    const scFirstSub_ = summaryRows[0] && !Array.isArray(summaryRows[0]) ? buildFeederDateKey_(summaryRows[0].submission_date || "") : "";
+                    peakLoadReportSinceKey = (scSinceParam_ && scFirstSub_ && scFirstSub_ >= scSinceKey_) ? scSinceKey_ : "";
                     peakLoadReportLoaded = true;
                     return true;
                 }
@@ -13624,7 +13653,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             // loadPeakLoadReportData(true) chalta tha - date/month toggle par bhi
             // poori history dobara fetch hoti thi. Ab sirf tab-switch/first-load
             // par force hota hai, baaki toggle sirf loaded data re-filter karta hai.
-            const needsFetch = forceRefresh || !peakLoadReportLoaded || !peakLoadReportRows.length;
+            const needsFetch = forceRefresh || !peakLoadWindowCovers_();
             const progress = needsFetch ? renderSyncingProgress(summary, isStillValid, "SYNCING DATA... PLEASE WAIT") : null;
             const scTpMasterP_ = loadPeakLoadData(false).catch(() => false); // UPDATE 165: master substation list, loaded in parallel
             await loadPeakLoadReportData(forceRefresh);
@@ -13659,7 +13688,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 // SPEED FIX (2026-09-15, USER-REPORTED): report screen par already
                 // load ho chuka data ho to Download usi ko reuse karta hai, poori
                 // history dobara fetch nahi karta.
-                if (!peakLoadReportLoaded || !peakLoadReportRows.length) {
+                if (!peakLoadWindowCovers_()) {
                     setShmsProgressStatus("Preparing Peak Load report data...");
                     await loadPeakLoadReportData(false);
                     setShmsProgressStatus("");
