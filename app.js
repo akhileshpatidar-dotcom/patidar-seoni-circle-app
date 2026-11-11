@@ -13581,6 +13581,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             // par force hota hai, baaki toggle sirf loaded data re-filter karta hai.
             const needsFetch = forceRefresh || !peakLoadReportLoaded || !peakLoadReportRows.length;
             const progress = needsFetch ? renderSyncingProgress(summary, isStillValid, "SYNCING DATA... PLEASE WAIT") : null;
+            const scTpMasterP_ = loadPeakLoadData(false).catch(() => false); // UPDATE 165: master substation list, loaded in parallel
             await loadPeakLoadReportData(forceRefresh);
             if (!isStillValid()) { if (progress) progress.stop(); return; }
             const label = getFeederReportFilterLabel();
@@ -13602,7 +13603,9 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 : (peakLoadReportLoadMessage
                     ? `0 peak load entries ready for ${label}<br><span style="display:block; margin-top:6px; font-size:11px; color:#b91c1c;">${peakLoadReportLoadMessage}</span>`
                     : `0 peak load entries ready for ${label}`);
-            summary.innerHTML = `<div style="margin-top:14px; background:#f8fafc; border:1.5px solid #cbd5e1; border-radius:16px; padding:14px; text-align:center; font-size:13px; font-weight:900; color:#0f172a;">${debugMessage}</div>`;
+            const scTpHtml_ = await scTodayEntryPendingHtml_("PEAKLOAD", scTpMasterP_);
+            if (!isStillValid()) return;
+            summary.innerHTML = `<div style="margin-top:14px; background:#f8fafc; border:1.5px solid #cbd5e1; border-radius:16px; padding:14px; text-align:center; font-size:13px; font-weight:900; color:#0f172a;">${debugMessage}</div>` + scTpHtml_;
         }
 
         async function downloadPeakLoadReport(fmt) {
@@ -18363,6 +18366,33 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             return allRows.filter((row) => buildFeederDateKey_(row["DATE(DD/MM/YYY)"] || row.date || "") === dailyKey);
         }
 
+        // UPDATE 165 (2026-11-11, USER REQUEST): Feeder Reading / Daily Hourly Peak Load report - after midnight (new day) show the NAMES of the
+        // substations whose operator has NOT yet made today's entry; a name disappears as soon as its entry is in the report data.
+        // Master substation list = feeder/peak-load master sheet; "done" = at least one row dated today in the submitted data.
+        async function scTodayEntryPendingHtml_(kind, masterPromise) {
+            try {
+                await masterPromise;
+                const todayKey = getTodayIsoDate();
+                let master = [], rows = [], dateField = "";
+                if (kind === "FEEDER") { master = Array.isArray(feederSubstations) ? feederSubstations : []; rows = feederReportRows || []; dateField = "DATE(DD/MM/YYY)"; }
+                else { master = Array.from(new Set((peakLoadRows || []).map((r) => r.substation).filter(Boolean))); rows = peakLoadReportRows || []; dateField = "DATE (DD-MM-YYYY)"; }
+                if (!master.length) return "";
+                const done = new Set();
+                rows.forEach((row) => { if (buildFeederDateKey_(row[dateField] || "") === todayKey) done.add(normalizeFeederSubstationKey_(row["33/11 KV SUBSTATION"])); });
+                const seen = new Set();
+                const pending = master.filter((n) => { const k = normalizeFeederSubstationKey_(n); if (!k || seen.has(k)) return false; seen.add(k); return !done.has(k); }).sort((a, b) => a.localeCompare(b));
+                const [y, m, d] = todayKey.split("-");
+                const label = `${d}/${m}/${y}`;
+                const what = kind === "FEEDER" ? "FEEDER READING" : "PEAK LOAD";
+                const total = seen.size;
+                if (!pending.length) {
+                    return `<div style="margin-top:10px; background:#f0fdf4; border:1.5px solid #86efac; border-radius:16px; padding:12px; text-align:center; font-size:12px; font-weight:900; color:#166534;">TODAY (${label}) - ${what} ENTRY DONE BY ALL ${total} SUBSTATIONS</div>`;
+                }
+                const items = pending.map((n, i) => `<div style="padding:3px 0; border-top:1px dashed #fda4af; font-size:12px; font-weight:800; color:#7f1d1d; text-align:left;">${i + 1}. ${escapeHtml(n)}</div>`).join("");
+                return `<div style="margin-top:10px; background:#fff1f2; border:1.5px solid #fda4af; border-radius:16px; padding:12px;"><div style="text-align:center; font-size:12px; font-weight:900; color:#9f1239; margin-bottom:6px;">TODAY (${label}) - ${what} ENTRY PENDING<br><span style="font-size:11px;">${pending.length} of ${total} substations</span></div>${items}</div>`;
+            } catch (_) { return ""; }
+        }
+
         async function renderFeederReportSummary(forceRefresh = false, isStillValid = () => true) {
             const summary = document.getElementById("shms-progress-summary");
             if (!summary) return;
@@ -18375,6 +18405,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             // toggle sirf existing loaded data ko re-filter karta hai.
             const needsFetch = forceRefresh || !feederReportLoaded || !feederReportRows.length;
             const progress = needsFetch ? renderSyncingProgress(summary, isStillValid, "SYNCING DATA... PLEASE WAIT") : null;
+            const scTpMasterP_ = loadFeederData(false).catch(() => false); // UPDATE 165: master substation list, loaded in parallel
             await loadFeederReportData(forceRefresh);
             if (!isStillValid()) { if (progress) progress.stop(); return; }
             const label = getFeederReportFilterLabel();
@@ -18398,7 +18429,9 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 : (feederReportLoadMessage
                     ? `0 feeder entries ready for ${label}<br><span style="display:block; margin-top:6px; font-size:11px; color:#b91c1c;">${feederReportLoadMessage}</span>`
                     : `0 feeder entries ready for ${label}`);
-            summary.innerHTML = `<div style="margin-top:14px; background:#f8fafc; border:1.5px solid #cbd5e1; border-radius:16px; padding:14px; text-align:center; font-size:13px; font-weight:900; color:#0f172a;">${debugMessage}</div>`;
+            const scTpHtml_ = await scTodayEntryPendingHtml_("FEEDER", scTpMasterP_);
+            if (!isStillValid()) return;
+            summary.innerHTML = `<div style="margin-top:14px; background:#f8fafc; border:1.5px solid #cbd5e1; border-radius:16px; padding:14px; text-align:center; font-size:13px; font-weight:900; color:#0f172a;">${debugMessage}</div>` + scTpHtml_;
         }
 
         async function downloadFeederReport(fmt) {
