@@ -17568,6 +17568,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         async function renderShmsProgressSummary(forceRefresh = false) {
             const summary = document.getElementById("shms-progress-summary");
             if (!summary) return;
+            summary.style.display = "block"; // UPDATE 164: summary box starts hidden (display:none) - show it now so the SYNCING progress is visible on tab click / first open
             const myShmsProgressToken = ++shmsProgressSummaryRenderToken;
             const isShmsProgressRenderValid = () => myShmsProgressToken === shmsProgressSummaryRenderToken;
             if (progressReportSource === "FEEDER") {
