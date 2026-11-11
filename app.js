@@ -9585,7 +9585,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             // chuki ho (jaise Report screen).
             const substationKey = normalizeFeederSubstationKey_(substation || "");
             const scopedRows = substationKey && feederSubstationHistoryCache_[substationKey];
-            const sheetRows = scopedRows ? scopedRows : (Array.isArray(feederReportRows) ? feederReportRows : []);
+            const sheetRows = scopedRows ? scopedRows : ((feederReportSinceKey === "" && Array.isArray(feederReportRows)) ? feederReportRows : []);
             const localRows = getRecentFeederSubmittedEntries_();
             return [...sheetRows, ...localRows];
         }
@@ -13154,7 +13154,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 return feederDataLoaded;
             } catch (_) {
                 try {
-                    const reportLoaded = await loadFeederReportData(forceRefresh);
+                    const reportLoaded = await loadFeederReportData(forceRefresh, true);
                     if (reportLoaded && feederReportRows.length) {
                         feederRows = buildFeederRowsFromReport_(feederReportRows);
                         feederSubstations = Array.from(new Set(feederRows.map((row) => row.substation).filter(Boolean)));
@@ -13171,8 +13171,20 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             }
         }
 
-        async function loadFeederReportData(forceRefresh = false) {
-            if (!forceRefresh && feederReportLoaded && feederReportRows.length) return true;
+        // UPDATE 168 (2026-11-11, USER REQUEST - report slow): same windowed loading as Peak Load (UPDATE 167). feederReportSinceKey = "" means
+        // full history loaded; otherwise lower bound (YYYY-MM-DD, entry date) of the loaded window. needFull=true forces the full history.
+        let feederReportSinceKey = "";
+        function feederWindowCovers_(needFull = false) {
+            if (!feederReportLoaded || !feederReportRows.length) return false;
+            if (feederReportSinceKey === "") return true;
+            if (needFull) return false;
+            return feederReportSinceKey <= peakLoadNeededSinceKey_();
+        }
+
+        async function loadFeederReportData(forceRefresh = false, needFull = false) {
+            if (!forceRefresh && feederWindowCovers_(needFull)) return true;
+            const scFSinceKey_ = needFull ? "" : peakLoadNeededSinceKey_();
+            const scFSinceParam_ = /^\d{4}-\d{2}-\d{2}$/.test(scFSinceKey_) ? `&since=${scFSinceKey_.split("-").reverse().join("-")}` : "";
             feederReportLoadMessage = "";
             const previousFeederReportRows = Array.isArray(feederReportRows) ? feederReportRows.slice() : [];
             // BUG FIX (2026-09-14) - USER-REPORTED: Feeder Reading me kabhi-kabhi
@@ -13190,7 +13202,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             let rawData = null, lastFeederSummaryErr = null;
             for (let attempt = 1; attempt <= 2 && rawData === null; attempt++) {
                 try {
-                    rawData = await loadRemoteJson(`${feederSubmitScriptUrl}?action=getSummary`, 45000);
+                    rawData = await loadRemoteJson(`${feederSubmitScriptUrl}?action=getSummary${scFSinceParam_}`, 45000);
                 } catch (err) {
                     lastFeederSummaryErr = err;
                     if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -13243,6 +13255,9 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 }).filter((row) => row["33/11 KV SUBSTATION"] || row["33 AND 11 KV FEEDER"]);
 
                 if (feederReportRows.length) {
+                    // old backend (no "since" support) returns the full history: first row is older than the requested window
+                    const scFFirst_ = buildFeederDateKey_(feederReportRows[0]["DATE(DD/MM/YYY)"] || "");
+                    feederReportSinceKey = (scFSinceParam_ && scFFirst_ && scFFirst_ >= scFSinceKey_) ? scFSinceKey_ : "";
                     feederReportLoadMessage = "";
                     feederReportLoaded = true;
                     return true;
@@ -13253,6 +13268,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 const csvText = await loadRemoteText(feederReportSheetCsvUrl);
                 feederReportRows = parseFeederReportCsv(csvText);
                 if (feederReportRows.length) {
+                    feederReportSinceKey = "";
                     feederReportLoadMessage = "";
                     feederReportLoaded = true;
                     return true;
@@ -13504,7 +13520,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     "DATE (DD-MM-YYYY)": String(row[3] || "").trim(),
                     "TIME (HH:MM)": String(row[4] || "").trim(),
                     "PEAK LOAD (A)": String(row[5] || "").trim(),
-                    "NAME OF OPERATOR": String(row[6] || "").trim()
+                    "NAME OF OPERATOR": String(row[6] || "").trim(),
+                    "SUBMISSION DATE": String(row[7] || "").trim()
                 };
             }
             return {
@@ -13514,7 +13531,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 "DATE (DD-MM-YYYY)": String(row["DATE (DD-MM-YYYY)"] || row.date || "").trim(),
                 "TIME (HH:MM)": String(row["TIME (HH:MM)"] || row.time || "").trim(),
                 "PEAK LOAD (A)": String(row["PEAK LOAD (A)"] || row.peak_load || "").trim(),
-                "NAME OF OPERATOR": String(row["NAME OF OPERATOR"] || row.operator_name || "").trim()
+                "NAME OF OPERATOR": String(row["NAME OF OPERATOR"] || row.operator_name || "").trim(),
+                "SUBMISSION DATE": String(row["SUBMISSION DATE"] || row.submission_date || "").trim()
             };
         }
 
@@ -18463,7 +18481,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 else { master = Array.from(new Set((peakLoadRows || []).map((r) => r.substation).filter(Boolean))); rows = peakLoadReportRows || []; dateField = "DATE (DD-MM-YYYY)"; }
                 if (!master.length) return "";
                 const done = new Set();
-                rows.forEach((row) => { if (buildFeederDateKey_(row[dateField] || "") === todayKey) done.add(normalizeFeederSubstationKey_(row["33/11 KV SUBSTATION"])); });
+                // UPDATE 168: Peak Load - an entry SUBMITTED today (even for yesterday's hourly readings) also counts as today's entry done
+                rows.forEach((row) => { if (buildFeederDateKey_(row[dateField] || "") === todayKey || (kind !== "FEEDER" && buildFeederDateKey_(row["SUBMISSION DATE"] || "") === todayKey)) done.add(normalizeFeederSubstationKey_(row["33/11 KV SUBSTATION"])); });
                 const seen = new Set();
                 const pending = master.filter((n) => { const k = normalizeFeederSubstationKey_(n); if (!k || seen.has(k)) return false; seen.add(k); return !done.has(k); }).sort((a, b) => a.localeCompare(b));
                 const [y, m, d] = todayKey.split("-");
@@ -18488,7 +18507,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             // hoti thi. Ab sirf tab force hota hai jab tab abhi-abhi select hui ho
             // (setReportSource se) ya data pehle load hi nahi hua - date/month
             // toggle sirf existing loaded data ko re-filter karta hai.
-            const needsFetch = forceRefresh || !feederReportLoaded || !feederReportRows.length;
+            const needsFetch = forceRefresh || !feederWindowCovers_();
             const progress = needsFetch ? renderSyncingProgress(summary, isStillValid, "SYNCING DATA... PLEASE WAIT") : null;
             const scTpMasterP_ = loadFeederData(false).catch(() => false); // UPDATE 165: master substation list, loaded in parallel
             await loadFeederReportData(forceRefresh);
@@ -18526,7 +18545,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 // poori feeder history dobara fetch karta tha, chahe report screen
                 // par abhi-abhi wahi data load ho chuka ho. Ab agar already loaded
                 // hai to seedha usi cached data se download banta hai.
-                if (!feederReportLoaded || !feederReportRows.length) {
+                if (!feederWindowCovers_()) {
                     setShmsProgressStatus("Preparing Feeder report data...");
                     await loadFeederReportData(false);
                     setShmsProgressStatus("");
