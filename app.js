@@ -13744,10 +13744,10 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 const plTitle_ = isMax_ ? "MAX LOAD - FEEDER WISE REPORT" : "DAILY HOURLY PEAK LOAD REPORT";
                 const plPrefix_ = isMax_ ? "PEAKLOAD_MAXLOAD" : "PEAKLOAD";
                 const headers = isMax_
-                    ? ["S.NO", "33/11 KV SUBSTATION", "11 KV FEEDER", "MAX LOAD (A)", "DATE (DD-MM-YYYY)", "TIME (HH:MM)", "NO. OF ENTRIES"]
+                    ? ["S.NO", "33/11 KV SUBSTATION", "11 KV FEEDER", "MAX LOAD (A)", "DATE (DD-MM-YYYY)", "TIME (HH:MM)"]
                     : ["S.NO", "33/11 KV SUBSTATION", "11 KV FEEDER", "METER NO", "DATE (DD-MM-YYYY)", "TIME (HH:MM)", "PEAK LOAD (A)", "NAME OF OPERATOR"];
                 const bodyRows = isMax_
-                    ? buildPeakLoadMaxRows_(rows).map((r, index) => [index + 1, r.substation, r.feeder, r.max === null ? "-" : r.max, r.max === null ? "-" : r.date, r.max === null ? "-" : r.time, r.entries])
+                    ? buildPeakLoadMaxRows_(rows).map((r, index) => [index + 1, r.substation, r.feeder, r.max === null ? "-" : r.max, r.max === null ? "-" : r.date, r.max === null ? "-" : r.time])
                     : rows.map((row, index) => [index + 1, ...headers.slice(1).map((key) => String(row[key] ?? ""))]);
                 const scSubTag_ = peakLoadReportSub !== "ALL" ? `_${String(peakLoadReportSub).replace(/\s+/g, "_")}` : "";
                 const scSubLine_ = peakLoadReportSub !== "ALL" ? `SUBSTATION - ${peakLoadReportSub}` : "ALL SUBSTATIONS";
@@ -13780,7 +13780,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 doc.autoTable({
                     startY: 29,
                     head: [headers],
-                    body: bodyRows.length ? bodyRows : [["", "", "", "", "", "", ""]],
+                    body: bodyRows.length ? bodyRows : [headers.map(() => "")],
                     theme: "grid",
                     headStyles: { fillColor: [17, 24, 39], halign: "center" },
                     styles: { fontSize: 7, cellPadding: 2, halign: "center" },
