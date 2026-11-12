@@ -3001,7 +3001,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             { name: "LAST PAYMENT DATE", keys: ["LASTPAYMENTDATE"] },
             { name: "MOBILE NO", keys: ["MOBILENO", "MOBILE"] },
             { name: "ARREARS", keys: ["ARREARS"] },
-            { name: "NET BILL", keys: ["NETBILL"] }
+            { name: "NET BILL", keys: ["NETBILL"] },
+            { name: "LAST PAYMENT AMOUNT", keys: ["LASTPAYMENTAMOUNT"], optional: true } // UPDATE 176: instant-bill paid (amount of the last payment; with LAST PAYMENT DATE)
         ];
         // IVRS ke pehle 4 ank -> DC (owner ki di hui pakki list, 2026-10-19). Ek hi ank do DC par ho to wo "ambiguous" maana jata hai
         // aur is list se use nahi hota (purani master / file se seekhne wala tarika kaam karta hai).
@@ -4636,16 +4637,47 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // hai (usme uski sabhi payments "payments" list me hoti hain) - isliye yahan har payment alag gini jaati hai.
         // Data wahi reconciliation (recon.byKey) jo Brief/Revenue reports pehle se load karte hain - koi naya network
         // call nahi. Sirf DISPLAY ke liye; Paid/Unpaid sthiti (PAID DATE RULE) ko yeh chhuta nahi.
+        // UPDATE 176 (2026-11-12, USER REQUEST): INSTANT BILL PAID. 22 tareekh se 10 tareekh ke beech instant bill par hui payment NGB cash list me nahi aati
+        // (wo purani bill file ke against nahi hoti) par 10 tareekh ke ledger/master me LAST PAYMENT DATE + LAST PAYMENT AMOUNT ke saath aa jati hai.
+        // Niyam: master me LAST PAYMENT DATE chalu mahine (1 se aaj) ki ho, LAST PAYMENT AMOUNT > 0 ho aur wo IVRS is mahine ki cash list me na ho
+        // -> DC ke COLLECTION total (count + amount) me jodte hain (Power BI se mel). IVRS search/cash list ka status NGB cash list ke anusaar hi rehta hai.
+        function scParseLpAmount_(v) {
+            if (typeof v === "number") return isFinite(v) ? v : 0;
+            const t = String(v === null || v === undefined ? "" : v).replace(/,/g, "").trim();
+            return (t !== "" && isFinite(Number(t))) ? Number(t) : 0;
+        }
+        function scInstantPaidForDc_(dcKey, monthKey, todayKey, cashIvrs) {
+            const res = { n: 0, a: 0, last: "" };
+            let rows = [];
+            try { rows = getRevenueMasterRowsForDc(dcKey) || []; } catch (_) { rows = []; }
+            const seen = new Set();
+            rows.forEach((row) => {
+                const mm = String(row.lastPaymentDate || "").trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+                if (!mm) return;
+                const k = `${mm[1]}${mm[2]}${mm[3]}`;
+                if (k.slice(0, 6) !== monthKey || k > todayKey) return;
+                const amt = Number(row.lastPaymentAmount) || 0;
+                if (!(amt > 0)) return;
+                const iv = normalizeRevenueIvrs(row.ivrsNo);
+                if (!iv || seen.has(iv) || (cashIvrs && cashIvrs.has(iv))) return;
+                seen.add(iv);
+                res.n += 1; res.a += amt;
+                if (k > res.last) res.last = k;
+            });
+            return res;
+        }
         function scCollectionFromRecon_(recon, dcList, ym, todayIso) {
             const monthKey = String(ym || "").replace("-", "");
             const todayKey = String(todayIso || "").replace(/-/g, "");
             const out = {};
             (dcList || []).forEach((d) => { const k = normalizeDcName(d); if (k) out[k] = { n: 0, a: 0, last: "" }; });
             if (!recon || !recon.byKey) return out;
+            const cashIvrsByDc = {};
             recon.byKey.forEach((info, key) => {
                 const sep = key.indexOf("|");
                 if (sep < 0) return;
-                const o = out[key.slice(0, sep)];
+                const dcK = key.slice(0, sep);
+                const o = out[dcK];
                 if (!o) return;
                 const list = info && Array.isArray(info.payments) ? info.payments : null;
                 if (!list) return;
@@ -4656,7 +4688,18 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     o.n += 1;
                     o.a += Number((Array.isArray(pm) ? pm[1] : (pm && pm.amount)) || 0);
                     if (k > o.last) o.last = k;
+                    (cashIvrsByDc[dcK] = cashIvrsByDc[dcK] || new Set()).add(key.slice(sep + 1));
                 }
+            });
+            // UPDATE 176: instant bill paid (master LAST PAYMENT DATE/AMOUNT) - cash list me jo IVRS is mahine nahi aaye
+            Object.keys(out).forEach((dcK) => {
+                try {
+                    const ins = scInstantPaidForDc_(dcK, monthKey, todayKey, cashIvrsByDc[dcK]);
+                    if (ins.n > 0) {
+                        out[dcK].n += ins.n; out[dcK].a += ins.a; out[dcK].instN = ins.n; out[dcK].instA = ins.a;
+                        if (ins.last > out[dcK].last) out[dcK].last = ins.last;
+                    }
+                } catch (_) {}
             });
             return out;
         }
@@ -4670,12 +4713,13 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 const dcList = Array.from(new Set(getRevenueCategoryTargetDcs().map((d) => normalizeDcName(d)).filter(Boolean))).sort();
                 const rc = revenueCategoryReconciliationCache_.get(`${mode}|${filterValue}|${dcList.join(",")}`);
                 if (!rc || !rc.supported || !rc.byKey) return null;
-                if (rc.collMemo_ && rc.collMemo_.day === todayIso) return rc.collMemo_.val;
+                const scMemoSig_ = scMasterLpdSignature_();
+                if (rc.collMemo_ && rc.collMemo_.day === todayIso && rc.collMemo_.sig === scMemoSig_) return rc.collMemo_.val;
                 const per = scCollectionFromRecon_(rc, dcList, ym, todayIso);
                 let n = 0, a = 0, last = "";
                 Object.keys(per).forEach((k) => { n += per[k].n; a += per[k].a; if (per[k].last > last) last = per[k].last; });
                 const val = { n, a, last: last ? `${last.slice(6, 8)}-${last.slice(4, 6)}-${last.slice(0, 4)}` : "", dcCount: dcList.length };
-                rc.collMemo_ = { day: todayIso, val };
+                rc.collMemo_ = { day: todayIso, val, sig: scMemoSig_ };
                 return val;
             } catch (_) { return null; }
         }
@@ -11021,6 +11065,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     try {
                         const rc = await pRecon;
                         if (!rc || !rc.supported || !rc.byKey) return null;
+                        try { await ensureRevenueCategoryMasterDataLoadedStrict_(reconDcs_); } catch (_) {} // UPDATE 176: instant bill paid ke liye master (LAST PAYMENT DATE/AMOUNT)
                         return scCollectionFromRecon_(rc, reconDcs_, ym, todayIso);
                     } catch (_) { return null; }
                 })();
@@ -20203,6 +20248,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             // mapRevenueConsumerRow() me hai.
             const govtIndex = findIndex(["GOVTNONGOVT", "GOVT", "ISGOVERNMENT"], -1);
             const lastPaymentIndex = findIndex(["LASTPAYMENTDATE", "LASTPAYMENT"], -1);
+            const lastPayAmtIndex = findIndex(["LASTPAYMENTAMOUNT"], -1); // UPDATE 176
             const connectionIndex = findIndex(["CONNECTIONDATE", "DATEOFCONNECTION"], -1); // NP5Y 2026-10-20
             const meteringIndex = findIndex(["METERINGSTATUS", "METERING"], -1); // PUMP 2026-10-21
 
@@ -20221,6 +20267,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     netBill: String(cols[netBillIndex] || "").trim(),
                     govtFlag: govtIndex >= 0 ? parseConsumerGovtFlag(cols[govtIndex]) : false,
                     lastPaymentDate: lastPaymentDate,
+                    lastPaymentAmount: lastPayAmtIndex >= 0 ? scParseLpAmount_(cols[lastPayAmtIndex]) : 0,
                     connectionDate: connectionIndex >= 0 ? parseConsumerConnectionDate(cols[connectionIndex]) : "",
                     meteringStatus: meteringIndex >= 0 ? String(cols[meteringIndex] || "").trim() : "",
                     hasPaymentDateData: lastPaymentIndex >= 0,
@@ -20287,6 +20334,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 netBill: getConsumerField(row, ["NET BILL", "NETBILL", "NET AMOUNT", "BILL AMOUNT"]),
                 govtFlag: parseConsumerGovtFlag(getConsumerField(row, ["GOVT/NON GOVT", "GOVT NON GOVT", "GOVT", "IS GOVERNMENT"])),
                 lastPaymentDate: lastPaymentDate,
+                lastPaymentAmount: scParseLpAmount_(getConsumerField(row, ["LAST PAYMENT AMOUNT"])),
                 connectionDate: parseConsumerConnectionDate(getConsumerField(row, ["CONNECTION DATE", "DATE OF CONNECTION"])),
                 meteringStatus: String(getConsumerField(row, ["METERING STATUS", "METERING"]) || "").trim(),
                 hasPaymentDateData: hasPaymentDateData,
@@ -20510,6 +20558,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             const netBillIndex = findIndex(["NETBILL", "NET"], 8);
             const govtIndex = findIndex(["GOVTNONGOVT", "GOVT", "ISGOVERNMENT"], -1);
             const lastPaymentIndex = findIndex(["LASTPAYMENTDATE", "LASTPAYMENT"], -1);
+            const lastPayAmtIndex = findIndex(["LASTPAYMENTAMOUNT"], -1); // UPDATE 176
             const connectionIndex = findIndex(["CONNECTIONDATE", "DATEOFCONNECTION"], -1); // NP5Y 2026-10-20
             const meteringIndex = findIndex(["METERINGSTATUS", "METERING"], -1); // PUMP 2026-10-21
             const cellValue = (cells, index) => {
@@ -20532,6 +20581,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     netBill: cellValue(cells, netBillIndex),
                     govtFlag: govtIndex >= 0 ? parseConsumerGovtFlag(cellValue(cells, govtIndex)) : false,
                     lastPaymentDate: lastPaymentDate,
+                    lastPaymentAmount: lastPayAmtIndex >= 0 ? scParseLpAmount_(cellValue(cells, lastPayAmtIndex)) : 0,
                     connectionDate: connectionIndex >= 0 ? parseConsumerConnectionDate(cellValue(cells, connectionIndex)) : "",
                     meteringStatus: meteringIndex >= 0 ? cellValue(cells, meteringIndex) : "",
                     hasPaymentDateData: lastPaymentIndex >= 0,
@@ -25759,7 +25809,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 const src = best.matrix[r] || [];
                 const out = idx.map((ci, k) => {
                     const raw = ci < 0 ? "" : src[ci];
-                    if (SC_DIVMASTER_COLS_[k].name === "ARREARS" || SC_DIVMASTER_COLS_[k].name === "NET BILL") { // ARREARS, NET BILL - number rahe
+                    if (SC_DIVMASTER_COLS_[k].name === "ARREARS" || SC_DIVMASTER_COLS_[k].name === "NET BILL" || SC_DIVMASTER_COLS_[k].name === "LAST PAYMENT AMOUNT") { // ARREARS, NET BILL - number rahe
                         if (typeof raw === "number") return raw;
                         const t = String(raw === null || raw === undefined ? "" : raw).replace(/,/g, "").trim();
                         return (t !== "" && isFinite(Number(t))) ? Number(t) : t;
