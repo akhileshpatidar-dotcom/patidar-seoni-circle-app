@@ -2608,9 +2608,9 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             if (!rowDc) return false;
             if (activeViewLevel === "DC") return rowDc === normalizeDcName(activeDC);
             if (activeViewLevel === "DIVISION") {
-                return getDivisionDcNames(activeDiv).some((dc) => normalizeDcName(dc) === rowDc);
+                return scRevVisDivDcs_(activeDiv).some((dc) => normalizeDcName(dc) === rowDc);
             }
-            return getAllDcNames().some((dc) => normalizeDcName(dc) === rowDc);
+            return scRevVisAllDcs_().some((dc) => normalizeDcName(dc) === rowDc);
         }
 
         function addRevenueSummaryCount(group, row) {
@@ -2675,13 +2675,13 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 if (!hqNames.size) hqNames.add("GENERAL");
                 Array.from(hqNames).sort().forEach((hqName) => createGroup(`HQ||${hqName}`, hqName));
             } else if (activeViewLevel === "DIVISION") {
-                getDivisionDcNames(activeDiv).forEach((dcName) => {
+                scRevVisDivDcs_(activeDiv).forEach((dcName) => {
                     const normalizedDc = normalizeDcName(dcName);
                     createGroup(`DC||${normalizedDc}`, normalizedDc);
                 });
             } else {
                 Object.keys(divisionConfigs).forEach((divisionName) => {
-                    getDivisionDcNames(divisionName).forEach((dcName) => {
+                    scRevVisDivDcs_(divisionName).forEach((dcName) => {
                         const normalizedDc = normalizeDcName(dcName);
                         createGroup(`CIRCLE||${divisionName}||${normalizedDc}`, normalizedDc, { divisionName });
                     });
@@ -2819,8 +2819,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
 
         function getRevenueCategoryTargetDcs() {
             if (activeViewLevel === "DC") return [activeDC].filter(Boolean);
-            if (activeViewLevel === "DIVISION") return getDivisionDcNames(activeDiv);
-            return getAllDcNames();
+            if (activeViewLevel === "DIVISION") return scRevVisDivDcs_(activeDiv);
+            return scRevVisAllDcs_();
         }
 
         function getRevenueMasterRowsForDc(dcName) {
@@ -3009,7 +3009,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             "ARI": ["1302"], "BADALPAR": ["1309"], "BANDOL": ["1304"], "BARGHAT": ["1303"], "DHARNA": ["1317"], "GOPALGANJ": ["1310"],
             "KANHIWADA": ["1318"], "KEOLARI": ["1322"], "KHAIRAPALARI": ["1319"], "KURAI": ["1311"], "MUNGWANI": ["1312"],
             "PANDIYA CHHAPARA": ["1323"], "SEONI (T)": ["1412"], "SEONI (RES)": ["1313"], "UGALI": ["1324"],
-            "ADEGAON": ["1334"], "CHHAPARA-1": ["1140"], "CHHAPARA-2": ["1139"], "DHANORA": ["1125"], "DHUMA": ["1137"],
+            "ADEGAON": ["1134"], "CHHAPARA-1": ["1140"], "CHHAPARA-2": ["1139"], "DHANORA": ["1125"], "DHUMA": ["1137"],
             "GANESHGANJ": ["1123"], "GHANSORE": ["1115"], "KEDARPUR": ["1111"], "LAKHNADON": ["1121"]
         };
         const SC_DIVMASTER_PREFIX_ = (() => {
@@ -3139,6 +3139,14 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             const m = scDivMasterMeta_[normalizeDcName(dcName)];
             return !!(m && m.state !== "UPLOADED");
         }
+        // UPDATE 175 (2026-11-12, USER REQUEST): a DC whose master is NOT uploaded (META state not UPLOADED, or 0 rows) is hidden from the REVENUE side:
+        // Daily Brief, Revenue live/freeze/paid-count/category reports and Division/Circle totals. O&M/VIG, uploads, admin screens and other modules are unchanged.
+        function scDcHiddenNoMaster_(dcName) {
+            const m = scDivMasterMeta_[normalizeDcName(dcName)];
+            return !!(m && (m.state !== "UPLOADED" || !(m.rows > 0)));
+        }
+        function scRevVisDivDcs_(divisionName) { return getDivisionDcNames(divisionName).filter((dc) => !scDcHiddenNoMaster_(dc)); }
+        function scRevVisAllDcs_() { return getAllDcNames().filter((dc) => !scDcHiddenNoMaster_(dc)); }
         let scDivMasterEnsureAt_ = 0;
         async function scDivMasterEnsureMeta_(dcName) {
             try {
@@ -4793,8 +4801,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
 
         function getRevenueFreezeTargetDcs() {
             if (activeViewLevel === "DC") return [activeDC].filter(Boolean);
-            if (activeViewLevel === "DIVISION") return getDivisionDcNames(activeDiv);
-            return getAllDcNames();
+            if (activeViewLevel === "DIVISION") return scRevVisDivDcs_(activeDiv);
+            return scRevVisAllDcs_();
         }
 
         // SPEED FIX (2026-09-15, USER-REPORTED slowness): pehle Division/Circle
@@ -5006,7 +5014,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         function getRevenueFreezeRowsInScope(rows) {
             if (activeViewLevel === "DC") return rows.filter((r) => normalizeDcName(r.dc_name) === normalizeDcName(activeDC));
             if (activeViewLevel === "DIVISION") {
-                const dcSet = new Set(getDivisionDcNames(activeDiv).map((dc) => normalizeDcName(dc)));
+                const dcSet = new Set(scRevVisDivDcs_(activeDiv).map((dc) => normalizeDcName(dc)));
                 return rows.filter((r) => dcSet.has(normalizeDcName(r.dc_name)));
             }
             return rows;
@@ -5081,7 +5089,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
 
         function getFreezeSelectedDivisionDcSet_() {
             const div = activeViewLevel === "CIRCLE" && !isFreezeCategoryDefaultersType() ? (freezeNonPayeeFilterState.division || "") : "";
-            return div ? new Set(getDivisionDcNames(div).map((dc) => normalizeDcName(dc))) : null;
+            return div ? new Set(scRevVisDivDcs_(div).map((dc) => normalizeDcName(dc))) : null;
         }
 
         function setFreezeNonPayeeFilter(key, value) {
@@ -5666,7 +5674,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             });
 
             if (activeViewLevel === "DIVISION") {
-                const divDcRows = getDivisionDcNames(activeDiv).map((dcName) => {
+                const divDcRows = scRevVisDivDcs_(activeDiv).map((dcName) => {
                     const key = normalizeDcName(dcName);
                     return withPercents(map[key] || emptyGroup(key));
                 });
@@ -5682,7 +5690,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             // USER REQUEST (2026-09-24): Circle par Division chuna ho to sirf us Division ki DC + total
             const selDiv_ = activeViewLevel === "CIRCLE" && !isFreezeCategoryDefaultersType() ? (freezeNonPayeeFilterState.division || "") : "";
             if (selDiv_) {
-                const dcRowsSel = getDivisionDcNames(selDiv_).map((dcName) => {
+                const dcRowsSel = scRevVisDivDcs_(selDiv_).map((dcName) => {
                     const key = normalizeDcName(dcName);
                     return withPercents(map[key] || emptyGroup(key));
                 });
@@ -5698,7 +5706,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             const rows = [];
             const grand = emptyGroup("GRAND TOTAL");
             Object.keys(divisionConfigs).forEach((divisionName) => {
-                const dcRows = getDivisionDcNames(divisionName).map((dcName) => {
+                const dcRows = scRevVisDivDcs_(divisionName).map((dcName) => {
                     const key = normalizeDcName(dcName);
                     return withPercents(map[key] || emptyGroup(key));
                 });
@@ -7881,7 +7889,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         function applyArrears1LFilter_(rows, filter, isFreeze) {
             const f = filter || {};
             const dcKey = f.dc ? normalizeDcName(f.dc) : "";
-            const divSet_ = f.division ? new Set(getDivisionDcNames(f.division).map((d) => normalizeDcName(d))) : null;
+            const divSet_ = f.division ? new Set(scRevVisDivDcs_(f.division).map((d) => normalizeDcName(d))) : null;
             return (rows || []).filter((r) => (
                 (!dcKey || r.dcName === dcKey)
                 && (!f.division || divSet_.has(r.dcName))
@@ -7937,20 +7945,20 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             const out = [];
             if (activeViewLevel === "DIVISION") {
                 const grand = newGroup(`${activeDiv} TOTAL`, "GRAND_TOTAL");
-                getDivisionDcNames(activeDiv).forEach((dc) => { const g = dcGroup(dc); out.push(g); addGroup(grand, g); });
+                scRevVisDivDcs_(activeDiv).forEach((dc) => { const g = dcGroup(dc); out.push(g); addGroup(grand, g); });
                 out.push(grand);
                 return { colLabel: "DC NAME", rows: out };
             }
             if (activeViewLevel === "CIRCLE" && selectedDiv) {
                 const gDiv = newGroup(`${selectedDiv} TOTAL`, "GRAND_TOTAL");
-                getDivisionDcNames(selectedDiv).forEach((dc) => { const g = dcGroup(dc); out.push(g); addGroup(gDiv, g); });
+                scRevVisDivDcs_(selectedDiv).forEach((dc) => { const g = dcGroup(dc); out.push(g); addGroup(gDiv, g); });
                 out.push(gDiv);
                 return { colLabel: "DC NAME", rows: out };
             }
             const circle = newGroup("SEONI CIRCLE TOTAL", "GRAND_TOTAL");
             Object.keys(divisionConfigs).forEach((divName) => {
                 const sub = newGroup(`${divName} TOTAL`, "SUB_TOTAL");
-                getDivisionDcNames(divName).forEach((dc) => { const g = dcGroup(dc); out.push(g); addGroup(sub, g); });
+                scRevVisDivDcs_(divName).forEach((dc) => { const g = dcGroup(dc); out.push(g); addGroup(sub, g); });
                 out.push(sub);
                 addGroup(circle, sub);
             });
@@ -7981,7 +7989,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 html += `<select onchange="${setter}('division', this.value)" style="${selectStyle}"><option value="">All Division</option>${divOptions}</select>`;
             }
             if (activeViewLevel !== "DC") {
-                const divDcSet_ = (isFreeze && f.division) ? new Set(getDivisionDcNames(f.division).map((d) => normalizeDcName(d))) : null;
+                const divDcSet_ = (isFreeze && f.division) ? new Set(scRevVisDivDcs_(f.division).map((d) => normalizeDcName(d))) : null;
                 const dcOptions = getRevenueCategoryTargetDcs().filter((dc) => !divDcSet_ || divDcSet_.has(normalizeDcName(dc))).map((dc) => {
                     const name = normalizeDcName(dc);
                     return `<option value="${escapeHtml(name)}" ${normalizeDcName(f.dc) === name && f.dc ? "selected" : ""}>${escapeHtml(name)}</option>`;
@@ -8320,13 +8328,13 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 layout = list.map((n) => ({ name: n, type: "ROW", members: [n] }));
                 layout.push({ name: `${normalizeDcName(activeDC)} TOTAL`, type: "GRAND_TOTAL", members: list });
             } else if (activeViewLevel === "DIVISION") {
-                const dcs = getDivisionDcNames(activeDiv).map((d) => normalizeDcName(d));
+                const dcs = scRevVisDivDcs_(activeDiv).map((d) => normalizeDcName(d));
                 layout = dcs.map((d) => ({ name: d, type: "ROW", members: [d] }));
                 layout.push({ name: `${activeDiv} TOTAL`, type: "GRAND_TOTAL", members: dcs });
             } else {
                 const all = [];
                 Object.keys(divisionConfigs).forEach((dv) => {
-                    const dcs = getDivisionDcNames(dv).map((d) => normalizeDcName(d));
+                    const dcs = scRevVisDivDcs_(dv).map((d) => normalizeDcName(d));
                     dcs.forEach((d) => layout.push({ name: d, type: "ROW", members: [d] }));
                     layout.push({ name: `${dv} TOTAL`, type: "SUB_TOTAL", members: dcs });
                     all.push(...dcs);
@@ -8925,8 +8933,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     lokGrandTU += distributed;
                 } else {
                     const targetDcs = [...new Set((activeViewLevel === "DIVISION"
-                        ? getDivisionDcNames(activeDiv)
-                        : getAllDcNames()).map((dc) => normalizeDcName(dc)).filter(Boolean))];
+                        ? scRevVisDivDcs_(activeDiv)
+                        : scRevVisAllDcs_()).map((dc) => normalizeDcName(dc)).filter(Boolean))];
                     targetDcs.forEach((dc) => {
                         const total = getLokCount(dc);
                         const distributed = getLokDistributedCount(dc);
@@ -9055,7 +9063,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             try {
                 const targetMobileDcs = activeViewLevel === "DC"
                     ? [activeDC]
-                    : (activeViewLevel === "DIVISION" ? getDivisionDcNames(activeDiv) : getAllDcNames());
+                    : (activeViewLevel === "DIVISION" ? scRevVisDivDcs_(activeDiv) : scRevVisAllDcs_());
                 // SPEED PHASE 1: Division/Circle - jin DC ka master abhi memory me
                 // nahi hai, unka compact summary (IndexedDB) ho to 27MB master ka
                 // intezaar nahi; master background me aata hai aur kuch badla ho to
@@ -9089,7 +9097,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 // karega - koi breaking change nahi.
                 const mobileScopeDcs = activeViewLevel === "DC"
                     ? [activeDC]
-                    : (activeViewLevel === "DIVISION" ? getDivisionDcNames(activeDiv) : []);
+                    : (activeViewLevel === "DIVISION" ? scRevVisDivDcs_(activeDiv) : []);
                 const mobileSummaryDcParam = activeViewLevel === "DC" && activeDC
                     ? `&dc=${encodeURIComponent(activeDC)}`
                     : (activeViewLevel === "DIVISION" && mobileScopeDcs.length
@@ -10820,8 +10828,8 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
 
         function scBriefScopeDcs_() {
             if (activeViewLevel === "DC") return activeDC ? [activeDC] : [];
-            if (activeViewLevel === "DIVISION") return getDivisionDcNames(activeDiv);
-            return getAllDcNames();
+            if (activeViewLevel === "DIVISION") return scRevVisDivDcs_(activeDiv);
+            return scRevVisAllDcs_();
         }
         function scBriefDivOf_(dc) {
             const n = normalizeDcName(dc);
@@ -10931,6 +10939,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             updateProgressReportScopeTitle();
             const cont = document.getElementById("summary-content");
             if (!cont) return;
+            try { if (!Object.keys(scDivMasterMeta_).length) await scDivMasterRefresh_(); } catch (_) {} // UPDATE 175: META needed to hide no-master DCs
             const dcs = scBriefScopeDcs_();
             const todayDmy = getCurrentDateDDMMYYYY();
             const todayKey = normalizeRevenueReportDate(todayDmy);
@@ -26845,7 +26854,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 .filter(Boolean)));
             const expectedNames = requestedNames.length
                 ? requestedNames
-                : getAllDcNames().map((name) => normalizeDcName(name)).filter(Boolean);
+                : scRevVisAllDcs_().map((name) => normalizeDcName(name)).filter(Boolean);
             const scopeParam = requestedNames.length
                 ? `&dc_names=${encodeURIComponent(requestedNames.join(","))}`
                 : "";
@@ -27019,10 +27028,10 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             if (isRevenueDcScreen && activeDC) return rowDc === normalizeDcName(activeDC);
             if (activeViewLevel === "DC") return rowDc === normalizeDcName(activeDC);
             if (activeViewLevel === "DIVISION") {
-                return getDivisionDcNames(activeDiv).some((dc) => normalizeDcName(dc) === rowDc);
+                return scRevVisDivDcs_(activeDiv).some((dc) => normalizeDcName(dc) === rowDc);
             }
             if (activeViewLevel === "CIRCLE") {
-                return getAllDcNames().some((dc) => normalizeDcName(dc) === rowDc);
+                return scRevVisAllDcs_().some((dc) => normalizeDcName(dc) === rowDc);
             }
             if (activeDC) return rowDc === normalizeDcName(activeDC);
             return true;
@@ -27304,7 +27313,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 if (myToken !== revenueLiveProgressToken) { progress.stop(); return; }
             } else if (activeViewLevel === "DIVISION" || activeViewLevel === "CIRCLE") {
                 const divisionDcNames = activeViewLevel === "DIVISION" && activeDiv
-                    ? getDivisionDcNames(activeDiv)
+                    ? scRevVisDivDcs_(activeDiv)
                     : [];
                 // Naya compact summary endpoint pehle try hota hai. Circle me bhi
                 // raw consumer rows browser tak nahi aate; sirf per-DC totals aate hain.
@@ -27313,7 +27322,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 if (myToken !== revenueLiveProgressToken) { progress.stop(); return; }
                 if (todayRows) {
                     if (activeViewLevel === "DIVISION" && activeDiv) {
-                        const dcSet = new Set(getDivisionDcNames(activeDiv).map((n) => normalizeDcName(n)));
+                        const dcSet = new Set(scRevVisDivDcs_(activeDiv).map((n) => normalizeDcName(n)));
                         rows = todayRows.filter((r) => dcSet.has(normalizeDcName(r.dcName)));
                     } else {
                         rows = todayRows;
@@ -28242,7 +28251,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         }
 
         function getRevenueReportScopeDcList_() {
-            return activeViewLevel === "DIVISION" ? getDivisionDcNames(activeDiv) : getAllDcNames();
+            return activeViewLevel === "DIVISION" ? scRevVisDivDcs_(activeDiv) : scRevVisAllDcs_();
         }
 
         // Purana (pre-speed-fix) Division/Circle unscoped shared-cache path -
@@ -28978,7 +28987,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 hqNodes.forEach((child) => add(dcNode, child));
                 return dcNode;
             };
-            const dcs = activeViewLevel === "DC" ? [activeDC] : (activeViewLevel === "DIVISION" ? getDivisionDcNames(activeDiv) : getRevenueCategoryTargetDcs());
+            const dcs = activeViewLevel === "DC" ? [activeDC] : (activeViewLevel === "DIVISION" ? scRevVisDivDcs_(activeDiv) : getRevenueCategoryTargetDcs());
             const dcNodes = dcs.map(buildDcNode).filter((node) => node.children && node.children.length);
             const tree = activeViewLevel === "DC" ? ((dcNodes[0] && dcNodes[0].children) || []) : dcNodes;
             const totals = tree.reduce((acc, row) => { add(acc, row); return acc; }, leaf("TOTAL"));
