@@ -25844,10 +25844,15 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 const plan = divisionDcs.map((dc) => ({ dc, rows: [], status: "WAITING", text: "" }));
                 const planByDc = Object.fromEntries(plan.map((p) => [p.dc, p]));
                 const unassigned = [];
-                let wrongDivision = 0;
+                let wrongDivision = 0, scDcConflict_ = 0;
                 entries.forEach((e) => {
                     if (!e.valid) { unassigned.push(e.row); return; }
-                    let dc = e.dc || SC_DIVMASTER_PREFIX_[e.iv.slice(0, 4)] || prefixDc[e.iv.slice(0, 4)] || metaPrefix[e.iv.slice(0, 4)] || "";
+                    // UPDATE 172 (2026-11-12, USER REQUEST): the DC NAME written in the file is FINAL (owner builds it with his lookup). Only when it is blank
+                    // or not a DC of this Division, the old order is used: owner's prefix list -> old master/paid history -> learned prefix.
+                    const scFileDc_ = normalizeDcName(e.row[SC_DIVMASTER_DCNAME_IDX_] || "");
+                    const scListDc_ = SC_DIVMASTER_PREFIX_[e.iv.slice(0, 4)] || "";
+                    let dc = (scFileDc_ && planByDc[scFileDc_]) ? scFileDc_ : (scListDc_ || e.dc || prefixDc[e.iv.slice(0, 4)] || metaPrefix[e.iv.slice(0, 4)] || "");
+                    if (scFileDc_ && planByDc[scFileDc_] && scListDc_ && scListDc_ !== scFileDc_ && planByDc[scListDc_]) scDcConflict_++;
                     if (dc && !planByDc[dc]) { wrongDivision++; dc = ""; }
                     if (dc) { e.row[SC_DIVMASTER_DCNAME_IDX_] = dc; planByDc[dc].rows.push(e.row); } else unassigned.push(e.row);
                 });
@@ -25855,7 +25860,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     p.prefixes = Array.from(new Set(p.rows.map((r) => String(r[0]).slice(0, 4))));
                     p.before = (() => { try { return getRevenueMasterRowsForDc(p.dc).length; } catch (_) { return 0; } })();
                 });
-                scDivMasterCtx_ = { division, key, plan, unassigned, fileName: file.name, wrongDivision, invalidCount, dupCount, total: parsed.rows.length, badHq: scDivMasterBadRows_(parsed.rows) };
+                scDivMasterCtx_ = { division, key, plan, unassigned, fileName: file.name, wrongDivision, scDcConflict: scDcConflict_, invalidCount, dupCount, total: parsed.rows.length, badHq: scDivMasterBadRows_(parsed.rows) };
                 renderDivMasterPlan_();
                 const withRows = plan.filter((p) => p.rows.length).length;
                 if (!parsed.rows.length) {
@@ -25894,6 +25899,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             const notes = [
                 un ? `<div style="font-size:0.62rem; font-weight:950; color:#b45309; margin-top:6px;">${un} rows could not be assigned to a DC${ctx.wrongDivision ? ` (${ctx.wrongDivision} belong to another Division)` : ""}${ctx.invalidCount ? ` (${ctx.invalidCount} with invalid IVRS)` : ""} - they will be saved in the UNASSIGNED tab, not in any DC.</div>` : "",
                 ctx.dupCount ? `<div style="font-size:0.62rem; font-weight:950; color:#b45309; margin-top:4px;">${ctx.dupCount} duplicate IVRS rows found in the file.</div>` : "",
+                ctx.scDcConflict ? `<div style="font-size:0.62rem; font-weight:950; color:#b45309; margin-top:4px;">${ctx.scDcConflict} rows: DC NAME in the file differs from the IVRS starting-digits list (file DC NAME is used).</div>` : "",
                 scDivMasterBadHtml_(ctx.badHq)
             ].join("");
             setDivMasterPreview_(`<div style="font-size:0.66rem; font-weight:950; color:#312e81; margin-bottom:6px;">${escapeHtml(ctx.fileName)} - ${ctx.total} rows</div>${head}${rows}${notes}`);
