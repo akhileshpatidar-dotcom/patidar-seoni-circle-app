@@ -3007,7 +3007,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // aur is list se use nahi hota (purani master / file se seekhne wala tarika kaam karta hai).
         const SC_DIVMASTER_PREFIX_LIST_ = {
             "ARI": ["1302"], "BADALPAR": ["1309"], "BANDOL": ["1304"], "BARGHAT": ["1303"], "DHARNA": ["1317"], "GOPALGANJ": ["1310"],
-            "KANHIWADA": ["1328"], "KEOLARI": ["1322"], "KHAIRAPALARI": ["1319"], "KURAI": ["1311"], "MUNGWANI": ["1312"],
+            "KANHIWADA": ["1318"], "KEOLARI": ["1322"], "KHAIRAPALARI": ["1319"], "KURAI": ["1311"], "MUNGWANI": ["1312"],
             "PANDIYA CHHAPARA": ["1323"], "SEONI (T)": ["1412"], "SEONI (RES)": ["1313"], "UGALI": ["1324"],
             "ADEGAON": ["1334"], "CHHAPARA-1": ["1140"], "CHHAPARA-2": ["1139"], "DHANORA": ["1125"], "DHUMA": ["1137"],
             "GANESHGANJ": ["1123"], "GHANSORE": ["1115"], "KEDARPUR": ["1111"], "LAKHNADON": ["1121"]
