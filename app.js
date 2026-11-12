@@ -4641,6 +4641,9 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         // (wo purani bill file ke against nahi hoti) par 10 tareekh ke ledger/master me LAST PAYMENT DATE + LAST PAYMENT AMOUNT ke saath aa jati hai.
         // Niyam: master me LAST PAYMENT DATE chalu mahine (1 se aaj) ki ho, LAST PAYMENT AMOUNT > 0 ho aur wo IVRS is mahine ki cash list me na ho
         // -> DC ke COLLECTION total (count + amount) me jodte hain (Power BI se mel). IVRS search/cash list ka status NGB cash list ke anusaar hi rehta hai.
+        function scInstNote_(n, a) {
+            return Number(n) > 0 ? ` · includes instant-bill payments: ${Number(n).toLocaleString("en-IN")} / ${(Number(a) / 100000).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} L` : "";
+        }
         function scParseLpAmount_(v) {
             if (typeof v === "number") return isFinite(v) ? v : 0;
             const t = String(v === null || v === undefined ? "" : v).replace(/,/g, "").trim();
@@ -4716,9 +4719,9 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 const scMemoSig_ = scMasterLpdSignature_();
                 if (rc.collMemo_ && rc.collMemo_.day === todayIso && rc.collMemo_.sig === scMemoSig_) return rc.collMemo_.val;
                 const per = scCollectionFromRecon_(rc, dcList, ym, todayIso);
-                let n = 0, a = 0, last = "";
-                Object.keys(per).forEach((k) => { n += per[k].n; a += per[k].a; if (per[k].last > last) last = per[k].last; });
-                const val = { n, a, last: last ? `${last.slice(6, 8)}-${last.slice(4, 6)}-${last.slice(0, 4)}` : "", dcCount: dcList.length };
+                let n = 0, a = 0, last = "", iN = 0, iA = 0;
+                Object.keys(per).forEach((k) => { n += per[k].n; a += per[k].a; iN += Number(per[k].instN) || 0; iA += Number(per[k].instA) || 0; if (per[k].last > last) last = per[k].last; });
+                const val = { n, a, instN: iN, instA: iA, last: last ? `${last.slice(6, 8)}-${last.slice(4, 6)}-${last.slice(0, 4)}` : "", dcCount: dcList.length };
                 rc.collMemo_ = { day: todayIso, val, sig: scMemoSig_ };
                 return val;
             } catch (_) { return null; }
@@ -7414,7 +7417,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                             <div style="flex:1; text-align:center; background:#ffffff; border-radius:10px; padding:7px 4px;"><div style="font-size:0.55rem; font-weight:900; color:#475569;">COUNT</div><div style="font-size:1.05rem; font-weight:950; color:#065f46;">${Number(ct_.n).toLocaleString("en-IN")}</div></div>
                             <div style="flex:1; text-align:center; background:#ffffff; border-radius:10px; padding:7px 4px;"><div style="font-size:0.55rem; font-weight:900; color:#475569;">AMOUNT</div><div style="font-size:1.05rem; font-weight:950; color:#065f46;">${formatProgressReportDisplayAmount(ct_.a)}</div></div>
                         </div>
-                        <div style="font-size:0.54rem; font-weight:800; color:#64748b; text-align:center; margin-top:6px;">Every cash list payment · from 1st to today${ct_.last ? " · till " + escapeHtml(ct_.last) : ""}</div>
+                        <div style="font-size:0.54rem; font-weight:800; color:#64748b; text-align:center; margin-top:6px;">Every cash list payment · from 1st to today${ct_.last ? " · till " + escapeHtml(ct_.last) : ""}${scInstNote_(ct_.instN, ct_.instA)}</div>
                     </div>`;
                 }
             } catch (_) { collCardHtml_ = ""; }
@@ -11114,7 +11117,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     const k = normalizeDcName(dc);
                     per[k] = { dc, key: k, div: scBriefDivOf_(dc), master: master[k] || "FAIL",
                         revAmt: 0, revCnt: 0, revMAmt: 0, revMCnt: 0, td: 0, tdAmt: 0, tdM: 0, tdMAmt: 0, mobile: 0, mobileM: 0,
-                        paidCnt: null, paidAmt: 0, lastPay: "", cashTs: 0,
+                        paidCnt: null, paidAmt: 0, instCnt: 0, instAmt: 0, lastPay: "", cashTs: 0,
                         omDCnt: 0, omDAmt: 0, omMCnt: 0, omMAmt: 0, omPendCnt: 0, omPendAmt: 0, omPartCnt: 0, pumpPaidCnt: 0, pumpPaidAmt: 0, pumpPendCnt: 0, pumpPendAmt: 0 };
                 });
                 if (revOk) {
@@ -11163,6 +11166,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     if (cl) {
                         per[k].paidCnt = cl.n;
                         per[k].paidAmt = cl.a;
+                        per[k].instCnt = Number(cl.instN) || 0; per[k].instAmt = Number(cl.instA) || 0; // UPDATE 176
                         per[k].lastPay = cl.last ? `${cl.last.slice(6, 8)}-${cl.last.slice(4, 6)}-${cl.last.slice(0, 4)}` : (p.lastPay || "");
                     } else {
                         per[k].paidCnt = pe ? (Number(pe.n) || 0) : (p.cnt === undefined ? null : p.cnt);
@@ -11198,7 +11202,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     p.red = red; p.orange = orange;
                 });
 
-                const F = ["revAmt", "revCnt", "revMAmt", "revMCnt", "td", "tdAmt", "tdM", "tdMAmt", "mobile", "mobileM", "paidAmt", "omDCnt", "omDAmt", "omMCnt", "omMAmt", "omPendCnt", "omPendAmt", "omPartCnt", "pumpPaidCnt", "pumpPaidAmt", "pumpPendCnt", "pumpPendAmt"];
+                const F = ["revAmt", "revCnt", "revMAmt", "revMCnt", "td", "tdAmt", "tdM", "tdMAmt", "mobile", "mobileM", "paidAmt", "instCnt", "instAmt", "omDCnt", "omDAmt", "omMCnt", "omMAmt", "omPendCnt", "omPendAmt", "omPartCnt", "pumpPaidCnt", "pumpPaidAmt", "pumpPendCnt", "pumpPendAmt"];
                 if (pumpData && pumpData.byDc) Object.keys(per).forEach((k) => { const b = pumpData.byDc[k]; if (b) { per[k].pumpPaidCnt = b.paidCnt; per[k].pumpPaidAmt = b.paidAmt; per[k].pumpPendCnt = b.pendCnt; per[k].pumpPendAmt = b.pendAmt; } });
                 const sum = (list) => {
                     const a = { paidCnt: 0, paidMissing: 0, lastPay: "" };
@@ -11330,7 +11334,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 ${box("💰", "Revenue (Paid by Staff)", "Paid entries made by staff through the app", [TODAY, MONTH], [["Consumers", nm(r.revOk, t.revCnt), nm(r.revOk, t.revMCnt)], ["Amount", rs(r.revOk, t.revAmt), rs(r.revOk, t.revMAmt)]], "#15803d")}
                 ${box("✂️", "Line TD (by Staff)", "TD entries made by staff through the app · Amount = arrears of TD consumers", [TODAY, MONTH], [["Consumers", nm(r.revOk, t.td), nm(r.revOk, t.tdM)], ["Arrears Amount", rs(r.revOk, t.tdAmt), rs(r.revOk, t.tdMAmt)]], "#b91c1c")}
                 ${box("📱", "Mobile Updated (by Staff)", "Mobile numbers corrected by staff", [TODAY, MONTH], [["Consumers", nm(r.mobOk, t.mobile), nm(r.mobMOk, t.mobileM)]], "#0284c7")}
-                ${box("✅", "Paid as per Cash List", `${r.collOk ? "Every payment in the cash list (1st to today)" : "Uploaded cash list"} · ${escapeHtml(r.monthLabel)}${t.lastPay ? " · till " + escapeHtml(t.lastPay) : ""}`, [MONTH], [["Count", `${nm(r.paidOk, t.paidCnt)}`], ["Amount", `${rs(r.paidOk, t.paidAmt)}`]], "#db2777",
+                ${box("✅", "Paid as per Cash List", `${r.collOk ? "Every payment in the cash list (1st to today)" : "Uploaded cash list"} · ${escapeHtml(r.monthLabel)}${t.lastPay ? " · till " + escapeHtml(t.lastPay) : ""}${scInstNote_(t.instCnt, t.instAmt)}`, [MONTH], [["Count", `${nm(r.paidOk, t.paidCnt)}`], ["Amount", `${rs(r.paidOk, t.paidAmt)}`]], "#db2777",
                     `<div style="margin-top:4px; padding:5px 7px; background:#f0fdf4; border-radius:8px; font-size:0.58rem; font-weight:800; color:#166534;">(Of this, manual entry by staff: ${nm(r.revOk, t.revMCnt)} consumers · ${rs(r.revOk, t.revMAmt)})</div>`)}
                 ${box("🛡️", "O&M / VIG", `Panchnama cases${r.omFreeze ? " · freeze " + escapeHtml(r.omFreeze) : ""}`, [`Paid ${r.omDate ? "(" + escapeHtml(r.omDate.slice(0, 5)) + ")" : "(Last day)"}`, `Paid (${escapeHtml(r.omMLabel || "This Month")})`], [["Consumers", nm(r.omOk, t.omDCnt), nm(r.omMOk, t.omMCnt)], ["Amount", rs(r.omOk, t.omDAmt), rs(r.omMOk, t.omMAmt)]], "#334155",
                     `<div style="margin-top:4px; padding:5px 7px; background:#f1f5f9; border-radius:8px; font-size:0.58rem; font-weight:800; color:#334155;">Of which part paid: ${nm(r.omMOk, t.omPartCnt)} · Pending (incl. part-paid balance): ${nm(r.omMOk, t.omPendCnt)} consumers · ${rs(r.omMOk, t.omPendAmt)}</div>${(r.omNew && (r.omNew.m.newCnt || r.omNew.d.newCnt)) ? `<div style="margin-top:4px; padding:5px 7px; background:#fff7ed; border:1px dashed #fb923c; border-radius:8px; font-size:0.58rem; font-weight:800; color:#9a3412;">🆕 New cases after Freeze (separate): Yesterday ${r.omNew.d.newCnt} · ₹ ${scBriefLakh_(r.omNew.d.newAmt)} | ${escapeHtml(r.omMLabel || "This Month")} ${r.omNew.m.newCnt} · ₹ ${scBriefLakh_(r.omNew.m.newAmt)}</div>` : ""}`)}
@@ -11435,7 +11439,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                     { label: "REVENUE (PAID BY STAFF)", src: "Staff app paid entries", cols: [TD_, MO_], rows: [["Consumers", NM(r.revOk, t.revCnt), NM(r.revOk, t.revMCnt)], ["Amount", RS(r.revOk, t.revAmt), RS(r.revOk, t.revMAmt)]], c: [21, 128, 61] },
                     { label: "LINE TD (BY STAFF)", src: "Amount = arrears of TD consumers", cols: [TD_, MO_], rows: [["Consumers", NM(r.revOk, t.td), NM(r.revOk, t.tdM)], ["Arrears", RS(r.revOk, t.tdAmt), RS(r.revOk, t.tdMAmt)]], c: [185, 28, 28] },
                     { label: "MOBILE UPDATED (BY STAFF)", src: "Corrected mobile numbers", cols: [TD_, MO_], rows: [["Consumers", NM(r.mobOk, t.mobile), NM(r.mobMOk, t.mobileM)]], c: [2, 132, 199] },
-                    { label: "PAID AS PER CASH LIST", src: `${r.collOk ? "Cash list payments (1st to today)" : "Uploaded cash list"}${t.lastPay ? " till " + t.lastPay : ""}`, cols: [MO_], rows: [["Count", NM(r.paidOk, t.paidCnt)], ["Amount", RS(r.paidOk, t.paidAmt)]], note: `(Staff entry: ${NM(r.revOk, t.revMCnt)} | ${RS(r.revOk, t.revMAmt)})`, c: [219, 39, 119] },
+                    { label: "PAID AS PER CASH LIST", src: `${r.collOk ? "Cash list payments (1st to today)" : "Uploaded cash list"}${t.lastPay ? " till " + t.lastPay : ""}${scInstNote_(t.instCnt, t.instAmt)}`, cols: [MO_], rows: [["Count", NM(r.paidOk, t.paidCnt)], ["Amount", RS(r.paidOk, t.paidAmt)]], note: `(Staff entry: ${NM(r.revOk, t.revMCnt)} | ${RS(r.revOk, t.revMAmt)})`, c: [219, 39, 119] },
                     { label: "O&M / VIG", src: r.omFreeze ? `Freeze ${r.omFreeze}` : "Panchnama cases", cols: [r.omDate ? `PAID ${r.omDate.slice(0, 5)}` : "PAID LAST DAY", (r.omMLabel || "This Month").toUpperCase()], rows: [["Consumers", NM(r.omOk, t.omDCnt), NM(r.omMOk, t.omMCnt)], ["Amount", RS(r.omOk, t.omDAmt), RS(r.omMOk, t.omMAmt)]], note: `Pending: ${NM(r.omMOk, t.omPendCnt)} | ${RS(r.omMOk, t.omPendAmt)}`, note2: `Of which part paid: ${NM(r.omMOk, t.omPartCnt)}`, note2old_: (r.omNew && (r.omNew.m.newCnt || r.omNew.d.newCnt)) ? `New cases (separate): Yesterday ${r.omNew.d.newCnt} | ${scBriefLakh_(r.omNew.d.newAmt)} · ${r.omMLabel || "Month"} ${r.omNew.m.newCnt} | ${scBriefLakh_(r.omNew.m.newAmt)}` : "", c: [51, 65, 85] },
                     { label: "ARREARS PUMP CONSUMERS", src: "LV5 pump arrears - this month's payments", cols: [MO_], rows: [["Total", NM(!!r.pump, r.pump && r.pump.total)], ["Paid", `${NM(!!r.pump, r.pump && r.pump.monthPaidCnt)} | ${RS(!!r.pump, r.pump && r.pump.paidAmt)}`]], note: `Of which part paid: ${NM(!!r.pump, r.pump && r.pump.partCnt)}`, note2: `Pending: ${NM(!!r.pump, r.pump && r.pump.pendCnt)} | ${RS(!!r.pump, r.pump && r.pump.pendAmt)}`, c: [124, 58, 237] }
                 ];
