@@ -3104,6 +3104,15 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                         const txt = res.ok ? await res.text() : "";
                         if (!txt || /^\s*</.test(txt) || !/DC\s*NAME/i.test(txt.slice(0, 40))) return;
                         const parsed = scDivMasterParseMeta_(txt, division);
+                        // UPDATE 177 (2026-11-13, USER REQUEST): META purana ho (tab khali kar di par META me ROWS/UPLOADED bacha ho) to bhi,
+                        // jis DC ki tab me sirf header hai usko "0 rows" maano - taaki Revenue side (Daily Brief/reports) me wo DC na dikhe.
+                        await Promise.all(Object.keys(parsed).filter((k) => parsed[k].state === "UPLOADED" && parsed[k].gid).map(async (k) => {
+                            try {
+                                const rr = await fetchWithTimeout(`https://docs.google.com/spreadsheets/d/${SC_DIVMASTER_SHEETS_[division]}/export?format=csv&gid=${parsed[k].gid}&range=A1:B3&t=${Date.now()}`, { cache: "no-store" }, 12000);
+                                const tt = rr.ok ? await rr.text() : "";
+                                if (tt && isHeaderOnlyMasterCsvText_(tt)) parsed[k].rows = 0;
+                            } catch (_) {}
+                        }));
                         Object.keys(meta).forEach((k) => { if (meta[k].division === division) delete meta[k]; });
                         Object.assign(meta, parsed);
                         any = true;
