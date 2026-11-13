@@ -3155,8 +3155,10 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             const m = scDivMasterMeta_[normalizeDcName(dcName)];
             return !!(m && (m.state !== "UPLOADED" || !(m.rows > 0)));
         }
-        function scRevVisDivDcs_(divisionName) { return getDivisionDcNames(divisionName).filter((dc) => !scDcHiddenNoMaster_(dc)); }
-        function scRevVisAllDcs_() { return getAllDcNames().filter((dc) => !scDcHiddenNoMaster_(dc)); }
+        // UPDATE 178 (2026-11-13, USER REQUEST): no-master DC ab LIST me DIKHTA hai (naam rehta hai) par uska data ZERO dikhta hai
+        // (cash list ke AG/purane aankde bhi 0 - scCollectionFromRecon_ aur Daily Brief me scDcHiddenNoMaster_ se zero kiya jata hai).
+        function scRevVisDivDcs_(divisionName) { return getDivisionDcNames(divisionName); }
+        function scRevVisAllDcs_() { return getAllDcNames(); }
         let scDivMasterEnsureAt_ = 0;
         async function scDivMasterEnsureMeta_(dcName) {
             try {
@@ -4705,6 +4707,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             });
             // UPDATE 176: instant bill paid (master LAST PAYMENT DATE/AMOUNT) - cash list me jo IVRS is mahine nahi aaye
             Object.keys(out).forEach((dcK) => {
+                if (scDcHiddenNoMaster_(dcK)) { out[dcK] = { n: 0, a: 0, last: "" }; return; } // UPDATE 178: master nahi => data zero
                 try {
                     const ins = scInstantPaidForDc_(dcK, monthKey, todayKey, cashIvrsByDc[dcK]);
                     if (ins.n > 0) {
@@ -11183,6 +11186,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                         per[k].lastPay = p.lastPay || "";
                     }
                     per[k].cashTs = p.ts || 0;
+                    if (scDcHiddenNoMaster_(k)) { per[k].paidCnt = 0; per[k].paidAmt = 0; per[k].instCnt = 0; per[k].instAmt = 0; per[k].lastPay = ""; } // UPDATE 178: master nahi => zero
                 });
 
                 // Peechhe chal rahe DC ka niyam (user ne 28/09 ko manzoor kiya)
