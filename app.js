@@ -6195,15 +6195,86 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         ];
         function scFzCategoryDropdownHtml_() {
             const cur = SC_FZ_CATS_.find((c) => c[0] === progressFreezeCategory);
-            const items = SC_FZ_CATS_.map((c) => {
+            // UPDATE 180 (2026-11-17, USER REQUEST): report types 3 group me - Non Payee / Top Defaulters / Arrears.
+            // Group par click karne par hi uske sub option dikhte hain (ek time par ek group khula).
+            const scFzRow_ = (c, indent) => {
                 const on = c[0] === progressFreezeCategory;
                 const box = `<span class="sc-fz-tick" style="display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto; width:14px; height:14px; border:2px solid ${c[2]}; border-radius:4px; box-sizing:border-box; margin-right:9px; font-size:0.62rem; line-height:1; color:#ffffff; background:${on ? c[2] : "#ffffff"};">${on ? "&#10003;" : ""}</span>`;
-                return `<div onclick="scFzCatPick_('${c[0]}', this)" style="display:flex; align-items:center; padding:9px 12px; font-size:0.74rem; font-weight:900; color:${c[2]}; background:${c[3]}; border-bottom:1px solid #e2e8f0; cursor:pointer;">${box}<span>${escapeHtml(c[1])}</span></div>`;
+                return `<div onclick="scFzCatPick_('${c[0]}', this)" style="display:flex; align-items:center; padding:9px 12px 9px ${indent}px; font-size:0.74rem; font-weight:900; color:${c[2]}; background:${c[3]}; border-bottom:1px solid #e2e8f0; cursor:pointer;">${box}<span>${escapeHtml(c[1])}</span></div>`;
+            };
+            const scFzGroups_ = [
+                ["NP", "Non Payee", ["NP3", "NP6", "SINCE_CONNECTION", "NP5Y"], "#1d4ed8", "#dbeafe"],
+                ["TOP", "Top Defaulters", ["TOP20", "TOP50"], "#c2410c", "#ffedd5"],
+                ["ARR", "Arrears", ["ARREARS_1L", "ARREARS_PUMP", "ARREARS_SLAB", "CATEGORY_WISE"], "#0f172a", "#cbd5e1"]
+            ];
+            const items = scFzGroups_.map((g) => {
+                const hasCur = g[2].indexOf(progressFreezeCategory) >= 0;
+                const rows = g[2].map((k) => SC_FZ_CATS_.find((c) => c[0] === k)).filter(Boolean).map((c) => scFzRow_(c, 28)).join("");
+                return `<div onclick="scFzGrpToggle_(event, '${g[0]}')" style="display:flex; align-items:center; justify-content:space-between; padding:10px 12px; font-size:0.76rem; font-weight:950; color:${g[3]}; background:${g[4]}; border-bottom:1px solid #cbd5e1; cursor:pointer;"><span>${escapeHtml(g[1])}${hasCur ? " &#9679;" : ""}</span><span id="sc-fz-grp-arr-${g[0]}" style="font-size:0.7rem;">&#9662;</span></div><div id="sc-fz-grp-${g[0]}" style="display:none;">${rows}</div>`;
             }).join("");
             return `<div id="sc-fz-cat-dd" style="position:relative; margin:5px auto 0;">
                 <button type="button" onclick="scFzCatToggle_(event)" style="width:100%; height:38px; display:flex; align-items:center; justify-content:space-between; border:2px solid #0e7490; border-radius:12px; padding:0 12px; font-size:0.74rem; font-weight:900; color:#ffffff; background:#0891b2; box-shadow:0 2px 6px rgba(8,145,178,0.35);"><span>${escapeHtml(cur ? cur[1] : "Choose Report Type")}</span><span style="font-size:0.7rem;">&#9662;</span></button>
-                <div id="sc-fz-cat-list" style="display:none; position:absolute; left:0; right:0; top:42px; z-index:60; background:#ffffff; border:1.5px solid #0e7490; border-radius:12px; overflow:hidden; box-shadow:0 8px 20px rgba(15,23,42,0.25);">${items}</div>
+                <div id="sc-fz-cat-list" style="display:none; position:absolute; left:0; right:0; top:42px; z-index:60; background:#ffffff; border:1.5px solid #0e7490; border-radius:12px; overflow:hidden; box-shadow:0 8px 20px rgba(15,23,42,0.25);"><div onclick="scFzPendingPick_()" style="display:flex; align-items:center; justify-content:space-between; padding:10px 12px; font-size:0.76rem; font-weight:950; color:#0f766e; background:#ccfbf1; border-bottom:1px solid #99f6e4; cursor:pointer;"><span>Pending DO List</span><span style="font-size:0.7rem;">&#8250;</span></div>${items}</div>
             </div>`;
+        }
+        function scFzGrpToggle_(ev, key) {
+            if (ev && ev.stopPropagation) ev.stopPropagation();
+            ["NP", "TOP", "ARR"].forEach((k) => {
+                const box = document.getElementById("sc-fz-grp-" + k);
+                const arr = document.getElementById("sc-fz-grp-arr-" + k);
+                if (!box) return;
+                const open = k === key && box.style.display === "none";
+                box.style.display = open ? "block" : "none";
+                if (arr) arr.innerHTML = open ? "&#9652;" : "&#9662;";
+            });
+        }
+        // UPDATE 181 (2026-11-17, USER REQUEST): Freeze report ke dropdown me sabse pehle "Pending DO List" (DC Revenue 3-dots wali wahi screen).
+        // DC level: seedha wahi screen. Division level: upar DC filter. Circle level: Division + DC filter. Back dabane par report par wapas.
+        var scPendFromRpt_ = null;
+        function scFzPendingPick_() {
+            const l = document.getElementById("sc-fz-cat-list");
+            if (l) l.style.display = "none";
+            scFzOpenPendingDo_();
+        }
+        function scFzOpenPendingDo_() {
+            if (activeViewLevel === "DC" && !activeDC) return showToast("Please select a DC first", false);
+            scPendFromRpt_ = { level: activeViewLevel, div: activeDiv, dc: activeDC, module: summaryModule || "FREEZE", pickDiv: "" };
+            revenueMessageSelectionMode = false;
+            if (scPendFromRpt_.level !== "DC") activeDC = "";
+            activeViewLevel = "DC";
+            switchView("revenue-pending-list");
+        }
+        function scPendRptBuildFilters_() {
+            const anchor = document.getElementById("revenue-pending-dc-name");
+            if (!anchor || !anchor.parentNode) return;
+            let box = document.getElementById("revenue-pending-rpt-filters");
+            const sv = scPendFromRpt_;
+            if (!sv || sv.level === "DC") { if (box) box.remove(); return; }
+            if (!box) {
+                box = document.createElement("div");
+                box.id = "revenue-pending-rpt-filters";
+                anchor.parentNode.insertBefore(box, anchor.nextSibling);
+            }
+            const st = "width:100%; max-width:360px; height:38px; margin:6px auto 0; display:block; border:1.5px solid #fb923c; border-radius:15px; padding:0 14px; font-size:0.74rem; font-weight:900; color:#0f172a; background:#ffffff;";
+            const div = sv.level === "CIRCLE" ? (sv.pickDiv || "") : (sv.div || "");
+            let html = "";
+            if (sv.level === "CIRCLE") {
+                html += `<select onchange="scPendRptPickDivision_(this.value)" style="${st}"><option value="">Select Division</option>${Object.keys(divisionConfigs).map((dv) => `<option value="${escapeHtml(dv)}" ${sv.pickDiv === dv ? "selected" : ""}>${escapeHtml(dv)}</option>`).join("")}</select>`;
+            }
+            const dcs = div ? scRevVisDivDcs_(div) : [];
+            html += `<select onchange="scPendRptPickDc_(this.value)" style="${st}"><option value="">Select DC</option>${dcs.map((d) => `<option value="${escapeHtml(d)}" ${activeDC && normalizeDcName(activeDC) === normalizeDcName(d) ? "selected" : ""}>${escapeHtml(normalizeDcName(d))}</option>`).join("")}</select>`;
+            box.innerHTML = html;
+        }
+        function scPendRptPickDivision_(v) {
+            if (!scPendFromRpt_) return;
+            scPendFromRpt_.pickDiv = v || "";
+            activeDC = "";
+            initRevenuePendingList();
+        }
+        function scPendRptPickDc_(v) {
+            if (!scPendFromRpt_) return;
+            activeDC = v || "";
+            initRevenuePendingList();
         }
         function scFzCatToggle_(ev) {
             if (ev && ev.stopPropagation) ev.stopPropagation();
@@ -22761,6 +22832,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
 
         function openRevenuePendingList() {
             closeHeaderMenu();
+            scPendFromRpt_ = null;
             switchView("revenue-pending-list");
         }
 
@@ -22775,6 +22847,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
         }
 
         function openRevenueTopDefaulters() {
+            scPendFromRpt_ = null;
             closeHeaderMenu();
             switchView("revenue-top-defaulters");
         }
@@ -23552,6 +23625,13 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             const listBox = document.getElementById("revenue-pending-list-box");
             const hqSelect = document.getElementById("revenue-pending-hq");
             const refreshToken = ++revenuePendingPaidRefreshToken;
+            scPendRptBuildFilters_(); // UPDATE 181: Freeze report se aane par Division/DC filter
+            if (scPendFromRpt_ && !activeDC) {
+                revenuePendingBaseRows = [];
+                if (listBox) listBox.innerHTML = "";
+                if (statusBox) { statusBox.style.display = "block"; statusBox.innerHTML = scPendFromRpt_.level === "CIRCLE" && !scPendFromRpt_.pickDiv ? "Please select Division and DC to view the Pending DO List." : "Please select a DC to view the Pending DO List."; }
+                return;
+            }
             // Baaki reports (Live Progress, HQ/Village, Cash Reconcile) jaisa hi animated
             // syncing bar - pehle yahan sirf static "load ho rahi hai..." text tha.
             const isPendingRenderValid = () => refreshToken === revenuePendingPaidRefreshToken && document.getElementById("revenue-pending-list-view")?.classList.contains("active");
@@ -33744,7 +33824,15 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
             const activeNode = document.querySelector(".view.active");
             if (!activeNode) return;
             const act = activeNode.id;
-            if (act === "dc-selection-view") {
+            if (scPendFromRpt_ && act === "revenue-pending-list-view") { // UPDATE 181: Freeze report se aaye the -> wahin wapas
+                const sv_ = scPendFromRpt_;
+                scPendFromRpt_ = null;
+                activeViewLevel = sv_.level; activeDiv = sv_.div; activeDC = sv_.dc;
+                const f_ = document.getElementById("revenue-pending-rpt-filters");
+                if (f_) f_.remove();
+                switchView("summary");
+                setProgressModule(sv_.module || "FREEZE");
+            } else if (act === "dc-selection-view") {
                 activeDC = "";
                 document.getElementById("selected-dc-label").innerText = "Choose DC Name...";
                 switchView("home");
