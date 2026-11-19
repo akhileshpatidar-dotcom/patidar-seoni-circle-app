@@ -33184,7 +33184,7 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 return `<div style="border-top:1px solid #e2e8f0; margin-top:9px; padding-top:9px; ${isNew ? "background:#eff6ff; border-radius:10px; padding:9px; margin-top:7px;" : ""}">
                     <div style="display:flex; justify-content:space-between; gap:8px; align-items:flex-start;"><div style="font-size:0.78rem; font-weight:950; color:#0f172a; word-break:break-word;">${isNew ? "🔴 " : ""}${escapeHtml(n.title)}</div><span style="flex:0 0 auto; font-size:0.56rem; font-weight:900; color:#1d4ed8; background:#dbeafe; border-radius:6px; padding:2px 6px;">${escapeHtml(tag)}</span></div>
                     <div style="font-size:0.74rem; font-weight:700; color:#334155; margin-top:3px; line-height:1.45; white-space:pre-wrap; word-break:break-word;">${escapeHtml(n.body)}</div>
-                    <div style="font-size:0.6rem; font-weight:800; color:#94a3b8; margin-top:3px;">${escapeHtml(n.created || "")}</div></div>`;
+                    <div style="font-size:0.6rem; font-weight:800; color:#94a3b8; margin-top:3px;">${escapeHtml(n.created || "")}</div>${s.adminOpen ? `<div style="text-align:right; margin-top:5px;"><button type="button" ${s.busy ? "disabled" : ""} onclick="notifyAdminDelete_('${escapeHtml(String(n.id))}')" style="border:1.5px solid #fca5a5; background:#fef2f2; color:#991b1b; border-radius:9px; padding:4px 10px; font-size:0.62rem; font-weight:900;">🗑 Remove</button></div>` : ""}</div>`;
             }).join("");
             h += `</div>`;
 
@@ -33283,6 +33283,29 @@ const MASTER_SECURE_API_URL = "https://script.google.com/macros/s/AKfycbzaimPwzU
                 notifyCheckNew_(true).then(() => { const mx = (s.notices || []).reduce((m, n) => Math.max(m, Number(n.id) || 0), 0); if (mx) notifySetLs_({ seenId: mx }); if (document.getElementById("notify-body")) renderNotify_(); }).catch(() => {});
             } catch (e) {
                 s.adminMsg = notifyErrText_(e); s.adminOk = false;
+            }
+            s.busy = false;
+            renderNotify_();
+        }
+        async function notifyAdminDelete_(id) {
+            const s = notifyState_;
+            if (s.busy) return;
+            notifyAdminSync_();
+            const pw = (document.getElementById("notify-admin-pw") || {}).value || "";
+            if (!pw) { s.adminMsg = "Enter the admin password in the Admin box below, then tap Remove."; s.adminOk = false; showToast("Enter the admin password in the Admin box first", false); renderNotify_(); return; }
+            const n = (s.notices || []).find((x) => String(x.id) === String(id));
+            if (!window.confirm("Remove this notice for everybody?\n\n" + (n ? n.title : "") + "\n\n(An alert already delivered to phones cannot be taken back; the notice will disappear from the Notices list and popup.)")) return;
+            s.busy = true; s.adminMsg = ""; renderNotify_();
+            try {
+                await notifyPost_({ action: "deleteNotice", password: pw, id: String(id) }, 30000);
+                s.adminMsg = "Notice removed."; s.adminOk = true;
+                showToast("Notice removed", true);
+                s.notices = (s.notices || []).filter((x) => String(x.id) !== String(id));
+                notifyLastCheck_ = 0;
+                notifyCheckNew_(true).then(() => { if (document.getElementById("notify-body")) renderNotify_(); }).catch(() => {});
+            } catch (e) {
+                s.adminMsg = notifyErrText_(e); s.adminOk = false;
+                showToast(s.adminMsg, false);
             }
             s.busy = false;
             renderNotify_();
